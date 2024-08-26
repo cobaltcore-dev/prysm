@@ -31,7 +31,7 @@ Key Responsibilities:
   -	Perform advanced analytics and usage reporting.
   -	Ensure regulatory compliance through log and metrics analysis.
 
-[Monitoring Quota Usage](pkg/consumers/quotausageconsumer/README.md)  
+[Monitoring Quota Usage](pkg/consumer/quotausageconsumer/README.md)  
 
 ### NATS
 
