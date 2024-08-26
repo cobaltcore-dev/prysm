@@ -26,7 +26,7 @@ var remoteProducerCmd = &cobra.Command{
 
 func init() {
 	remoteProducerCmd.AddCommand(bucketNotifyCmd)
-	remoteProducerCmd.AddCommand(metricsCmd)
+	// remoteProducerCmd.AddCommand(metricsCmd)
 	remoteProducerCmd.AddCommand(quotaUsageMonitorCmd)
 	remoteProducerCmd.AddCommand(radosGWUsageCmd)
 }
