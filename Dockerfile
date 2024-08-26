@@ -37,4 +37,4 @@ COPY --from=builder /out/prysm /bin/prysm
 
 WORKDIR /bin
 # USER 1001
-CMD ["prysm"]
+ENTRYPOINT ["/bin/prysm"]
