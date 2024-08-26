@@ -55,6 +55,8 @@ Key Responsibilities:
 
 [RGW Bucket Notifications](pkg/producers/bucketnotify/README.md)  
 [Quota Usage Monitor](pkg/producers/quotausagemonitor/README.md)  
+[RadosGW Usage Exporter](pkg/producers/radosgwusage/README.md)  
+
 
 ### Nearby Producers
 
