@@ -33,6 +33,8 @@ RUN apk add --no-cache smartmontools
 
 # copy app bianry
 COPY --from=builder /out/prysm /bin/prysm
+RUN chown 1001:1001 /bin/prysm
+
 WORKDIR /bin
 USER 1001
 CMD ["prysm"]
