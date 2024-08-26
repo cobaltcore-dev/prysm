@@ -1,0 +1,32 @@
+global:
+  nats_url: "nats://nats-jetstream.s3bench:4222"
+  admin_url: "http://your-radosgw-admin-url"
+  access_key: "your-access-key"
+  secret_key: "your-secret-key"
+  node_name: "your-node-name"
+  instance_id: "your-instance-id"
+
+producers:
+  - type: "bucket_notify"
+    settings:
+      nats_subject: "rgw.buckets.notify"
+      endpoint_port: 8081
+      use_nats: true
+
+  - type: "disk_health_metrics"
+    settings:
+      nats_subject: "osd.disk.health"
+      all_attributes: true
+      include_zero_values: false
+      disks: ["/dev/sda", "/dev/sdb"]
+
+  - type: "kernel_metrics"
+    settings:
+      nats_subject: "osd.kernel.metrics"
+      interval: 10
+      include_network_stats: true
+
+  - type: "resource_usage"
+    settings:
+      nats_subject: "osd.resource.usage"
+      interval: 10
