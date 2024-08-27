@@ -21,10 +21,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog/log"
 )
 
-func rotateLogFile(cfg OpsLogConfig) error {
+func rotateLogFile(cfg OpsLogConfig, watcher *fsnotify.Watcher) error {
 	// Ensure log directory exists
 	logDir := filepath.Dir(cfg.LogFilePath)
 	if _, err := os.Stat(logDir); os.IsNotExist(err) {
@@ -46,6 +47,12 @@ func rotateLogFile(cfg OpsLogConfig) error {
 		return fmt.Errorf("error rotating log file: %w", err)
 	}
 
+	// Remove the old file from the watcher
+	err = watcher.Remove(cfg.LogFilePath)
+	if err != nil {
+		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error removing old file from watcher")
+	}
+
 	// Create a new log file
 	newFile, err := os.Create(cfg.LogFilePath)
 	if err != nil {
@@ -59,6 +66,13 @@ func rotateLogFile(cfg OpsLogConfig) error {
 		return fmt.Errorf("error creating new log file: %w", err)
 	}
 	newFile.Close()
+
+	// Add the new file to the watcher
+	err = watcher.Add(cfg.LogFilePath)
+	if err != nil {
+		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error adding new file to watcher")
+		return fmt.Errorf("error adding new file to watcher: %w", err)
+	}
 
 	log.Info().Str("rotatedLogPath", rotatedLogPath).Msg("Rotated log file")
 

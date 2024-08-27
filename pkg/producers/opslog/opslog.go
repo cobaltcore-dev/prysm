@@ -89,7 +89,7 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 				}
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					log.Info().Str("file", event.Name).Msg("File modified")
-					processLogEntries(cfg, nc)
+					processLogEntries(cfg, nc, watcher, metrics)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -113,7 +113,7 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 	for range ticker.C {
 		// Send the aggregated metrics to NATS and reset
 		if cfg.UseNats {
-			err := PublishToNATS(nc, metrics, cfg.NatsSubject) //FIXME it should be different subject for metrics
+			err := PublishToNATS(nc, metrics, cfg.NatsMetricsSubject)
 			if err != nil {
 				log.Error().Err(err).Msg("Error sending metrics to NATS")
 			} else {
@@ -129,7 +129,7 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 	select {}
 }
 
-func processLogEntries(cfg OpsLogConfig, nc *nats.Conn) {
+func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watcher, metrics *Metrics) {
 	file, err := os.Open(cfg.LogFilePath)
 	if err != nil {
 		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error opening log file")
@@ -146,6 +146,9 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn) {
 			continue
 		}
 
+		// Update metrics with the log entry
+		metrics.Update(logEntry)
+
 		// Optionally print the log entry to stdout based on configuration
 		if cfg.LogToStdout {
 			logEntryBytes, err := json.MarshalIndent(logEntry, "", "  ")
@@ -156,7 +159,6 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn) {
 			fmt.Println(string(logEntryBytes)) // Print log entry to stdout
 		}
 
-		//TODO add send metrics to different nats stream
 		if cfg.UseNats {
 			// Skip anonymous entries if necessary
 			if logEntry.User != "anonymous" {
@@ -191,12 +193,37 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn) {
 	// 	log.Info().Str("file", cfg.LogFilePath).Msg("Log file truncated successfully")
 	// }
 
-	// Rotate the log file after processing instead of truncating it
-	err = rotateLogFile(cfg)
+	// Check if the log file should be rotated
+	rotateLogIfNeeded(cfg, watcher)
+}
+
+func rotateLogIfNeeded(cfg OpsLogConfig, watcher *fsnotify.Watcher) {
+	fileInfo, err := os.Stat(cfg.LogFilePath)
 	if err != nil {
-		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error rotating log file")
-	} else {
-		log.Info().Str("file", cfg.LogFilePath).Msg("Log file rotated successfully")
+		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error getting log file info")
+		return
+	}
+
+	// Check if the log file should be rotated based on size
+	if fileInfo.Size() >= cfg.MaxLogFileSize*1024*1024 {
+		err = rotateLogFile(cfg, watcher)
+		if err != nil {
+			log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error rotating log file")
+		} else {
+			log.Info().Str("file", cfg.LogFilePath).Msg("Log file rotated due to size")
+		}
+		return
+	}
+
+	// Check if the log file should be rotated based on time
+	logFileAgeHours := time.Since(fileInfo.ModTime()).Hours()
+	if logFileAgeHours >= float64(cfg.LogRetentionDays*24) {
+		err = rotateLogFile(cfg, watcher)
+		if err != nil {
+			log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error rotating log file")
+		} else {
+			log.Info().Str("file", cfg.LogFilePath).Msg("Log file rotated due to age")
+		}
 	}
 }
 
