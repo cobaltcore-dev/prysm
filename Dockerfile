@@ -28,6 +28,7 @@ RUN CGO_ENABLED=1 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GO111MODULE=on \
 
 
 FROM alpine
+LABEL source_repository="https://github.com/cobaltcore-dev/prysm"
 # Install smartctl
 RUN apk add --no-cache smartmontools
 
