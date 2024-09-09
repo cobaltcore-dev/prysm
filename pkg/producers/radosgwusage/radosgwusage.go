@@ -409,22 +409,13 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 
 // processUserData processes user data and updates the corresponding entries with user-specific information.
 func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admin.User, co *admin.API) error {
-	for _, user := range users {
-		// Fetch detailed user info with statistics using the GenerateStat flag
-		userInfo, err := co.GetUser(context.Background(), admin.User{ID: user.ID, GenerateStat: BoolPtr(true)})
-		if err != nil {
-			log.Error().
-				Str("user_id", user.ID).
-				Err(err).
-				Msg("error getting user info")
-			continue // Skip to the next iteration if an error occurs
-		}
+	for _, userInfo := range users {
 
 		// Find the corresponding entry for the user, or create a new one if not found
-		entry := findOrCreateEntry(entries, user.ID)
+		entry := findOrCreateEntry(entries, userInfo.ID)
 
 		// Populate user-specific data into the entry
-		entry.User = user.ID
+		entry.User = userInfo.ID
 		entry.DisplayName = userInfo.DisplayName
 		entry.Email = userInfo.Email
 		entry.DefaultStorageClass = userInfo.DefaultStorageClass
