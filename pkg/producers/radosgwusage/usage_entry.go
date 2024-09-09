@@ -1,17 +1,16 @@
-// Copyright (c) 2024 Clyso GmbH
+// Copyright 2024 Clyso GmbH
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
+//	https://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package radosgwusage
 
@@ -19,14 +18,15 @@ import "github.com/ceph/go-ceph/rgw/admin"
 
 // UsageEntry represents a user's usage data and associated buckets.
 type UsageEntry struct {
+	ClusterID            string          `json:"rgw_custer_id"`          // The RGW cluster ID backend used for the bucket.
 	User                 string          `json:"user"`                   // The ID of the user.
 	DisplayName          string          `json:"display_name"`           // The display name of the user.
 	Email                string          `json:"email"`                  // The email address of the user.
 	DefaultStorageClass  string          `json:"default_storage_class"`  // The default storage class for the user.
 	UserQuota            admin.QuotaSpec `json:"user_quota"`             // The quota specifications for the user.
+	BucketQuota          admin.QuotaSpec `json:"bucket_quota"`           // The quota specifications for the user.
 	Stats                admin.UserStat  `json:"stats"`                  // Statistical information about the user's usage.
 	Buckets              []BucketUsage   `json:"buckets"`                // A list of buckets associated with the user.
-	Store                string          `json:"store"`                  // The storage backend used.
 	TotalBuckets         int             `json:"total_buckets"`          // The total number of buckets for the user.
 	TotalObjects         uint64          `json:"total_objects"`          // The total number of objects for the user.
 	TotalDataSize        uint64          `json:"total_data_size"`        // The total size of data for the user (in bytes).
@@ -44,7 +44,6 @@ type BucketUsage struct {
 	Bucket               string          `json:"bucket"`                 // The name of the bucket.
 	Owner                string          `json:"owner"`                  // The owner of the bucket.
 	Zonegroup            string          `json:"zonegroup"`              // The zonegroup in which the bucket is located.
-	Store                string          `json:"store"`                  // The storage backend used for the bucket.
 	Usage                UsageStats      `json:"usage"`                  // The usage statistics of the bucket.
 	BucketQuota          admin.QuotaSpec `json:"bucket_quota"`           // The quota specifications for the bucket.
 	NumShards            uint64          `json:"num_shards"`             // The number of shards in the bucket.

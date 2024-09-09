@@ -1,17 +1,16 @@
-// Copyright (c) 2024 Clyso GmbH
+// Copyright 2024 Clyso GmbH
 //
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
+//	https://www.apache.org/licenses/LICENSE-2.0
 //
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package commands
 
@@ -36,7 +35,7 @@ var (
 	rgwuNodeName       string
 	rgwuInstanceID     string
 	rgwuInterval       int
-	rgwuStore          string
+	rgwuClusterID      string
 )
 
 var radosGWUsageCmd = &cobra.Command{
@@ -55,7 +54,7 @@ var radosGWUsageCmd = &cobra.Command{
 			NodeName:       rgwuNodeName,
 			InstanceID:     rgwuInstanceID,
 			Interval:       rgwuInterval,
-			Store:          rgwuStore,
+			ClusterID:      rgwuClusterID,
 		}
 
 		config = mergeRadosGWUsageConfigWithEnv(config)
@@ -76,7 +75,7 @@ var radosGWUsageCmd = &cobra.Command{
 		event.Str("node_name", config.NodeName)
 		event.Str("instance_id", config.InstanceID)
 		event.Int("interval_seconds", config.Interval)
-		event.Str("store", config.Store)
+		event.Str("cluster_id", config.ClusterID)
 
 		// Finalize the log message with the main message
 		event.Msg("configuration_loaded")
@@ -98,7 +97,7 @@ func mergeRadosGWUsageConfigWithEnv(cfg radosgwusage.RadosGWUsageConfig) radosgw
 	cfg.Prometheus = getEnvBool("PROMETHEUS_ENABLED", cfg.Prometheus)
 	cfg.PrometheusPort = getEnvInt("PROMETHEUS_PORT", cfg.PrometheusPort)
 	cfg.Interval = getEnvInt("INTERVAL", cfg.Interval)
-	cfg.Store = getEnv("STORE", cfg.Store)
+	cfg.ClusterID = getEnv("RGW_CLUSTER_ID", cfg.ClusterID)
 
 	return cfg
 }
@@ -109,7 +108,9 @@ func init() {
 	radosGWUsageCmd.Flags().StringVar(&rgwuSecretKey, "secret-key", "", "Secret key for the RadosGW admin")
 	radosGWUsageCmd.Flags().StringVar(&rgwuNatsURL, "nats-url", "", "NATS server URL")
 	radosGWUsageCmd.Flags().StringVar(&rgwuNatsSubject, "nats-subject", "rgw.usage", "NATS subject to publish usage")
-	radosGWUsageCmd.Flags().StringVar(&rgwuStore, "store", "us-east-1", "Store name added to metrics")
+	radosGWUsageCmd.Flags().StringVar(&rgwuClusterID, "rgw-cluster-id", "", "RGW Cluster ID added to metrics")
+	radosGWUsageCmd.Flags().StringVar(&rgwuNodeName, "node-name", "", "Name of the node")
+	radosGWUsageCmd.Flags().StringVar(&rgwuInstanceID, "instance-id", "", "Instance ID")
 	radosGWUsageCmd.Flags().BoolVar(&rgwuPrometheus, "prometheus", false, "Enable Prometheus metrics")
 	radosGWUsageCmd.Flags().IntVar(&rgwuPrometheusPort, "prometheus-port", 8080, "Prometheus metrics port")
 	radosGWUsageCmd.Flags().IntVar(&rgwuInterval, "interval", 10, "Interval in seconds between usage collections")
@@ -132,6 +133,11 @@ func validateRadosGWUsageConfig(config radosgwusage.RadosGWUsageConfig) {
 	}
 	if config.Interval <= 0 {
 		fmt.Println("Warning: --interval or INTERVAL must be a positive duration")
+		missingParams = true
+	}
+
+	if config.ClusterID == "" {
+		fmt.Println("Warning: --rgw-cluster-id or RGW_CLUSTER_ID must be set")
 		missingParams = true
 	}
 

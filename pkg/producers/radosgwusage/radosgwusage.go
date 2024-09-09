@@ -11,6 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
 package radosgwusage
 
 import (
@@ -18,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -25,6 +27,8 @@ import (
 	"github.com/ceph/go-ceph/rgw/admin"
 	"github.com/nats-io/nats.go"
 )
+
+var outputToFile = false // debug only
 
 // collectUsageMetrics collects usage metrics from the RadosGW and processes them.
 // It retrieves usage statistics, bucket data, and user data, and then processes
@@ -76,6 +80,10 @@ func collectUsageMetrics(cfg RadosGWUsageConfig) ([]UsageEntry, error) {
 					Str("bucket_name", bucketName).
 					Err(err).
 					Msg("error fetching info for bucket")
+				if outputToFile {
+					logErrorToFile(err, bucketName) // Log error to file if the flag is set
+				}
+
 				errCh <- err
 				return
 			}
@@ -116,6 +124,10 @@ func collectUsageMetrics(cfg RadosGWUsageConfig) ([]UsageEntry, error) {
 
 	for _, userName := range *userIDs {
 		go func(userName string) {
+			log.Trace().
+				Str("user", userName).
+				Msg("starting GetUser for user")
+
 			userInfo, err := co.GetUser(context.Background(), admin.User{ID: userName})
 			if err != nil {
 				log.Error().
@@ -125,6 +137,11 @@ func collectUsageMetrics(cfg RadosGWUsageConfig) ([]UsageEntry, error) {
 				errCh <- err
 				return
 			}
+
+			log.Trace().
+				Str("user", userName).
+				Msg("successfully fetched user info")
+
 			userDataCh <- userInfo
 		}(userName)
 	}
@@ -335,13 +352,13 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 
 		// Find or create the UsageEntry for the bucket owner
 		entry := findOrCreateEntry(entries, bucketOwner)
+		entry.ClusterID = cfg.ClusterID
 
 		// Append the bucket information to the user's entry
 		entry.Buckets = append(entry.Buckets, BucketUsage{
 			Bucket:    bucketName,
 			Owner:     bucketOwner,
 			Zonegroup: bucketZonegroup,
-			Store:     cfg.Store,
 			Usage: UsageStats{
 				RgwMain: struct {
 					Size           *uint64 `json:"size"`
@@ -411,7 +428,6 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 		entry.DisplayName = userInfo.DisplayName
 		entry.Email = userInfo.Email
 		entry.DefaultStorageClass = userInfo.DefaultStorageClass
-		entry.Store = cfg.Store
 
 		// Populate quota information
 		populateQuotaInfo(entry, userInfo)
@@ -468,8 +484,13 @@ func populateQuotaInfo(entry *UsageEntry, userInfo admin.User) {
 	}
 
 	if userInfo.BucketQuota.Enabled != nil && *userInfo.BucketQuota.Enabled {
-		fmt.Print("XXXXXX")
-		//FIXME entry.Buckets[?].BucketQuota = userInfo.BucketQuota
+		// Find the correct bucket in entry.Buckets and set the quota
+		for i := range entry.Buckets {
+			if entry.Buckets[i].Bucket == userInfo.BucketQuota.Bucket {
+				entry.Buckets[i].BucketQuota = userInfo.BucketQuota
+				break // Found the bucket
+			}
+		}
 	}
 }
 
@@ -554,4 +575,21 @@ func StartRadosGWUsageExporter(cfg RadosGWUsageConfig) {
 			}
 		}()
 	}
+}
+
+func logErrorToFile(err error, bucketName string) {
+	// Open the file in append mode
+	f, fileErr := os.OpenFile("/tmp/output.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if fileErr != nil {
+		log.Error().Err(fileErr).Msg("error opening log file")
+		return
+	}
+	defer f.Close()
+
+	// Write the error and response context to the log file
+	logger := log.Output(f)
+	logger.Error().
+		Str("bucket_name", bucketName).
+		Err(err).
+		Msg("error fetching info for bucket")
 }
