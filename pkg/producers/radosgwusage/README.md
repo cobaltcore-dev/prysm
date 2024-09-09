@@ -40,7 +40,7 @@ prysm remote-producer radosgw-usage [flags]
   data.
 - `--nats-subject "rgw.usage"`: NATS subject to publish usage data (default is
   “rgw.usage”).
-- `--store "us-east-1"`: Store name added to metrics (default is “us-east-1”).
+- `--rgw-cluster-id`: RGW Cluster ID added to metrics.
 - `--prometheus`: Enable Prometheus metrics.
 - `--prometheus-port 8080`: Port for Prometheus metrics (default is 8080).
 
@@ -58,7 +58,7 @@ Configuration can also be set through environment variables:
 - `PROMETHEUS_ENABLED`: Enable Prometheus metrics.
 - `PROMETHEUS_PORT`: Port for Prometheus metrics.
 - `INTERVAL`: Interval in seconds between usage collections.
-- `STORE`: Store name added to metrics.
+- `RGW_CLUSTER_ID`: RGW Cluster ID added to metrics.
 
 ## Metrics Collected
 
