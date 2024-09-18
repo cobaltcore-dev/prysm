@@ -66,13 +66,27 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 
 ### Operation Metrics
 
-- `radosgw_usage_ops_total`: Total number of operations.
-- `radosgw_usage_successful_ops_total`: Total number of successful operations.
+- `radosgw_usage_ops_total`: Total number of operations across all buckets and users.
+- `radosgw_usage_successful_ops_total`: Total number of successful operations across all buckets and users.
+- `radosgw_user_ops_total`: Total operations performed by each user.
+- `radosgw_user_read_ops_total`: Total read operations performed by each user.
+- `radosgw_user_write_ops_total`: Total write operations performed by each user.
+- `radosgw_user_success_ops_total`: Total number of successful operations per user.
+- `radosgw_bucket_ops_total`: Total operations performed in each bucket.
 
 ### Byte Metrics
 
 - `radosgw_usage_sent_bytes_total`: Total bytes sent by RadosGW.
 - `radosgw_usage_received_bytes_total`: Total bytes received by RadosGW.
+- `radosgw_user_bytes_sent_total`: Total bytes sent by each user (cumulative).
+- `radosgw_user_bytes_received_total`: Total bytes received by each user (cumulative).
+- `radosgw_user_bytes_sent_per_sec`: Bytes sent by each user per second (rate).
+- `radosgw_user_bytes_received_per_sec`: Bytes received by each user per second (rate).
+- `radosgw_user_throughput_bytes_total`: Total throughput for each user in bytes (read and write combined).
+- `radosgw_user_throughput_bytes_per_sec`: Current throughput in bytes per second for each user (read and write combined).
+- `radosgw_bucket_bytes_sent_total`: Total bytes sent from each bucket.
+- `radosgw_bucket_bytes_received_total`: Total bytes received by each bucket.
+- `radosgw_bucket_throughput_bytes_total`: Total throughput for each bucket in bytes (read and write combined).
 
 ### Bucket Usage Metrics
 
@@ -82,27 +96,24 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 
 ### Quota Metrics
 
-- `radosgw_usage_bucket_quota_enabled`: Indicates if quota is enabled for the
-  bucket.
+- `radosgw_usage_bucket_quota_enabled`: Indicates if quota is enabled for the bucket.
 - `radosgw_usage_bucket_quota_size`: Maximum allowed bucket size.
 - `radosgw_usage_bucket_quota_size_bytes`: Maximum allowed bucket size in bytes.
-- `radosgw_usage_bucket_quota_size_objects`: Maximum allowed number of objects
-  in the bucket.
+- `radosgw_usage_bucket_quota_size_objects`: Maximum allowed number of objects in the bucket.
+- `radosgw_usage_user_quota_enabled`: Indicates if user quota is enabled.
+- `radosgw_usage_user_quota_size`: Maximum allowed size for the user.
+- `radosgw_usage_user_quota_size_bytes`: Maximum allowed size in bytes for the user.
+- `radosgw_usage_user_quota_size_objects`: Maximum allowed number of objects across all user buckets.
+- `radosgw_usage_user_bucket_quota_enabled`: Indicates if per-bucket quota is enabled for each user.
+- `radosgw_usage_user_bucket_quota_size`: Maximum allowed size for each user bucket.
+- `radosgw_usage_user_bucket_quota_size_bytes`: Maximum allowed size in bytes for each user bucket.
+- `radosgw_usage_user_bucket_quota_size_objects`: Maximum allowed number of objects in each user bucket.
 
 ### Shards and User Metadata
 
 - `radosgw_usage_bucket_shards`: Number of shards in the bucket.
 - `radosgw_user_metadata`: User metadata (e.g., display name, email, storage
   class).
-
-### User Quota Metrics
-
-- `radosgw_usage_user_quota_enabled`: Indicates if user quota is enabled.
-- `radosgw_usage_user_quota_size`: Maximum allowed size for the user.
-- `radosgw_usage_user_quota_size_bytes`: Maximum allowed size in bytes for the
-  user.
-- `radosgw_usage_user_quota_size_objects`: Maximum allowed number of objects
-  across all user buckets.
 
 ### Cluster-Level Metrics
 
@@ -121,29 +132,17 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 - `radosgw_user_buckets_total`: Total number of buckets for each user.
 - `radosgw_user_objects_total`: Total number of objects for each user.
 - `radosgw_user_data_size_bytes`: Total size of data for each user in bytes.
-- `radosgw_user_ops_total`: Total operations performed by each user.
-- `radosgw_user_bytes_sent_total`: Total bytes sent by each user.
-- `radosgw_user_bytes_received_total`: Total bytes received by each user.
 - `radosgw_user_current_ops`: Current number of operations for each user.
 - `radosgw_user_max_ops`: Maximum observed operations for each user.
 - `radosgw_user_requests_total`: Total number of requests made by each user.
-- `radosgw_user_throughput_bytes_total`: Total throughput for each user in
-  bytes.
-- `radosgw_user_latency_seconds`: Latency/response times for each user in
-  seconds.
+- `radosgw_user_latency_seconds`: Latency/response times for each user in seconds.
 
 ### Bucket-Level Metrics
 
-- `radosgw_bucket_ops_total`: Total operations performed in each bucket.
-- `radosgw_bucket_bytes_sent_total`: Total bytes sent from each bucket.
-- `radosgw_bucket_bytes_received_total`: Total bytes received by each bucket.
 - `radosgw_bucket_current_ops`: Current number of operations in each bucket.
 - `radosgw_bucket_max_ops`: Maximum observed operations in each bucket.
 - `radosgw_bucket_requests_total`: Total number of requests made to each bucket.
-- `radosgw_bucket_throughput_bytes_total`: Total throughput for each bucket in
-  bytes.
-- `radosgw_bucket_latency_seconds`: Latency/response times for each bucket in
-  seconds.
+- `radosgw_bucket_latency_seconds`: Latency/response times for each bucket in seconds.
 
 ### Miscellaneous Metrics
 
