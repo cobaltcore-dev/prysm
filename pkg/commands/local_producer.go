@@ -18,8 +18,8 @@ import (
 	"log"
 	"sync"
 
+	"github.com/cobaltcore-dev/prysm/pkg/producers/config"
 	"github.com/spf13/cobra"
-	"gitlab.clyso.com/clyso/radosguard/pkg/producers/config"
 )
 
 var configFilePath string

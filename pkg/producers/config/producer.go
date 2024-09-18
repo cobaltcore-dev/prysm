@@ -19,8 +19,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"gitlab.clyso.com/clyso/radosguard/pkg/producers/bucketnotify"
-	"gitlab.clyso.com/clyso/radosguard/pkg/producers/resourceusage"
+	"github.com/cobaltcore-dev/prysm/pkg/producers/bucketnotify"
+	"github.com/cobaltcore-dev/prysm/pkg/producers/resourceusage"
 )
 
 func StartProducers(producer ProducerConfig, globalConfig GlobalConfig, wg *sync.WaitGroup) {

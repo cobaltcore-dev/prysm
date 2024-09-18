@@ -19,9 +19,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cobaltcore-dev/prysm/pkg/producers/diskhealthmetrics"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"gitlab.clyso.com/clyso/radosguard/pkg/producers/diskhealthmetrics"
 )
 
 var (
@@ -122,7 +122,7 @@ func init() {
 	diskHealthMetricsCmd.Flags().BoolVar(&dhmPromEnabled, "prometheus", false, "Enable Prometheus metrics")
 	diskHealthMetricsCmd.Flags().IntVar(&dhmPromPort, "prometheus-port", 8080, "Prometheus metrics port")
 	// diskHealthMetricsCmd.Flags().BoolVar(&dhmAllAttributes, "all-attr", false, "Monitor all SMART attributes")
-	diskHealthMetricsCmd.Flags().StringVar(&dhmDisksFlag, "disks", "/dev/sda,/dev/sdb", "Comma separated list of disks to monitor")
+	diskHealthMetricsCmd.Flags().StringVar(&dhmDisksFlag, "disks", "/dev/sda,/dev/sdb", "Comma-separated list of disks to monitor, e.g., \"/dev/sda,/dev/sdb\". Use \"*\" to monitor all available disks.")
 	// diskHealthMetricsCmd.Flags().BoolVar(&dhmIncludeZeroValues, "include-zero-values", false, "Include attributes with zero values")
 	diskHealthMetricsCmd.Flags().IntVar(&dhmInterval, "interval", 10, "Interval in seconds between metric collections")
 	diskHealthMetricsCmd.Flags().Int64Var(&dhmGrownDefectsThreshold, "grown-defects-threshold", 10, "Threshold for grown defects to trigger a warning")

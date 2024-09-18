@@ -18,9 +18,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/cobaltcore-dev/prysm/pkg/producers/kernelmetrics"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"gitlab.clyso.com/clyso/radosguard/pkg/producers/kernelmetrics"
 )
 
 var (
