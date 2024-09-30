@@ -2,41 +2,35 @@
 
 > **Disclaimer**
 >
-> Prysm is currently under heavy development and may contain bugs, incomplete
-> features, and non-functional code. This project is in the testing and
-> proof-of-concept stage, so please use it with caution and be aware that it may
-> not work as expected. Contributions and feedback are appreciated as we
-> continue to improve and stabilize the tool
+> Prysm is currently under heavy development and may contain bugs, incomplete features, and
+> non-functional code. This project is in the testing and proof-of-concept stage, so please use it
+> with caution and be aware that it may not work as expected. Contributions and feedback are
+> appreciated as we continue to improve and stabilize the tool
 
 ## Overview
 
-Prysm is a versatile CLI tool designed to provide an efficient observability
-solution for a wide range of systems, including RadosGW (Rados Gateway), Ceph
-storage clusters, and various hardware components. With a multi-layered
-architecture, Prysm enables real-time monitoring, data collection, and analysis
-across diverse environments, ensuring optimal performance, compliance, and
-operational insights.
+Prysm is a versatile CLI tool designed to provide an efficient observability solution for a wide
+range of systems, including RadosGW (Rados Gateway), Ceph storage clusters, and various hardware
+components. With a multi-layered architecture, Prysm enables real-time monitoring, data collection,
+and analysis across diverse environments, ensuring optimal performance, compliance, and operational
+insights.
 
 ## Features
 
-- Multi-system Support: Prysm supports RadosGW, Ceph clusters, and hardware
-  monitoring, making it a comprehensive observability tool.
-- Flexible Architecture: Prysm’s four-layered architecture—Consumers, NATS,
-  Remote Producers, and Nearby Producers—enables it to handle a variety of
-  observability tasks with precision and scalability.
-- Diverse Data Collection: Collect and analyze metrics and logs from RadosGW,
-  Ceph, and hardware devices such as disks. Producers can be configured to
-  gather data locally or remotely, ensuring adaptability to different
-  environments.
-- Real-time Messaging: Use NATS as the messaging backbone to enable real-time,
-  low-latency communication between data producers and consumers, ensuring
-  seamless data flow.
-- Customizable Output: Prysm supports multiple output formats, including
-  console, NATS, and Prometheus, allowing you to tailor the tool to your
-  specific observability requirements.
-- Standalone Functionality: Prysm can be used standalone for specific tasks,
-  such as providing a metrics endpoint for Prometheus, checking disk health, or
-  printing data directly to the console.
+- Multi-system Support: Prysm supports RadosGW, Ceph clusters, and hardware monitoring, making it a
+  comprehensive observability tool.
+- Flexible Architecture: Prysm’s four-layered architecture—Consumers, NATS, Remote Producers, and
+  Nearby Producers—enables it to handle a variety of observability tasks with precision and
+  scalability.
+- Diverse Data Collection: Collect and analyze metrics and logs from RadosGW, Ceph, and hardware
+  devices such as disks. Producers can be configured to gather data locally or remotely, ensuring
+  adaptability to different environments.
+- Real-time Messaging: Use NATS as the messaging backbone to enable real-time, low-latency
+  communication between data producers and consumers, ensuring seamless data flow.
+- Customizable Output: Prysm supports multiple output formats, including console, NATS, and
+  Prometheus, allowing you to tailor the tool to your specific observability requirements.
+- Standalone Functionality: Prysm can be used standalone for specific tasks, such as providing a
+  metrics endpoint for Prometheus, checking disk health, or printing data directly to the console.
 
 ## Components
 
@@ -44,8 +38,8 @@ operational insights.
 
 Purpose:
 
-- Process and analyze data received from various systems, including RadosGW,
-  Ceph, and hardware components.
+- Process and analyze data received from various systems, including RadosGW, Ceph, and hardware
+  components.
 
 Key Responsibilities:
 
@@ -73,8 +67,8 @@ Key Responsibilities:
 
 Purpose:
 
-- Collect metrics and logs from various systems via APIs or other interfaces,
-  typically from outside the monitored environment.
+- Collect metrics and logs from various systems via APIs or other interfaces, typically from outside
+  the monitored environment.
 
 Key Responsibilities:
 
@@ -90,13 +84,13 @@ Key Responsibilities:
 
 Purpose:
 
-- Deployed within the same network or environment as the monitored systems,
-  allowing direct access to logs, metrics, and configuration files.
+- Deployed within the same network or environment as the monitored systems, allowing direct access
+  to logs, metrics, and configuration files.
 
 Key Responsibilities:
 
-- Collect data directly from system log files, metrics endpoints, or hardware
-  sensors (e.g., SMART attributes for disk health).
+- Collect data directly from system log files, metrics endpoints, or hardware sensors (e.g., SMART
+  attributes for disk health).
 - Leverage proximity for lower latency and higher data fidelity.
 - Transmit collected data to NATS.
 
@@ -107,31 +101,27 @@ Key Responsibilities:
 
 ## Usage
 
-Prysm can be employed across a wide range of observability scenarios, from
-monitoring the health of Ceph storage clusters and RadosGW instances to ensuring
-the reliability of hardware components through SMART attribute analysis. Whether
-you need to integrate with Prometheus, send real-time alerts via NATS, or simply
-log and visualize system performance, Prysm offers the tools and flexibility to
-meet your needs.
+Prysm can be employed across a wide range of observability scenarios, from monitoring the health of
+Ceph storage clusters and RadosGW instances to ensuring the reliability of hardware components
+through SMART attribute analysis. Whether you need to integrate with Prometheus, send real-time
+alerts via NATS, or simply log and visualize system performance, Prysm offers the tools and
+flexibility to meet your needs.
 
 ## Contributing to the repository
 
-The repository comes with a pre-commit hook configuration to validate
-contributions before they are submitted. The pre-commit package can be installed
-e.g. via `pip install pre-commit` or `brew install pre-commit`.
+The repository comes with a pre-commit hook configuration to validate contributions before they are
+submitted. The pre-commit package can be installed e.g. via `pip install pre-commit` or
+`brew install pre-commit`.
 
 Install the pre-commit hooks by running `pre-commit install`.
 
-The pre-commit hooks can be run manually on all files by
-`pre-commit run --all-files`. It checks and fixes the markdown files within the
-repository currently, but may be enhanced in the future.
+The pre-commit hooks can be run manually on all files by `pre-commit run --all-files`. It checks and
+fixes the markdown files within the repository currently, but may be enhanced in the future.
 
-If you do not run the hook manually, it will be executed as part of the next
-commit automatically. If it detects and fixes any issues, you will have to
-commit its changes again.
+If you do not run the hook manually, it will be executed as part of the next commit automatically.
+If it detects and fixes any issues, you will have to commit its changes again.
 
 ---
 
-> This README is a draft and will be updated as Prysm continues to evolve.
-> Contributions, suggestions, and feedback are welcome to help improve and
-> expand the functionality of Prysm.
+> This README is a draft and will be updated as Prysm continues to evolve. Contributions,
+> suggestions, and feedback are welcome to help improve and expand the functionality of Prysm.

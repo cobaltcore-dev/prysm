@@ -2,24 +2,22 @@
 
 ## Overview
 
-The **RadosGW Usage Exporter (Prysm Remote Producer)** is a tool designed to
-collect and export detailed usage metrics from RadosGW (Rados Gateway)
-instances. This exporter gathers data on operations, byte metrics, bucket usage,
-quotas, and more, and can publish these metrics to a NATS server or expose them
-for Prometheus, providing comprehensive visibility into the usage and
+The **RadosGW Usage Exporter (Prysm Remote Producer)** is a tool designed to collect and export
+detailed usage metrics from RadosGW (Rados Gateway) instances. This exporter gathers data on
+operations, byte metrics, bucket usage, quotas, and more, and can publish these metrics to a NATS
+server or expose them for Prometheus, providing comprehensive visibility into the usage and
 performance of your RadosGW environment.
 
 ## Key Features
 
-- **Comprehensive Metric Collection**: Gathers a wide range of metrics including
-  operations, bytes sent/received, bucket usage, quotas, and more.
-- **NATS Integration**: Publishes collected usage data to a specified NATS
-  subject, enabling real-time processing and integration with other
-  observability tools.
-- **Prometheus Metrics**: Exposes usage metrics in Prometheus format, allowing
-  easy integration with monitoring dashboards.
-- **Configurable**: Offers flexibility in configuration via command-line flags
-  or environment variables.
+- **Comprehensive Metric Collection**: Gathers a wide range of metrics including operations, bytes
+  sent/received, bucket usage, quotas, and more.
+- **NATS Integration**: Publishes collected usage data to a specified NATS subject, enabling
+  real-time processing and integration with other observability tools.
+- **Prometheus Metrics**: Exposes usage metrics in Prometheus format, allowing easy integration with
+  monitoring dashboards.
+- **Configurable**: Offers flexibility in configuration via command-line flags or environment
+  variables.
 
 ## Usage
 
@@ -34,12 +32,9 @@ prysm remote-producer radosgw-usage [flags]
 - `--admin-url "http://rgw-admin-url"`: Admin URL for the RadosGW instance.
 - `--access-key "your-access-key"`: Access key for the RadosGW admin.
 - `--secret-key "your-secret-key"`: Secret key for the RadosGW admin.
-- `--interval 10`: Interval in seconds between usage collections (default is 10
-  seconds).
-- `--nats-url "nats://localhost:4222"`: NATS server URL for publishing usage
-  data.
-- `--nats-subject "rgw.usage"`: NATS subject to publish usage data (default is
-  “rgw.usage”).
+- `--interval 10`: Interval in seconds between usage collections (default is 10 seconds).
+- `--nats-url "nats://localhost:4222"`: NATS server URL for publishing usage data.
+- `--nats-subject "rgw.usage"`: NATS subject to publish usage data (default is “rgw.usage”).
 - `--rgw-cluster-id`: RGW Cluster ID added to metrics.
 - `--prometheus`: Enable Prometheus metrics.
 - `--prometheus-port 8080`: Port for Prometheus metrics (default is 8080).
@@ -67,7 +62,8 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 ### Operation Metrics
 
 - `radosgw_usage_ops_total`: Total number of operations across all buckets and users.
-- `radosgw_usage_successful_ops_total`: Total number of successful operations across all buckets and users.
+- `radosgw_usage_successful_ops_total`: Total number of successful operations across all buckets and
+  users.
 - `radosgw_user_ops_total`: Total operations performed by each user.
 - `radosgw_user_read_ops_total`: Total read operations performed by each user.
 - `radosgw_user_write_ops_total`: Total write operations performed by each user.
@@ -82,11 +78,14 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 - `radosgw_user_bytes_received_total`: Total bytes received by each user (cumulative).
 - `radosgw_user_bytes_sent_per_sec`: Bytes sent by each user per second (rate).
 - `radosgw_user_bytes_received_per_sec`: Bytes received by each user per second (rate).
-- `radosgw_user_throughput_bytes_total`: Total throughput for each user in bytes (read and write combined).
-- `radosgw_user_throughput_bytes_per_sec`: Current throughput in bytes per second for each user (read and write combined).
+- `radosgw_user_throughput_bytes_total`: Total throughput for each user in bytes (read and write
+  combined).
+- `radosgw_user_throughput_bytes_per_sec`: Current throughput in bytes per second for each user
+  (read and write combined).
 - `radosgw_bucket_bytes_sent_total`: Total bytes sent from each bucket.
 - `radosgw_bucket_bytes_received_total`: Total bytes received by each bucket.
-- `radosgw_bucket_throughput_bytes_total`: Total throughput for each bucket in bytes (read and write combined).
+- `radosgw_bucket_throughput_bytes_total`: Total throughput for each bucket in bytes (read and write
+  combined).
 
 ### Bucket Usage Metrics
 
@@ -103,17 +102,18 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 - `radosgw_usage_user_quota_enabled`: Indicates if user quota is enabled.
 - `radosgw_usage_user_quota_size`: Maximum allowed size for the user.
 - `radosgw_usage_user_quota_size_bytes`: Maximum allowed size in bytes for the user.
-- `radosgw_usage_user_quota_size_objects`: Maximum allowed number of objects across all user buckets.
+- `radosgw_usage_user_quota_size_objects`: Maximum allowed number of objects across all user
+  buckets.
 - `radosgw_usage_user_bucket_quota_enabled`: Indicates if per-bucket quota is enabled for each user.
 - `radosgw_usage_user_bucket_quota_size`: Maximum allowed size for each user bucket.
 - `radosgw_usage_user_bucket_quota_size_bytes`: Maximum allowed size in bytes for each user bucket.
-- `radosgw_usage_user_bucket_quota_size_objects`: Maximum allowed number of objects in each user bucket.
+- `radosgw_usage_user_bucket_quota_size_objects`: Maximum allowed number of objects in each user
+  bucket.
 
 ### Shards and User Metadata
 
 - `radosgw_usage_bucket_shards`: Number of shards in the bucket.
-- `radosgw_user_metadata`: User metadata (e.g., display name, email, storage
-  class).
+- `radosgw_user_metadata`: User metadata (e.g., display name, email, storage class).
 
 ### Cluster-Level Metrics
 
@@ -122,10 +122,8 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 - `radosgw_cluster_bytes_received_total`: Total bytes received in the cluster.
 - `radosgw_cluster_current_ops`: Current number of operations in the cluster.
 - `radosgw_cluster_max_ops`: Maximum observed operations in the cluster.
-- `radosgw_cluster_throughput_bytes_total`: Total throughput of the cluster in
-  bytes.
-- `radosgw_cluster_latency_seconds`: Latency/response times at the cluster level
-  in seconds.
+- `radosgw_cluster_throughput_bytes_total`: Total throughput of the cluster in bytes.
+- `radosgw_cluster_latency_seconds`: Latency/response times at the cluster level in seconds.
 
 ### User-Level Metrics
 
@@ -156,22 +154,19 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 prysm remote-producer radosgw-usage --admin-url "http://rgw-admin-url" --access-key "your-access-key" --secret-key "your-secret-key" --nats-url "nats://localhost:4222" --prometheus --prometheus-port 8080
 ```
 
-- Metrics such as operations, bytes sent/received, and bucket usage will be
-  collected every 10 seconds (default) and can be monitored through Prometheus
-  or forwarded to a NATS server for further processing.
+- Metrics such as operations, bytes sent/received, and bucket usage will be collected every 10
+  seconds (default) and can be monitored through Prometheus or forwarded to a NATS server for
+  further processing.
 
 ## Acknowledgment
 
-The basic idea for the RadosGW Usage Exporter and the prefix for metrics were
-inspired by the work done in the
-[RadosGW Usage Exporter](https://github.com/blemmenes/radosgw_usage_exporter) by
-Blemmenes. This project provided valuable insights and foundational concepts
-that have been adapted and expanded upon in this implementation. We extend our
-thanks to the original authors for their contributions to the open-source
-community.
+The basic idea for the RadosGW Usage Exporter and the prefix for metrics were inspired by the work
+done in the [RadosGW Usage Exporter](https://github.com/blemmenes/radosgw_usage_exporter) by
+Blemmenes. This project provided valuable insights and foundational concepts that have been adapted
+and expanded upon in this implementation. We extend our thanks to the original authors for their
+contributions to the open-source community.
 
 ---
 
-> This README is a draft and will be updated as the project continues to evolve.
-> Contributions and feedback are welcome to help refine and enhance the
-> functionality of Prysm.
+> This README is a draft and will be updated as the project continues to evolve. Contributions and
+> feedback are welcome to help refine and enhance the functionality of Prysm.
