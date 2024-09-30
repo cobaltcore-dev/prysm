@@ -151,7 +151,7 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 - Start the exporter with the desired configuration:
 
 ```bash
-prysm remote-producer radosgw-usage --admin-url "http://rgw-admin-url" --access-key "your-access-key" --secret-key "your-secret-key" --nats-url "nats://localhost:4222" --prometheus --prometheus-port 8080
+prysm remote-producer radosgw-usage --admin-url "http://rgw-admin-url" --access-key "your-access-key" --secret-key "your-secret-key" --rgw-cluster-id "rgw-cluster-id" --nats-url "nats://localhost:4222" --prometheus --prometheus-port 8080
 ```
 
 - Metrics such as operations, bytes sent/received, and bucket usage will be collected every 10
