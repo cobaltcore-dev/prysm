@@ -149,6 +149,27 @@ func StartMonitoring(cfg DiskHealthMetricsConfig) {
 		log.Fatal().Msg("smartctl is not installed. please install smartmontools package.")
 	}
 
+	// Discover devices if wildcard (*) is used in the configuration.
+	if len(cfg.Disks) == 1 && cfg.Disks[0] == "*" {
+		devices, err := discoverDevices()
+		if err != nil {
+			log.Fatal().Err(err).Msg("Error discovering devices")
+		}
+
+		cfg.Disks = make([]string, len(devices.Devices))
+		for i, device := range devices.Devices {
+			cfg.Disks[i] = device.Name
+		}
+	}
+
+	// Ensure that at least one device is found, log a fatal error otherwise.
+	if len(cfg.Disks) == 0 {
+		log.Fatal().Msg("No devices found for monitoring.")
+	}
+
+	// Log the list of devices to be monitored.
+	log.Info().Strs("Devices", cfg.Disks).Msg("Devices for monitoring")
+
 	var nc *nats.Conn
 	var err error
 	if cfg.UseNats {

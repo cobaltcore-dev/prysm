@@ -15,7 +15,7 @@
 package main
 
 import (
-	"gitlab.clyso.com/clyso/radosguard/pkg/commands"
+	"github.com/cobaltcore-dev/prysm/pkg/commands"
 )
 
 func main() {

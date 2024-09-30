@@ -33,7 +33,7 @@ var outputToFile = false // debug only
 // collectUsageMetrics collects usage metrics from the RadosGW and processes them.
 // It retrieves usage statistics, bucket data, and user data, and then processes
 // these data points into a list of UsageEntry, which can be used for further processing.
-func collectUsageMetrics(cfg RadosGWUsageConfig) ([]UsageEntry, error) {
+func collectUsageMetrics(cfg RadosGWUsageConfig, currentTime time.Time) ([]UsageEntry, error) {
 	// Validate the configuration to ensure necessary fields are set
 	if cfg.AdminURL == "" || cfg.AccessKey == "" || cfg.SecretKey == "" {
 		return nil, fmt.Errorf("invalid configuration: AdminURL, AccessKey, and SecretKey must be provided")
@@ -52,6 +52,8 @@ func collectUsageMetrics(cfg RadosGWUsageConfig) ([]UsageEntry, error) {
 	usageRequest := admin.Usage{
 		ShowEntries: &showEntries,
 		ShowSummary: &showSummary,
+		// Start:       "2024-09-16 15:00:00",
+		// End:         "2024-09-16 17:00:00",
 	}
 
 	// Fetch usage statistics from RadosGW.
@@ -175,7 +177,7 @@ func collectUsageMetrics(cfg RadosGWUsageConfig) ([]UsageEntry, error) {
 	// Process the collected bucket data and add it to the entries list.
 	processBucketData(cfg, bucketData, usageDict, &entries)
 	// Process the collected user data and add it to the entries list.
-	processUserData(cfg, &entries, userData, co)
+	processUserData(cfg, &entries, userData, co, currentTime)
 
 	return entries, nil // Return the processed usage entries.
 }
@@ -241,6 +243,55 @@ func processUsageData(usage admin.Usage, usageDict map[string]map[string]map[str
 func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageDict map[string]map[string]map[string]UsageMetrics, entries *[]UsageEntry) {
 	var bucketsProcessed int
 
+	readCategories := []string{
+		"get_obj",
+		"list_bucket",
+		"get_bucket_policy",
+		"get_lifecycle",
+		"get_obj_tags",
+		"list_buckets",
+		"get_bucket_location",
+		"stat_bucket",
+		"stat_account",
+		"get_bucket_cors",
+		"get_bucket_versioning",
+		"get_obj_acl",
+		"get_bucket_logging",
+		"get_bucket_notification",
+		"get_acls",
+		"list_bucket_multiparts",
+		"list_multipart",
+		"get_request_payment",
+		"get_bucket_public_access_block",
+	}
+	writeCategories := []string{
+		"put_obj",
+		"delete_obj",
+		"put_bucket_policy",
+		"put_lifecycle",
+		"create_bucket",
+		"delete_bucket",
+		"put_obj_acl",
+		"put_obj_metadata",
+		"put_bucket_metadata",
+		"delete_bucket_policy",
+		"put_bucket_cors",
+		"delete_bucket_cors",
+		"put_bucket_logging",
+		"delete_bucket_logging",
+		"put_bucket_notification",
+		"delete_bucket_notification",
+		"put_bucket_versioning",
+		"init_multipart",
+		"complete_multipart",
+		"multi_object_delete",
+		"copy_obj",
+		"put_acls",
+		"abort_multipart",
+		"post_obj",
+	}
+	apiUsagePerBucket := make(map[string]int64)
+
 	for _, bucket := range bucketData {
 		bucketName := bucket.Bucket
 		bucketOwner := bucket.Owner
@@ -253,7 +304,7 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 		var bucketQuotaMaxSize int64
 		var bucketQuotaMaxSizeBytes int
 		var bucketQuotaMaxObjects int64
-		var totalOps uint64
+		var totalOps, readOps, writeOps, successOps uint64
 		var totalBytesSent uint64
 		var totalBytesReceived uint64
 		var maxOps uint64
@@ -261,6 +312,8 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 		var totalLatencySeconds float64
 		var totalRequests uint64
 		var currentOps uint64
+		var errorOps uint64
+		var errorRate float64
 
 		// Calculate usage bytes, utilized bytes, and object count
 		if bucket.Usage.RgwMain.SizeActual != nil {
@@ -309,17 +362,33 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 					BytesSent:     metrics.BytesSent,
 					BytesReceived: metrics.BytesReceived,
 				})
+
+				apiUsagePerBucket[categoryName] += int64(metrics.Ops)
 				// Aggregate metrics for total operations and other stats
 				totalOps += metrics.Ops
+				successOps += metrics.SuccessfulOps
 				totalBytesSent += metrics.BytesSent
 				totalBytesReceived += metrics.BytesReceived
 				totalThroughputBytes += metrics.BytesSent + metrics.BytesReceived
+
+				totalRequests++ // Each category operation is counted as a request
+
 				totalLatencySeconds += float64(metrics.Ops) * 0.05 //FIXME Simulated latency (e.g., 50ms per operation)
+
+				// Check if the category is a read or write operation
+				if contains(readCategories, categoryName) {
+					readOps += metrics.Ops
+				} else if contains(writeCategories, categoryName) {
+					writeOps += metrics.Ops
+				} else {
+					log.Info().Str("Category", categoryName).Msg("Unknown category")
+				}
+
 				// FIXME: currentOps and maxOps to be retrieved from a NATS subject or similar source
 				if metrics.Ops > maxOps {
 					maxOps = metrics.Ops
 				}
-				totalRequests++ // Each category operation is counted as a request
+
 			}
 		}
 
@@ -348,6 +417,12 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 		} else {
 			calculatedSizeKbUtilized := bucketUtilizedBytes / 1024
 			sizeKbUtilized = &calculatedSizeKbUtilized
+		}
+
+		// Calculate error rate and error ops
+		errorOps = totalOps - successOps
+		if totalOps > 0 {
+			errorRate = (float64(errorOps) / float64(totalOps)) * 100
 		}
 
 		// Find or create the UsageEntry for the bucket owner
@@ -390,6 +465,7 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 			},
 			NumShards:            *bucketShards,
 			Categories:           categories,
+			APIUsagePerBucket:    apiUsagePerBucket,
 			TotalOps:             totalOps,
 			TotalBytesSent:       totalBytesSent,
 			TotalBytesReceived:   totalBytesReceived,
@@ -398,6 +474,10 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 			TotalRequests:        totalRequests,
 			CurrentOps:           currentOps,
 			MaxOps:               maxOps,
+			TotalReadOps:         readOps,
+			TotalWriteOps:        writeOps,
+			TotalSuccessOps:      successOps,
+			ErrorRate:            errorRate,
 		})
 
 		bucketsProcessed++
@@ -407,8 +487,17 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 		Msg("bucket data processing completed")
 }
 
+func contains(list []string, item string) bool {
+	for _, v := range list {
+		if v == item {
+			return true
+		}
+	}
+	return false
+}
+
 // processUserData processes user data and updates the corresponding entries with user-specific information.
-func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admin.User, co *admin.API) error {
+func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admin.User, co *admin.API, currentTime time.Time) error {
 	for _, userInfo := range users {
 
 		// Find the corresponding entry for the user, or create a new one if not found
@@ -429,22 +518,47 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 		}
 
 		// Calculate the total number of buckets, objects, and data size for the user
-		entry.TotalBuckets = len(entry.Buckets)
+		entry.UserLevel.UserBucketsTotal = len(entry.Buckets)
+		entry.UserLevel.APIUsagePerUser = make(map[string]int64)
 		for _, bucket := range entry.Buckets {
-			entry.TotalObjects += *bucket.Usage.RgwMain.NumObjects
-			entry.TotalDataSize += *bucket.Usage.RgwMain.SizeUtilized
-			entry.TotalOps += bucket.TotalOps // Accumulate ops, which are the total requests
-			entry.TotalBytesSent += bucket.TotalBytesSent
-			entry.TotalBytesReceived += bucket.TotalBytesReceived
-			entry.TotalThroughputBytes += bucket.TotalThroughputBytes
-			entry.TotalLatencySeconds += bucket.TotalLatencySeconds
+			entry.UserLevel.UserObjectsTotal += *bucket.Usage.RgwMain.NumObjects
+			entry.UserLevel.UserDataSizeTotal += *bucket.Usage.RgwMain.SizeUtilized
+			entry.UserLevel.UserOpsTotal += bucket.TotalOps // Accumulate ops, which are the total requests
+			entry.UserLevel.UserReadOpsTotal += bucket.TotalReadOps
+			entry.UserLevel.UserWriteOpsTotal += bucket.TotalWriteOps
+			entry.UserLevel.UserBytesSentTotal += bucket.TotalBytesSent
+			entry.UserLevel.UserBytesReceivedTotal += bucket.TotalBytesReceived
+			entry.UserLevel.UserSuccessOpsTotal += bucket.TotalSuccessOps
+			entry.UserLevel.UserTotalCapacity += *bucket.Usage.RgwMain.SizeActual
+			entry.UserLevel.UserThroughputBytesTotal += bucket.TotalThroughputBytes
 
-			// Track current and max ops for the account
-			entry.CurrentOps += bucket.CurrentOps
-			if bucket.MaxOps > entry.MaxOps {
-				entry.MaxOps = bucket.MaxOps
+			// Calculate error rate and error ops
+			errorOps := entry.UserLevel.UserOpsTotal - entry.UserLevel.UserSuccessOpsTotal
+			if entry.UserLevel.UserOpsTotal > 0 {
+				entry.UserLevel.ErrorRateTotal = (float64(errorOps) / float64(entry.UserLevel.UserOpsTotal)) * 100
 			}
+
+			entry.TotalLatencySeconds += bucket.TotalLatencySeconds //TODO: latency just simulated
+
+			for category, ops := range bucket.APIUsagePerBucket {
+				entry.UserLevel.APIUsagePerUser[category] += ops // Sum API usage from all buckets
+			}
+
+			// TODO: check logic for maxOps
+			// Track current and max ops for the account
+			// entry.CurrentOps += bucket.CurrentOps
+			// if bucket.MaxOps > entry.MaxOps {
+			// 	entry.MaxOps = bucket.MaxOps
+			// }
 		}
+
+		// Calculate current metrics
+		currMetrics := CalculateCurrentUserMetrics(entry.User, entry.UserLevel.UserBytesSentTotal, entry.UserLevel.UserBytesReceivedTotal, entry.UserLevel.UserOpsTotal, currentTime)
+
+		entry.UserLevel.UserBytesSentCurrent = currMetrics.CurrentBytesSent
+		entry.UserLevel.UserBytesReceivedCurrent = currMetrics.CurrentBytesReceived
+		entry.UserLevel.UserThroughputBytesCurrent = currMetrics.Throughput
+		entry.UserLevel.UserOpsCurrent = currMetrics.CurrentOps
 	}
 
 	return nil
@@ -531,7 +645,7 @@ func StartRadosGWUsageExporter(cfg RadosGWUsageConfig) {
 			startTime := time.Now()
 
 			// Collect usage metrics based on the configuration
-			entries, err := collectUsageMetrics(cfg)
+			entries, err := collectUsageMetrics(cfg, startTime)
 			if err != nil {
 				log.Error().
 					Err(err).
