@@ -383,8 +383,13 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 			errorRate = (float64(errorOps) / float64(totalOps)) * 100
 		}
 
-		// Find or create the UsageEntry for the bucket owner
+		// Calculate error rate and error ops
+		errorOps = totalOps - successOps
+		if totalOps > 0 {
+			errorRate = (float64(errorOps) / float64(totalOps)) * 100
+		}
 
+		// Find or create the UsageEntry for the bucket owner
 		entry := findOrCreateEntryByBucketOwner(entries, bucketOwner)
 		entry.ClusterID = cfg.ClusterID
 
@@ -483,6 +488,13 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 			for category, ops := range bucket.APIUsage {
 				entry.UserLevel.APIUsagePerUser[category] += ops // Sum API usage from all buckets
 			}
+
+			// TODO: check logic for maxOps
+			// Track current and max ops for the account
+			// entry.CurrentOps += bucket.CurrentOps
+			// if bucket.MaxOps > entry.MaxOps {
+			// 	entry.MaxOps = bucket.MaxOps
+			// }
 		}
 
 		// Calculate current metrics
