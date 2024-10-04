@@ -33,74 +33,71 @@ var (
 	userWriteOpsTotal        = newGaugeVec("radosgw_user_write_ops_total", "Total write operations per user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
 	userBytesSentTotal       = newGaugeVec("radosgw_user_bytes_sent_total", "Total bytes sent by each user (cumulative)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
 	userBytesReceivedTotal   = newGaugeVec("radosgw_user_bytes_received_total", "Total bytes received by each user (cumulative)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userBytesSentCurrent     = newGaugeVec("radosgw_user_bytes_sent_per_sec", "Bytes sent by each user per second (rate)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userBytesReceivedCurrent = newGaugeVec("radosgw_user_bytes_received_per_sec", "Bytes received by each user per second (rate)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userSuccessOpsTotal      = newGaugeVec("radosgw_user_success_ops_total", "Total successful operations per user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userErrorRateTotal       = newGaugeVec("radosgw_user_error_rate_total", "Total number of errors per user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userThroughputBytesTotal = newGaugeVec("radosgw_user_throughput_bytes_total", "Total throughput for each user in bytes (read and write combined)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userCapacityUsage        = newGaugeVec("radosgw_user_capacity_usage_bytes", "Total capacity used by each user in bytes", []string{"user", "rgw_cluster_id", "node", "instance_id"})
 
-	userErrorRateTotal  = newGaugeVec("radosgw_user_error_rate_total", "Total number of errors per user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userSuccessOpsTotal = newGaugeVec("radosgw_user_success_ops_total", "Total successful operations per user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	apiUsagePerUser     = newGaugeVec("radosgw_api_usage_per_user", "API usage per user and per category", []string{"user", "api_category", "rgw_cluster_id", "node", "instance_id"})
+	userOpsPerSec             = newGaugeVec("radosgw_user_ops_per_sec", "Current number of operations (reads/writes) per second for each user (rate)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userReadOpsPerSec         = newGaugeVec("radosgw_user_read_ops_per_sec", "Current read operations per second for each user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userWriteOpsPerSec        = newGaugeVec("radosgw_user_write_ops_per_sec", "Current write operations per second for each user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userBytesReceivedPerSec   = newGaugeVec("radosgw_user_bytes_received_per_sec", "Bytes received by each user per second (rate)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userBytesSentPerSec       = newGaugeVec("radosgw_user_bytes_sent_per_sec", "Bytes sent by each user per second (rate)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userThroughputBytesPerSec = newGaugeVec("radosgw_user_throughput_bytes_per_sec", "Current throughput in bytes per second for each user (read and write combined)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
 
 	// User quota metrics
-	userQuotaEnabled      = newGaugeVec("radosgw_usage_user_quota_enabled", "User quota enabled", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userQuotaMaxSize      = newGaugeVec("radosgw_usage_user_quota_size", "Maximum allowed size for user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userQuotaMaxSizeBytes = newGaugeVec("radosgw_usage_user_quota_size_bytes", "Maximum allowed size in bytes for user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userQuotaMaxObjects   = newGaugeVec("radosgw_usage_user_quota_size_objects", "Maximum allowed number of objects across all user buckets", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userQuotaEnabled    = newGaugeVec("radosgw_usage_user_quota_enabled", "User quota enabled", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userQuotaMaxSize    = newGaugeVec("radosgw_usage_user_quota_size", "Maximum allowed size for user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	userQuotaMaxObjects = newGaugeVec("radosgw_usage_user_quota_size_objects", "Maximum allowed number of objects across all user buckets", []string{"user", "rgw_cluster_id", "node", "instance_id"})
 
-	userCapacityUsage = newGaugeVec("radosgw_user_capacity_usage_bytes", "Total capacity used by each user in bytes", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	apiUsagePerUser = newGaugeVec("radosgw_api_usage_per_user", "API usage per user and per category", []string{"user", "api_category", "rgw_cluster_id", "node", "instance_id"})
 
-	userThroughputBytesTotal   = newGaugeVec("radosgw_user_throughput_bytes_total", "Total throughput for each user in bytes (read and write combined)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userThroughputBytesCurrent = newGaugeVec("radosgw_user_throughput_bytes_per_sec", "Current throughput in bytes per second for each user (read and write combined)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	// Bucket-level metrics
+	bucketLabels               = []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"}
+	bucketUsageBytes           = newGaugeVec("radosgw_usage_bucket_bytes", "Bucket used bytes", bucketLabels)
+	bucketUtilizedBytes        = newGaugeVec("radosgw_usage_bucket_utilized_bytes", "Bucket utilized bytes", bucketLabels)
+	bucketUsageObjects         = newGaugeVec("radosgw_usage_bucket_objects", "Number of objects in bucket", bucketLabels)
+	bucketReadOpsTotal         = newGaugeVec("radosgw_bucket_read_ops_total", "Total read operations in each bucket", bucketLabels)
+	bucketWriteOpsTotal        = newGaugeVec("radosgw_bucket_write_ops_total", "Total write operations in each bucket", bucketLabels)
+	bucketBytesSentTotal       = newGaugeVec("radosgw_bucket_bytes_sent_total", "Total bytes sent from each bucket", bucketLabels)
+	bucketBytesReceivedTotal   = newGaugeVec("radosgw_bucket_bytes_received_total", "Total bytes received by each bucket", bucketLabels)
+	bucketSuccessOpsTotal      = newGaugeVec("radosgw_bucket_success_ops_total", "Total successful operations for each bucket", bucketLabels)
+	bucketOpsTotal             = newGaugeVec("radosgw_bucket_ops_total", "Total operations performed in each bucket", bucketLabels)
+	bucketErrorRate            = newGaugeVec("radosgw_bucket_error_rate", "Error rate for each bucket (percentage)", bucketLabels)
+	bucketCapacityUsage        = newGaugeVec("radosgw_bucket_capacity_usage_bytes", "Total capacity used by each bucket in bytes", bucketLabels)
+	bucketThroughputBytesTotal = newGaugeVec("radosgw_bucket_throughput_bytes_total", "Total throughput for each bucket in bytes (read and write combined)", bucketLabels)
+	bucketAPIUsageTotal        = newGaugeVec("radosgw_bucket_api_usage_total", "Total number of API operations by category for each bucket", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id", "category"})
 
-	userCurrentOps     = newGaugeVec("radosgw_user_ops_per_sec", "Current number of operations (reads/writes) per second for each user (rate)", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userMaxOps         = newGaugeVec("radosgw_user_max_ops", "Maximum observed operations (reads/writes) for each user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userLatencySeconds = newHistogramVec("radosgw_user_latency_seconds", "Latency/response times for each user in seconds", []string{"user", "rgw_cluster_id", "node", "instance_id"})
+	bucketOpsPerSec             = newGaugeVec("radosgw_bucket_ops_per_sec", "Current operations per second for each bucket (rate)", bucketLabels)
+	bucketReadOpsPerSec         = newGaugeVec("radosgw_bucket_read_ops_per_sec", "Current read operations per second for each bucket (rate)", bucketLabels)
+	bucketWriteOpsPerSec        = newGaugeVec("radosgw_bucket_write_ops_per_sec", "Current write operations per second for each bucket (rate)", bucketLabels)
+	bucketBytesSentPerSec       = newGaugeVec("radosgw_bucket_bytes_sent_per_sec", "Current bytes sent per second from each bucket", bucketLabels)
+	bucketBytesReceivedPerSec   = newGaugeVec("radosgw_bucket_bytes_received_per_sec", "Current bytes received per second by each bucket", bucketLabels)
+	bucketThroughputBytesPerSec = newGaugeVec("radosgw_bucket_throughput_bytes_per_sec", "Current throughput in bytes per second for each bucket (read and write combined)", bucketLabels)
 
-	// General operation metrics
-	opsTotal           = newCounterVec("radosgw_usage_ops_total", "Number of operations", []string{"bucket", "owner", "category", "rgw_cluster_id", "node", "instance_id"})
-	successfulOpsTotal = newCounterVec("radosgw_usage_successful_ops_total", "Number of successful operations", []string{"bucket", "owner", "category", "rgw_cluster_id", "node", "instance_id"})
-
-	// Byte metrics
-	bytesSentTotal     = newCounterVec("radosgw_usage_sent_bytes_total", "Bytes sent by the RADOSGW", []string{"bucket", "owner", "category", "rgw_cluster_id", "node", "instance_id"})
-	bytesReceivedTotal = newCounterVec("radosgw_usage_received_bytes_total", "Bytes received by the RADOSGW", []string{"bucket", "owner", "category", "rgw_cluster_id", "node", "instance_id"})
-
-	// Bucket usage metrics
-	bucketUsageBytes    = newGaugeVec("radosgw_usage_bucket_bytes", "Bucket used bytes", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"})
-	bucketUtilizedBytes = newGaugeVec("radosgw_usage_bucket_utilized_bytes", "Bucket utilized bytes", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"})
-	bucketUsageObjects  = newGaugeVec("radosgw_usage_bucket_objects", "Number of objects in bucket", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"})
+	// Quota metrics
+	bucketQuotaEnabled    = newGaugeVec("radosgw_usage_bucket_quota_enabled", "Quota enabled for bucket", bucketLabels)
+	bucketQuotaMaxSize    = newGaugeVec("radosgw_usage_bucket_quota_size", "Maximum allowed bucket size", bucketLabels)
+	bucketQuotaMaxObjects = newGaugeVec("radosgw_usage_bucket_quota_size_objects", "Maximum allowed bucket size in number of objects", bucketLabels)
 
 	// Shards and user metadata
 	bucketShards = newGaugeVec("radosgw_usage_bucket_shards", "Number of shards in bucket", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"})
-
-	// Quota metrics
-	bucketQuotaEnabled      = newGaugeVec("radosgw_usage_bucket_quota_enabled", "Quota enabled for bucket", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"})
-	bucketQuotaMaxSize      = newGaugeVec("radosgw_usage_bucket_quota_size", "Maximum allowed bucket size", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"})
-	bucketQuotaMaxSizeBytes = newGaugeVec("radosgw_usage_bucket_quota_size_bytes", "Maximum allowed bucket size in bytes", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"})
-	bucketQuotaMaxObjects   = newGaugeVec("radosgw_usage_bucket_quota_size_objects", "Maximum allowed bucket size in number of objects", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"})
-
-	// User bucket quota metrics
-	userBucketQuotaEnabled      = newGaugeVec("radosgw_usage_user_bucket_quota_enabled", "User per-bucket-quota enabled", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userBucketQuotaMaxSize      = newGaugeVec("radosgw_usage_user_bucket_quota_size", "Maximum allowed size for each bucket of user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userBucketQuotaMaxSizeBytes = newGaugeVec("radosgw_usage_user_bucket_quota_size_bytes", "Maximum allowed size in bytes for each bucket of user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
-	userBucketQuotaMaxObjects   = newGaugeVec("radosgw_usage_user_bucket_quota_size_objects", "Maximum allowed number of objects in each user bucket", []string{"user", "rgw_cluster_id", "node", "instance_id"})
 
 	// Cluster-level metrics
 	clusterOpsTotal             = newGaugeVec("radosgw_cluster_ops_total", "Total operations performed in the cluster", []string{"rgw_cluster_id", "node", "instance_id"})
 	clusterBytesSentTotal       = newGaugeVec("radosgw_cluster_bytes_sent_total", "Total bytes sent in the cluster", []string{"rgw_cluster_id", "node", "instance_id"})
 	clusterBytesReceivedTotal   = newGaugeVec("radosgw_cluster_bytes_received_total", "Total bytes received in the cluster", []string{"rgw_cluster_id", "node", "instance_id"})
-	clusterCurrentOps           = newGaugeVec("radosgw_cluster_current_ops", "Current number of operations (reads/writes) in the cluster", []string{"rgw_cluster_id", "node", "instance_id"})
-	clusterMaxOps               = newGaugeVec("radosgw_cluster_max_ops", "Maximum observed operations (reads/writes) in the cluster", []string{"rgw_cluster_id", "node", "instance_id"})
 	clusterThroughputBytesTotal = newGaugeVec("radosgw_cluster_throughput_bytes_total", "Total throughput of the cluster in bytes (read and write combined)", []string{"rgw_cluster_id", "node", "instance_id"})
-	clusterLatencySeconds       = newHistogramVec("radosgw_cluster_latency_seconds", "Latency/response times at the cluster level in seconds", []string{"rgw_cluster_id", "node", "instance_id"})
 
-	// Bucket-level metrics
-	bucketOpsTotal             = newGaugeVec("radosgw_bucket_ops_total", "Total operations performed in each bucket", []string{"bucket", "owner", "rgw_cluster_id", "node", "instance_id"})
-	bucketBytesSentTotal       = newGaugeVec("radosgw_bucket_bytes_sent_total", "Total bytes sent from each bucket", []string{"bucket", "owner", "rgw_cluster_id", "node", "instance_id"})
-	bucketBytesReceivedTotal   = newGaugeVec("radosgw_bucket_bytes_received_total", "Total bytes received by each bucket", []string{"bucket", "owner", "rgw_cluster_id", "node", "instance_id"})
-	bucketCurrentOps           = newGaugeVec("radosgw_bucket_current_ops", "Current number of operations (reads/writes) for each bucket", []string{"bucket", "owner", "rgw_cluster_id", "node", "instance_id"})
-	bucketMaxOps               = newGaugeVec("radosgw_bucket_max_ops", "Maximum observed operations (reads/writes) for each bucket", []string{"bucket", "owner", "rgw_cluster_id", "node", "instance_id"})
-	bucketRequestsTotal        = newCounterVec("radosgw_bucket_requests_total", "Total number of requests made to each bucket", []string{"bucket", "owner", "rgw_cluster_id", "node", "instance_id"})
-	bucketThroughputBytesTotal = newGaugeVec("radosgw_bucket_throughput_bytes_total", "Total throughput for each bucket in bytes (read and write combined)", []string{"bucket", "owner", "rgw_cluster_id", "node", "instance_id"})
-	bucketLatencySeconds       = newHistogramVec("radosgw_bucket_latency_seconds", "Latency/response times for each bucket in seconds", []string{"bucket", "owner", "rgw_cluster_id", "node", "instance_id"})
+	clusterOpsPerSec             = newGaugeVec("radosgw_cluster_ops_per_sec", "Current number of operations per second for the cluster", []string{"rgw_cluster_id", "node", "instance_id"})
+	clusterReadsPerSec           = newGaugeVec("radosgw_cluster_reads_per_sec", "Total read operations per second for the entire cluster", []string{"rgw_cluster_id", "node", "instance_id"})
+	clusterWritesPerSec          = newGaugeVec("radosgw_cluster_writes_per_sec", "Total write operations per second for the entire cluster", []string{"rgw_cluster_id", "node", "instance_id"})
+	clusterBytesSentPerSec       = newGaugeVec("radosgw_cluster_bytes_sent_per_sec", "Total bytes sent per second for the entire cluster", []string{"rgw_cluster_id", "node", "instance_id"})
+	clusterBytesReceivedPerSec   = newGaugeVec("radosgw_cluster_bytes_received_per_sec", "Total bytes received per second for the entire cluster", []string{"rgw_cluster_id", "node", "instance_id"})
+	clusterThroughputBytesPerSec = newGaugeVec("radosgw_cluster_throughput_bytes_per_sec", "Total throughput (read and write) in bytes per second for the entire cluster", []string{"rgw_cluster_id", "node", "instance_id"})
+	clusterErrorRate             = newGaugeVec("radosgw_cluster_error_rate", "Error rate (percentage) for the entire cluster", []string{"rgw_cluster_id", "node", "instance_id"})
+	clusterCapacityUsageBytes    = newGaugeVec("radosgw_cluster_capacity_usage_bytes", "Total capacity used across the entire cluster in bytes", []string{"rgw_cluster_id", "node", "instance_id"})
+	clusterSuccessOpsTotal       = newGaugeVec("radosgw_cluster_success_ops_total", "Total successful operations across the entire cluster", []string{"rgw_cluster_id", "node", "instance_id"})
 
 	// Miscellaneous metrics
 	scrapeDurationSeconds = newGaugeVec("radosgw_usage_scrape_duration_seconds", "Amount of time each scrape takes", []string{})
@@ -139,193 +136,193 @@ func init() {
 	prometheus.MustRegister(userWriteOpsTotal)
 	prometheus.MustRegister(userBytesSentTotal)
 	prometheus.MustRegister(userBytesReceivedTotal)
-	prometheus.MustRegister(userBytesSentCurrent)
-	prometheus.MustRegister(userBytesReceivedCurrent)
-	prometheus.MustRegister(userCurrentOps)
-	prometheus.MustRegister(userMaxOps)
-	prometheus.MustRegister(userLatencySeconds)
-	prometheus.MustRegister(userErrorRateTotal)
 	prometheus.MustRegister(userSuccessOpsTotal)
+	prometheus.MustRegister(userErrorRateTotal)
 	prometheus.MustRegister(userThroughputBytesTotal)
-	prometheus.MustRegister(userThroughputBytesCurrent)
-	prometheus.MustRegister(apiUsagePerUser)
-	prometheus.MustRegister(userQuotaEnabled)
-	prometheus.MustRegister(userQuotaMaxSize)
-	prometheus.MustRegister(userQuotaMaxSizeBytes)
-	prometheus.MustRegister(userQuotaMaxObjects)
-	prometheus.MustRegister(userBucketQuotaEnabled)
-	prometheus.MustRegister(userBucketQuotaMaxSize)
-	prometheus.MustRegister(userBucketQuotaMaxSizeBytes)
-	prometheus.MustRegister(userBucketQuotaMaxObjects)
 	prometheus.MustRegister(userCapacityUsage)
 
-	//
-	prometheus.MustRegister(opsTotal)
-	prometheus.MustRegister(successfulOpsTotal)
-	prometheus.MustRegister(bytesSentTotal)
-	prometheus.MustRegister(bytesReceivedTotal)
+	prometheus.MustRegister(userOpsPerSec)
+	prometheus.MustRegister(userReadOpsPerSec)
+	prometheus.MustRegister(userWriteOpsPerSec)
+	prometheus.MustRegister(userBytesReceivedPerSec)
+	prometheus.MustRegister(userBytesSentPerSec)
+	prometheus.MustRegister(userThroughputBytesPerSec)
+
+	prometheus.MustRegister(userQuotaEnabled)
+	prometheus.MustRegister(userQuotaMaxSize)
+	prometheus.MustRegister(userQuotaMaxObjects)
+
+	prometheus.MustRegister(apiUsagePerUser)
+
+	////
 	prometheus.MustRegister(bucketUsageBytes)
 	prometheus.MustRegister(bucketUtilizedBytes)
 	prometheus.MustRegister(bucketUsageObjects)
+	prometheus.MustRegister(bucketReadOpsTotal)
+	prometheus.MustRegister(bucketWriteOpsTotal)
+	prometheus.MustRegister(bucketBytesSentTotal)
+	prometheus.MustRegister(bucketBytesReceivedTotal)
+	prometheus.MustRegister(bucketSuccessOpsTotal)
+	prometheus.MustRegister(bucketOpsTotal)
+	prometheus.MustRegister(bucketErrorRate)
+	prometheus.MustRegister(bucketCapacityUsage)
+	prometheus.MustRegister(bucketThroughputBytesTotal)
+	prometheus.MustRegister(bucketAPIUsageTotal)
+
+	prometheus.MustRegister(bucketOpsPerSec)
+	prometheus.MustRegister(bucketReadOpsPerSec)
+	prometheus.MustRegister(bucketWriteOpsPerSec)
+	prometheus.MustRegister(bucketBytesSentPerSec)
+	prometheus.MustRegister(bucketBytesReceivedPerSec)
+	prometheus.MustRegister(bucketThroughputBytesPerSec)
+
 	prometheus.MustRegister(bucketQuotaEnabled)
 	prometheus.MustRegister(bucketQuotaMaxSize)
-	prometheus.MustRegister(bucketQuotaMaxSizeBytes)
 	prometheus.MustRegister(bucketQuotaMaxObjects)
 	prometheus.MustRegister(bucketShards)
 
 	prometheus.MustRegister(clusterOpsTotal)
 	prometheus.MustRegister(clusterBytesSentTotal)
 	prometheus.MustRegister(clusterBytesReceivedTotal)
-	prometheus.MustRegister(clusterCurrentOps)
-	prometheus.MustRegister(clusterMaxOps)
 	prometheus.MustRegister(clusterThroughputBytesTotal)
-	prometheus.MustRegister(clusterLatencySeconds)
 
-	prometheus.MustRegister(bucketOpsTotal)
-	prometheus.MustRegister(bucketBytesSentTotal)
-	prometheus.MustRegister(bucketBytesReceivedTotal)
-	prometheus.MustRegister(bucketCurrentOps)
-	prometheus.MustRegister(bucketMaxOps)
-	prometheus.MustRegister(bucketRequestsTotal)
-	prometheus.MustRegister(bucketThroughputBytesTotal)
-	prometheus.MustRegister(bucketLatencySeconds)
+	prometheus.MustRegister(clusterOpsPerSec)
+	prometheus.MustRegister(clusterReadsPerSec)
+	prometheus.MustRegister(clusterWritesPerSec)
+	prometheus.MustRegister(clusterBytesSentPerSec)
+	prometheus.MustRegister(clusterBytesReceivedPerSec)
+	prometheus.MustRegister(clusterThroughputBytesPerSec)
+	prometheus.MustRegister(clusterErrorRate)
+	prometheus.MustRegister(clusterCapacityUsageBytes)
+	prometheus.MustRegister(clusterSuccessOpsTotal)
+
 	prometheus.MustRegister(scrapeDurationSeconds)
 }
 
 func publishToPrometheus(entries []UsageEntry, scrapeDuration float64, cfg RadosGWUsageConfig) {
-	var (
-		totalClusterOps             uint64
-		totalClusterBytesSent       uint64
-		totalClusterBytesReceived   uint64
-		totalClusterThroughputBytes uint64
-		totalClusterLatencySeconds  float64
-		totalClusterCurrentOps      uint64
-		totalClusterMaxOps          uint64
-	)
+	clusterMetrics := RadosGWClusterMetrics{}
 
 	for _, entry := range entries {
 		populateBucketMetrics(entry, &cfg)
 		populateUserMetrics(entry, &cfg)
-		aggregateClusterMetrics(
-			entry,
-			&totalClusterOps,
-			&totalClusterBytesSent,
-			&totalClusterBytesReceived,
-			&totalClusterThroughputBytes,
-			&totalClusterLatencySeconds,
-			&totalClusterCurrentOps,
-			&totalClusterMaxOps,
-		)
+		aggregateClusterMetrics(entry, &clusterMetrics)
 	}
 	// Populate cluster-level metrics after aggregating all entries
-	populateClusterMetrics(
-		cfg.ClusterID,
-		cfg.NodeName,
-		cfg.InstanceID,
-		totalClusterOps,
-		totalClusterBytesSent,
-		totalClusterBytesReceived,
-		totalClusterThroughputBytes,
-		totalClusterLatencySeconds,
-		totalClusterCurrentOps,
-		totalClusterMaxOps,
-	)
+	populateClusterMetrics(cfg.ClusterID, cfg.NodeName, cfg.InstanceID, clusterMetrics)
 
 	scrapeDurationSeconds.With(prometheus.Labels{}).Set(scrapeDuration)
 }
 
 func populateBucketMetrics(entry UsageEntry, cfg *RadosGWUsageConfig) {
 	for _, bucket := range entry.Buckets {
-		labels := prometheus.Labels{
-			"bucket":         bucket.Bucket,
-			"owner":          bucket.Owner,
+		bucketLabels := prometheus.Labels{
+			"bucket":         bucket.Meta.Name,
+			"owner":          bucket.Meta.Owner,
+			"zonegroup":      bucket.Meta.Zonegroup,
 			"rgw_cluster_id": cfg.ClusterID,
 			"node":           cfg.NodeName,
 			"instance_id":    cfg.InstanceID,
 		}
-		bucketOpsTotal.With(labels).Set(float64(bucket.TotalOps))
-		bucketBytesSentTotal.With(labels).Set(float64(bucket.TotalBytesSent))
-		bucketBytesReceivedTotal.With(labels).Set(float64(bucket.TotalBytesReceived))
-		bucketThroughputBytesTotal.With(labels).Add(float64(bucket.TotalThroughputBytes))
-		bucketLatencySeconds.With(labels).Observe(bucket.TotalLatencySeconds)
-		bucketCurrentOps.With(labels).Set(float64(bucket.CurrentOps))
-		bucketMaxOps.With(labels).Set(float64(bucket.MaxOps))
+		bucketUsageBytes.With(bucketLabels).Set(float64(bucket.Totals.DataSize))
+		bucketUtilizedBytes.With(bucketLabels).Set(float64(bucket.Totals.UtilizedSize))
+		bucketUsageObjects.With(bucketLabels).Set(float64(bucket.Totals.Objects))
+		bucketReadOpsTotal.With(bucketLabels).Set(float64(bucket.Totals.ReadOps))
+		bucketWriteOpsTotal.With(bucketLabels).Set(float64(bucket.Totals.WriteOps))
+		bucketBytesSentTotal.With(bucketLabels).Set(float64(bucket.Totals.BytesSent))
+		bucketBytesReceivedTotal.With(bucketLabels).Set(float64(bucket.Totals.BytesReceived))
+		bucketSuccessOpsTotal.With(bucketLabels).Set(float64(bucket.Totals.SuccessOps))
+		bucketOpsTotal.With(bucketLabels).Set(float64(bucket.Totals.OpsTotal))
+		bucketErrorRate.With(bucketLabels).Set(float64(bucket.Totals.ErrorRate))
+		bucketCapacityUsage.With(bucketLabels).Set(float64(bucket.Totals.Capacity))
+		bucketThroughputBytesTotal.With(bucketLabels).Set(float64(bucket.Totals.BytesSent + bucket.Totals.BytesReceived))
 
-		for _, category := range bucket.Categories {
-			categoryLabels := prometheus.Labels{
-				"bucket":         bucket.Bucket,
-				"owner":          bucket.Owner,
-				"category":       category.Category,
+		bucketOpsPerSec.With(bucketLabels).Set(float64(bucket.Current.OpsPerSec))
+		bucketReadOpsPerSec.With(bucketLabels).Set(float64(bucket.Current.ReadOpsPerSec))
+		bucketWriteOpsPerSec.With(bucketLabels).Set(float64(bucket.Current.WriteOpsPerSec))
+		bucketBytesSentPerSec.With(bucketLabels).Set(float64(bucket.Current.BytesSentPerSec))
+		bucketBytesReceivedPerSec.With(bucketLabels).Set(float64(bucket.Current.BytesReceivedPerSec))
+		bucketThroughputBytesPerSec.With(bucketLabels).Set(float64(bucket.Current.ThroughputBytesPerSec))
+
+		// Set quota information
+		bucketQuotaEnabled.With(bucketLabels).Set(boolToFloat64(&bucket.Quota.Enabled))
+		if bucket.Quota.MaxSize != nil {
+			bucketQuotaMaxSize.With(bucketLabels).Set(float64(*bucket.Quota.MaxSize))
+		}
+		if bucket.Quota.MaxObjects != nil {
+			bucketQuotaMaxObjects.With(bucketLabels).Set(float64(*bucket.Quota.MaxObjects))
+		}
+
+		// Set shards
+		if bucket.Meta.Shards != nil {
+			bucketShards.With(bucketLabels).Set(float64(*bucket.Meta.Shards))
+		}
+
+		// Set API usage per bucket (instead of categories)
+		for category, ops := range bucket.APIUsage {
+			apiLabels := prometheus.Labels{
+				"bucket":         bucket.Meta.Name,
+				"owner":          bucket.Meta.Owner,
+				"zonegroup":      bucket.Meta.Zonegroup,
 				"rgw_cluster_id": cfg.ClusterID,
 				"node":           cfg.NodeName,
 				"instance_id":    cfg.InstanceID,
+				"category":       category,
 			}
-			opsTotal.With(categoryLabels).Add(float64(category.Ops))
-			successfulOpsTotal.With(categoryLabels).Add(float64(category.SuccessfulOps))
-			bytesSentTotal.With(categoryLabels).Add(float64(category.BytesSent))
-			bytesReceivedTotal.With(categoryLabels).Add(float64(category.BytesReceived))
+			bucketAPIUsageTotal.With(apiLabels).Add(float64(ops)) // Total API ops for the category
 		}
-
-		bucketLabels := prometheus.Labels{
-			"bucket":         bucket.Bucket,
-			"owner":          bucket.Owner,
-			"zonegroup":      bucket.Zonegroup,
-			"rgw_cluster_id": cfg.ClusterID,
-			"node":           cfg.NodeName,
-			"instance_id":    cfg.InstanceID,
-		}
-		bucketUsageBytes.With(bucketLabels).Set(float64(*bucket.Usage.RgwMain.Size))
-		bucketUtilizedBytes.With(bucketLabels).Set(float64(*bucket.Usage.RgwMain.SizeUtilized))
-		bucketUsageObjects.With(bucketLabels).Set(float64(*bucket.Usage.RgwMain.NumObjects))
-		bucketQuotaEnabled.With(bucketLabels).Set(boolToFloat64(bucket.BucketQuota.Enabled))
-		bucketQuotaMaxSize.With(bucketLabels).Set(float64(*bucket.BucketQuota.MaxSize))
-		bucketQuotaMaxSizeBytes.With(bucketLabels).Set(float64(*bucket.BucketQuota.MaxSizeKb) * 1024)
-		bucketQuotaMaxObjects.With(bucketLabels).Set(float64(*bucket.BucketQuota.MaxObjects))
-		bucketShards.With(bucketLabels).Set(float64(bucket.NumShards))
 	}
 }
 
 func populateUserMetrics(entry UsageEntry, cfg *RadosGWUsageConfig) {
 	userMetadata.With(prometheus.Labels{
-		"user":           entry.User,
-		"display_name":   entry.DisplayName,
-		"email":          entry.Email,
-		"storage_class":  entry.DefaultStorageClass,
+		"user":           entry.UserLevel.Meta.ID,
+		"display_name":   entry.UserLevel.Meta.DisplayName,
+		"email":          entry.UserLevel.Meta.Email,
+		"storage_class":  entry.UserLevel.Meta.DefaultStorageClass,
 		"rgw_cluster_id": cfg.ClusterID,
 		"node":           cfg.NodeName,
 		"instance_id":    cfg.InstanceID,
 	}).Set(1)
 
 	labels := prometheus.Labels{
-		"user":           entry.User,
+		"user":           entry.UserLevel.Meta.ID,
 		"rgw_cluster_id": cfg.ClusterID,
 		"node":           cfg.NodeName,
 		"instance_id":    cfg.InstanceID,
 	}
-	userBucketsTotal.With(labels).Set(float64(entry.UserLevel.UserBucketsTotal))
-	userObjectsTotal.With(labels).Set(float64((entry.UserLevel.UserObjectsTotal)))
-	userDataSizeTotal.With(labels).Set(float64(entry.UserLevel.UserDataSizeTotal))
-	userOpsTotal.With(labels).Set(float64(entry.UserLevel.UserOpsTotal))
-	userReadOpsTotal.With(labels).Set(float64(entry.UserLevel.UserReadOpsTotal))
-	userWriteOpsTotal.With(labels).Set(float64(entry.UserLevel.UserWriteOpsTotal))
-	userBytesSentTotal.With(labels).Set(float64(entry.UserLevel.UserBytesSentTotal))
-	userBytesReceivedTotal.With(labels).Set(float64(entry.UserLevel.UserBytesReceivedTotal))
-	userBytesSentCurrent.With(labels).Set(float64(entry.UserLevel.UserBytesSentCurrent))
-	userBytesReceivedCurrent.With(labels).Set(float64(entry.UserLevel.UserBytesReceivedCurrent))
+	userBucketsTotal.With(labels).Set(float64(entry.UserLevel.Totals.BucketsTotal))
+	userObjectsTotal.With(labels).Set(float64((entry.UserLevel.Totals.ObjectsTotal)))
+	userDataSizeTotal.With(labels).Set(float64(entry.UserLevel.Totals.DataSizeTotal))
+	userOpsTotal.With(labels).Set(float64(entry.UserLevel.Totals.OpsTotal))
+	userReadOpsTotal.With(labels).Set(float64(entry.UserLevel.Totals.ReadOpsTotal))
+	userWriteOpsTotal.With(labels).Set(float64(entry.UserLevel.Totals.WriteOpsTotal))
+	userBytesSentTotal.With(labels).Set(float64(entry.UserLevel.Totals.BytesSentTotal))
+	userBytesReceivedTotal.With(labels).Set(float64(entry.UserLevel.Totals.BytesReceivedTotal))
+	userSuccessOpsTotal.With(labels).Set(float64(entry.UserLevel.Totals.SuccessOpsTotal))
+	userErrorRateTotal.With(labels).Set(float64(entry.UserLevel.Totals.ErrorRateTotal))
+	userThroughputBytesTotal.With(labels).Add(float64(entry.UserLevel.Totals.ThroughputBytesTotal))
+	userCapacityUsage.With(labels).Set(float64(entry.UserLevel.Totals.TotalCapacity))
 
-	userErrorRateTotal.With(labels).Set(float64(entry.UserLevel.ErrorRateTotal))
-	userSuccessOpsTotal.With(labels).Set(float64(entry.UserLevel.UserSuccessOpsTotal))
+	userOpsPerSec.With(labels).Set(float64(entry.UserLevel.Current.OpsPerSec))
+	userReadOpsPerSec.With(labels).Set(float64(entry.UserLevel.Current.ReadOpsPerSec))
+	userWriteOpsPerSec.With(labels).Set(float64(entry.UserLevel.Current.WriteOpsPerSec))
+	userBytesReceivedPerSec.With(labels).Set(float64(entry.UserLevel.Current.DataBytesReceivedPerSec))
+	userBytesSentPerSec.With(labels).Set(float64(entry.UserLevel.Current.DataBytesSentPerSec))
+	userThroughputBytesPerSec.With(labels).Add(float64(entry.UserLevel.Current.ThroughputBytesPerSec))
 
-	userCurrentOps.With(labels).Set(float64(entry.UserLevel.UserOpsCurrent))
-	userThroughputBytesTotal.With(labels).Add(float64(entry.UserLevel.UserThroughputBytesTotal))
-	userThroughputBytesCurrent.With(labels).Add(float64(entry.UserLevel.UserThroughputBytesCurrent))
-
-	userCapacityUsage.With(labels).Set(float64(entry.UserLevel.UserTotalCapacity))
+	// User quota metrics
+	userQuotaEnabled.With(labels).Set(boolToFloat64(&entry.UserLevel.Quota.Enabled))
+	if entry.UserLevel.Quota.MaxSize != nil {
+		userQuotaMaxSize.With(labels).Set(float64(*entry.UserLevel.Quota.MaxSize))
+	}
+	if entry.UserLevel.Quota.MaxObjects != nil {
+		userQuotaMaxObjects.With(labels).Set(float64(*entry.UserLevel.Quota.MaxObjects))
+	}
 
 	for apiCategory, ops := range entry.UserLevel.APIUsagePerUser {
 		// Export each category's API usage to Prometheus
 		apiUsagePerUser.With(prometheus.Labels{
-			"user":           entry.User,
+			"user":           entry.UserLevel.Meta.ID,
 			"api_category":   apiCategory,
 			"rgw_cluster_id": cfg.ClusterID,
 			"node":           cfg.NodeName,
@@ -333,49 +330,45 @@ func populateUserMetrics(entry UsageEntry, cfg *RadosGWUsageConfig) {
 		}).Add(float64(ops))
 	}
 
-	userQuotaEnabled.With(labels).Set(boolToFloat64(entry.UserQuota.Enabled))
-
-	if entry.UserQuota.MaxSize != nil {
-		userQuotaMaxSize.With(labels).Set(float64(*entry.UserQuota.MaxSize))
-	}
-	if entry.UserQuota.MaxSizeKb != nil {
-		userQuotaMaxSizeBytes.With(labels).Set(float64(*entry.UserQuota.MaxSizeKb) * 1024)
-	}
-	if entry.UserQuota.MaxObjects != nil {
-		userQuotaMaxObjects.With(labels).Set(float64(*entry.UserQuota.MaxObjects))
-	}
-
-	userLatencySeconds.With(labels).Observe(entry.TotalLatencySeconds)
-
-	userMaxOps.With(labels).Set(float64(entry.MaxOps))
-
 }
 
-func aggregateClusterMetrics(entry UsageEntry, totalOps, totalBytesSent, totalBytesReceived, totalThroughputBytes *uint64, totalLatencySeconds *float64, totalCurrentOps, totalMaxOps *uint64) {
-	*totalOps += entry.UserLevel.UserOpsTotal
-	*totalBytesSent += entry.UserLevel.UserBytesSentTotal
-	*totalBytesReceived += entry.UserLevel.UserBytesReceivedTotal
-	*totalThroughputBytes += entry.UserLevel.UserThroughputBytesTotal
-	*totalLatencySeconds += entry.TotalLatencySeconds
-	*totalCurrentOps += entry.UserLevel.UserOpsCurrent
-	if entry.MaxOps > *totalMaxOps {
-		*totalMaxOps = entry.MaxOps
+// Aggregate cluster metrics from both user and bucket levels
+func aggregateClusterMetrics(entry UsageEntry, clusterMetrics *RadosGWClusterMetrics) {
+
+	clusterMetrics.OpsTotal += entry.UserLevel.Totals.OpsTotal
+	clusterMetrics.ReadOpsPerSec += entry.UserLevel.Totals.ReadOpsTotal
+	clusterMetrics.WriteOpsPerSec += entry.UserLevel.Totals.WriteOpsTotal
+	clusterMetrics.BytesSentPerSec += entry.UserLevel.Totals.BytesSentTotal
+	clusterMetrics.BytesReceivedPerSec += entry.UserLevel.Totals.BytesReceivedTotal
+	clusterMetrics.ThroughputBytesPerSec += entry.UserLevel.Totals.ThroughputBytesTotal
+	clusterMetrics.CapacityUsageBytes += entry.UserLevel.Totals.TotalCapacity
+
+	// Error rate is averaged across all users/buckets
+	if entry.UserLevel.Totals.OpsTotal > 0 {
+		errorRate := float64(entry.UserLevel.Totals.OpsTotal-entry.UserLevel.Totals.SuccessOpsTotal) / float64(entry.UserLevel.Totals.OpsTotal) * 100
+		clusterMetrics.ErrorRate += errorRate
 	}
+
+	clusterMetrics.CurrentOpsPerSec += entry.UserLevel.Current.OpsPerSec
 }
 
-func populateClusterMetrics(clusterID, node, instanceID string, totalOps, totalBytesSent, totalBytesReceived, totalThroughputBytes uint64, totalLatencySeconds float64, totalCurrentOps, totalMaxOps uint64) {
+// Populate cluster-level metrics into Prometheus
+func populateClusterMetrics(clusterID, node, instanceID string, clusterMetrics RadosGWClusterMetrics) {
 	labels := prometheus.Labels{
 		"rgw_cluster_id": clusterID,
 		"node":           node,
 		"instance_id":    instanceID,
 	}
-	clusterOpsTotal.With(labels).Set(float64(totalOps))
-	clusterBytesSentTotal.With(labels).Set(float64(totalBytesSent))
-	clusterBytesReceivedTotal.With(labels).Set(float64(totalBytesReceived))
-	clusterThroughputBytesTotal.With(labels).Add(float64(totalThroughputBytes))
-	clusterLatencySeconds.With(labels).Observe(totalLatencySeconds)
-	clusterCurrentOps.With(labels).Set(float64(totalCurrentOps))
-	clusterMaxOps.With(labels).Set(float64(totalMaxOps))
+
+	clusterOpsTotal.With(labels).Set(float64(clusterMetrics.OpsTotal))
+	clusterReadsPerSec.With(labels).Set(float64(clusterMetrics.ReadOpsPerSec))
+	clusterWritesPerSec.With(labels).Set(float64(clusterMetrics.WriteOpsPerSec))
+	clusterBytesSentPerSec.With(labels).Set(float64(clusterMetrics.BytesSentPerSec))
+	clusterBytesReceivedPerSec.With(labels).Set(float64(clusterMetrics.BytesReceivedPerSec))
+	clusterThroughputBytesPerSec.With(labels).Set(clusterMetrics.ThroughputBytesPerSec)
+	clusterErrorRate.With(labels).Set(clusterMetrics.ErrorRate)
+	clusterOpsPerSec.With(labels).Set(float64(clusterMetrics.CurrentOpsPerSec))
+	clusterCapacityUsageBytes.With(labels).Set(float64(clusterMetrics.CapacityUsageBytes))
 }
 
 func boolToFloat64(b *bool) float64 {
