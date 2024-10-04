@@ -92,6 +92,17 @@ func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attri
 		ssdLifeUsed = &smartData.NVMeSmartHealthInfoLog.PercentageUsed
 	}
 
+	// Initialize ATA-specific attributes only if ATASMARTAttributes is not nil
+	var reallocatedSectors, pendingSectors, powerOnHours *int64
+	var udmaCrcErrorCount int64
+
+	if smartData.ATASMARTAttributes != nil {
+		reallocatedSectors = &findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 5).Raw.Value
+		pendingSectors = &findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 197).Raw.Value
+		udmaCrcErrorCount = findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 199).Raw.Value
+		powerOnHours = &smartData.PowerOnTime.Hours
+	}
+
 	return NormalizedSmartData{
 		NodeName:           nodeName,
 		InstanceID:         instanceID,
@@ -99,12 +110,12 @@ func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attri
 		DeviceInfo:         deviceInfo,
 		CapacityGB:         capacityGB,
 		TemperatureCelsius: temperatureCelsius,
-		ReallocatedSectors: &findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 5).Raw.Value,
-		PendingSectors:     &findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 197).Raw.Value,
-		PowerOnHours:       &smartData.PowerOnTime.Hours,
+		ReallocatedSectors: reallocatedSectors,
+		PendingSectors:     pendingSectors,
+		PowerOnHours:       powerOnHours,
 		SSDLifeUsed:        ssdLifeUsed,
 		ErrorCounts: map[string]int64{
-			"UDMA_CRC_Error_Count": findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 199).Raw.Value,
+			"UDMA_CRC_Error_Count": udmaCrcErrorCount,
 		},
 		Attributes: attributes,
 	}
