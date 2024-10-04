@@ -175,7 +175,7 @@ func collectUsageMetrics(cfg RadosGWUsageConfig, currentTime time.Time) ([]Usage
 
 	var entries []UsageEntry
 	// Process the collected bucket data and add it to the entries list.
-	processBucketData(cfg, bucketData, usageDict, &entries)
+	processBucketData(cfg, bucketData, usageDict, &entries, currentTime)
 	// Process the collected user data and add it to the entries list.
 	processUserData(cfg, &entries, userData, co, currentTime)
 
@@ -240,7 +240,7 @@ func processUsageData(usage admin.Usage, usageDict map[string]map[string]map[str
 
 // processBucketData processes the bucket data and adds relevant details to the entries list.
 // It also ensures that categories from the usageDict are correctly included in the output.
-func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageDict map[string]map[string]map[string]UsageMetrics, entries *[]UsageEntry) {
+func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageDict map[string]map[string]map[string]UsageMetrics, entries *[]UsageEntry, currentTime time.Time) {
 	var bucketsProcessed int
 
 	readCategories := []string{
@@ -290,28 +290,23 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 		"abort_multipart",
 		"post_obj",
 	}
-	apiUsagePerBucket := make(map[string]int64)
 
 	for _, bucket := range bucketData {
 		bucketName := bucket.Bucket
 		bucketOwner := bucket.Owner
-		bucketShards := bucket.NumShards
 		bucketZonegroup := bucket.Zonegroup
+		bucketShards := bucket.NumShards
 
 		var bucketUsageBytes, bucketUtilizedBytes uint64
 		var bucketUsageObjects uint64
 		var bucketQuotaEnabled bool
 		var bucketQuotaMaxSize int64
-		var bucketQuotaMaxSizeBytes int
 		var bucketQuotaMaxObjects int64
 		var totalOps, readOps, writeOps, successOps uint64
 		var totalBytesSent uint64
 		var totalBytesReceived uint64
-		var maxOps uint64
 		var totalThroughputBytes uint64
-		var totalLatencySeconds float64
 		var totalRequests uint64
-		var currentOps uint64
 		var errorOps uint64
 		var errorRate float64
 
@@ -336,9 +331,6 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 		if bucket.BucketQuota.MaxSize != nil {
 			bucketQuotaMaxSize = int64(*bucket.BucketQuota.MaxSize)
 		}
-		if bucket.BucketQuota.MaxSizeKb != nil {
-			bucketQuotaMaxSizeBytes = int(*bucket.BucketQuota.MaxSizeKb) * 1024
-		}
 		if bucket.BucketQuota.MaxObjects != nil {
 			bucketQuotaMaxObjects = *bucket.BucketQuota.MaxObjects
 		}
@@ -353,6 +345,7 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 
 		// Prepare the category usage data from usageDict
 		var categories []CategoryUsage
+		apiUsagePerBucket := make(map[string]int64)
 		if bucketCategoryUsage, ok := usageDict[bucketOwner][bucketName]; ok {
 			for categoryName, metrics := range bucketCategoryUsage {
 				categories = append(categories, CategoryUsage{
@@ -373,8 +366,6 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 
 				totalRequests++ // Each category operation is counted as a request
 
-				totalLatencySeconds += float64(metrics.Ops) * 0.05 //FIXME Simulated latency (e.g., 50ms per operation)
-
 				// Check if the category is a read or write operation
 				if contains(readCategories, categoryName) {
 					readOps += metrics.Ops
@@ -383,40 +374,13 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 				} else {
 					log.Info().Str("Category", categoryName).Msg("Unknown category")
 				}
-
-				// FIXME: currentOps and maxOps to be retrieved from a NATS subject or similar source
-				if metrics.Ops > maxOps {
-					maxOps = metrics.Ops
-				}
-
 			}
 		}
 
-		// Calculate size in KB if not directly provided
-		var sizeKb, sizeKbActual, sizeKbUtilized *uint64
-
-		// Check if SizeKb is provided; if not, calculate it from bucketUsageBytes
-		if bucket.Usage.RgwMain.SizeKb != nil {
-			sizeKb = bucket.Usage.RgwMain.SizeKb
-		} else {
-			calculatedSizeKb := bucketUsageBytes / 1024
-			sizeKb = &calculatedSizeKb
-		}
-
-		// Check if SizeKbActual is provided; if not, calculate it from bucketUsageBytes
-		if bucket.Usage.RgwMain.SizeKbActual != nil {
-			sizeKbActual = bucket.Usage.RgwMain.SizeKbActual
-		} else {
-			calculatedSizeKbActual := bucketUsageBytes / 1024
-			sizeKbActual = &calculatedSizeKbActual
-		}
-
-		// Check if SizeKbUtilized is provided; if not, calculate it from bucketUtilizedBytes
-		if bucket.Usage.RgwMain.SizeKbUtilized != nil {
-			sizeKbUtilized = bucket.Usage.RgwMain.SizeKbUtilized
-		} else {
-			calculatedSizeKbUtilized := bucketUtilizedBytes / 1024
-			sizeKbUtilized = &calculatedSizeKbUtilized
+		// Calculate error rate and error ops
+		errorOps = totalOps - successOps
+		if totalOps > 0 {
+			errorRate = (float64(errorOps) / float64(totalOps)) * 100
 		}
 
 		// Calculate error rate and error ops
@@ -426,59 +390,40 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 		}
 
 		// Find or create the UsageEntry for the bucket owner
-		entry := findOrCreateEntry(entries, bucketOwner)
+		entry := findOrCreateEntryByBucketOwner(entries, bucketOwner)
 		entry.ClusterID = cfg.ClusterID
 
-		// Append the bucket information to the user's entry
-		entry.Buckets = append(entry.Buckets, BucketUsage{
-			Bucket:    bucketName,
-			Owner:     bucketOwner,
-			Zonegroup: bucketZonegroup,
-			Usage: UsageStats{
-				RgwMain: struct {
-					Size           *uint64 `json:"size"`
-					SizeActual     *uint64 `json:"size_actual"`
-					SizeUtilized   *uint64 `json:"size_utilized"`
-					SizeKb         *uint64 `json:"size_kb"`
-					SizeKbActual   *uint64 `json:"size_kb_actual"`
-					SizeKbUtilized *uint64 `json:"size_kb_utilized"`
-					NumObjects     *uint64 `json:"num_objects"`
-				}{
-					Size:           &bucketUsageBytes,
-					SizeActual:     &bucketUsageBytes,
-					SizeUtilized:   &bucketUtilizedBytes,
-					SizeKb:         sizeKb,
-					SizeKbActual:   sizeKbActual,
-					SizeKbUtilized: sizeKbUtilized,
-					NumObjects:     &bucketUsageObjects,
-				},
-			},
-			BucketQuota: admin.QuotaSpec{
-				UID:        bucketOwner,
-				Bucket:     bucketName,
-				QuotaType:  "bucket",
-				Enabled:    &bucketQuotaEnabled,
-				CheckOnRaw: false,
-				MaxSize:    &bucketQuotaMaxSize,
-				MaxSizeKb:  &bucketQuotaMaxSizeBytes,
-				MaxObjects: &bucketQuotaMaxObjects,
-			},
-			NumShards:            *bucketShards,
-			Categories:           categories,
-			APIUsagePerBucket:    apiUsagePerBucket,
-			TotalOps:             totalOps,
-			TotalBytesSent:       totalBytesSent,
-			TotalBytesReceived:   totalBytesReceived,
-			TotalThroughputBytes: totalThroughputBytes,
-			TotalLatencySeconds:  totalLatencySeconds,
-			TotalRequests:        totalRequests,
-			CurrentOps:           currentOps,
-			MaxOps:               maxOps,
-			TotalReadOps:         readOps,
-			TotalWriteOps:        writeOps,
-			TotalSuccessOps:      successOps,
-			ErrorRate:            errorRate,
-		})
+		// Calculate the current metrics for the bucket
+		currMetrics := CalculateCurrentBucketMetrics(bucketName, totalBytesSent, totalBytesReceived, readOps, writeOps, currentTime)
+
+		currMetrics.Meta.Name = bucketName
+		currMetrics.Meta.Owner = bucketOwner
+		currMetrics.Meta.Zonegroup = bucketZonegroup
+		currMetrics.Meta.Shards = bucketShards
+		currMetrics.Meta.CreatedAt = bucket.CreationTime
+
+		// Set the quota for the bucket
+		currMetrics.Quota.Enabled = bucketQuotaEnabled
+		currMetrics.Quota.MaxSize = Uint64Ptr(uint64(bucketQuotaMaxSize))
+		currMetrics.Quota.MaxObjects = Uint64Ptr(uint64(bucketQuotaMaxObjects))
+
+		// Set the totals for the bucket
+		currMetrics.Totals.DataSize = bucketUsageBytes
+		currMetrics.Totals.UtilizedSize = bucketUtilizedBytes
+		currMetrics.Totals.Objects = bucketUsageObjects
+		currMetrics.Totals.ReadOps = readOps
+		currMetrics.Totals.WriteOps = writeOps
+		currMetrics.Totals.BytesSent = totalBytesSent
+		currMetrics.Totals.BytesReceived = totalBytesReceived
+		currMetrics.Totals.SuccessOps = successOps
+		currMetrics.Totals.OpsTotal = totalOps
+		currMetrics.Totals.ErrorRate = errorRate
+		currMetrics.Totals.Capacity = bucketUsageBytes //FIXME We may want to refine this if capacity is calculated differently
+
+		currMetrics.APIUsage = apiUsagePerBucket
+
+		// Append the bucket metrics to BucketLevels
+		entry.Buckets = append(entry.Buckets, currMetrics)
 
 		bucketsProcessed++
 	}
@@ -503,11 +448,13 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 		// Find the corresponding entry for the user, or create a new one if not found
 		entry := findOrCreateEntry(entries, userInfo.ID)
 
-		// Populate user-specific data into the entry
-		entry.User = userInfo.ID
-		entry.DisplayName = userInfo.DisplayName
-		entry.Email = userInfo.Email
-		entry.DefaultStorageClass = userInfo.DefaultStorageClass
+		// Populate static metadata only if it's not already set
+		if entry.UserLevel.Meta.ID == "" {
+			entry.UserLevel.Meta.ID = userInfo.ID
+			entry.UserLevel.Meta.DisplayName = userInfo.DisplayName
+			entry.UserLevel.Meta.Email = userInfo.Email
+			entry.UserLevel.Meta.DefaultStorageClass = userInfo.DefaultStorageClass
+		}
 
 		// Populate quota information
 		populateQuotaInfo(entry, userInfo)
@@ -518,29 +465,27 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 		}
 
 		// Calculate the total number of buckets, objects, and data size for the user
-		entry.UserLevel.UserBucketsTotal = len(entry.Buckets)
+		entry.UserLevel.Totals.BucketsTotal = len(entry.Buckets)
 		entry.UserLevel.APIUsagePerUser = make(map[string]int64)
 		for _, bucket := range entry.Buckets {
-			entry.UserLevel.UserObjectsTotal += *bucket.Usage.RgwMain.NumObjects
-			entry.UserLevel.UserDataSizeTotal += *bucket.Usage.RgwMain.SizeUtilized
-			entry.UserLevel.UserOpsTotal += bucket.TotalOps // Accumulate ops, which are the total requests
-			entry.UserLevel.UserReadOpsTotal += bucket.TotalReadOps
-			entry.UserLevel.UserWriteOpsTotal += bucket.TotalWriteOps
-			entry.UserLevel.UserBytesSentTotal += bucket.TotalBytesSent
-			entry.UserLevel.UserBytesReceivedTotal += bucket.TotalBytesReceived
-			entry.UserLevel.UserSuccessOpsTotal += bucket.TotalSuccessOps
-			entry.UserLevel.UserTotalCapacity += *bucket.Usage.RgwMain.SizeActual
-			entry.UserLevel.UserThroughputBytesTotal += bucket.TotalThroughputBytes
+			entry.UserLevel.Totals.ObjectsTotal += bucket.Totals.Objects
+			entry.UserLevel.Totals.DataSizeTotal += bucket.Totals.DataSize
+			entry.UserLevel.Totals.OpsTotal += bucket.Totals.OpsTotal // Accumulate ops, which are the total requests
+			entry.UserLevel.Totals.ReadOpsTotal += bucket.Totals.ReadOps
+			entry.UserLevel.Totals.WriteOpsTotal += bucket.Totals.WriteOps
+			entry.UserLevel.Totals.BytesSentTotal += bucket.Totals.BytesSent
+			entry.UserLevel.Totals.BytesReceivedTotal += bucket.Totals.BytesReceived
+			entry.UserLevel.Totals.SuccessOpsTotal += bucket.Totals.SuccessOps
+			entry.UserLevel.Totals.TotalCapacity += bucket.Totals.Capacity
+			entry.UserLevel.Totals.ThroughputBytesTotal += bucket.Current.ThroughputBytesPerSec
 
 			// Calculate error rate and error ops
-			errorOps := entry.UserLevel.UserOpsTotal - entry.UserLevel.UserSuccessOpsTotal
-			if entry.UserLevel.UserOpsTotal > 0 {
-				entry.UserLevel.ErrorRateTotal = (float64(errorOps) / float64(entry.UserLevel.UserOpsTotal)) * 100
+			errorOps := entry.UserLevel.Totals.OpsTotal - entry.UserLevel.Totals.SuccessOpsTotal
+			if entry.UserLevel.Totals.OpsTotal > 0 {
+				entry.UserLevel.Totals.ErrorRateTotal = (float64(errorOps) / float64(entry.UserLevel.Totals.OpsTotal)) * 100
 			}
 
-			entry.TotalLatencySeconds += bucket.TotalLatencySeconds //TODO: latency just simulated
-
-			for category, ops := range bucket.APIUsagePerBucket {
+			for category, ops := range bucket.APIUsage {
 				entry.UserLevel.APIUsagePerUser[category] += ops // Sum API usage from all buckets
 			}
 
@@ -553,12 +498,20 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 		}
 
 		// Calculate current metrics
-		currMetrics := CalculateCurrentUserMetrics(entry.User, entry.UserLevel.UserBytesSentTotal, entry.UserLevel.UserBytesReceivedTotal, entry.UserLevel.UserOpsTotal, currentTime)
+		currMetrics := CalculateCurrentUserMetrics(
+			entry.UserLevel.Meta.ID,
+			entry.UserLevel.Totals.BytesSentTotal,
+			entry.UserLevel.Totals.BytesReceivedTotal,
+			entry.UserLevel.Totals.ReadOpsTotal,
+			entry.UserLevel.Totals.WriteOpsTotal,
+			currentTime,
+		)
 
-		entry.UserLevel.UserBytesSentCurrent = currMetrics.CurrentBytesSent
-		entry.UserLevel.UserBytesReceivedCurrent = currMetrics.CurrentBytesReceived
-		entry.UserLevel.UserThroughputBytesCurrent = currMetrics.Throughput
-		entry.UserLevel.UserOpsCurrent = currMetrics.CurrentOps
+		entry.UserLevel.Current.OpsPerSec = currMetrics.CurrentOps
+		entry.UserLevel.Current.ThroughputBytesPerSec = currMetrics.Throughput
+
+		entry.UserLevel.Current.DataBytesSentPerSec = currMetrics.CurrentBytesSent
+		entry.UserLevel.Current.DataBytesReceivedPerSec = currMetrics.CurrentBytesReceived
 	}
 
 	return nil
@@ -568,31 +521,76 @@ func BoolPtr(b bool) *bool {
 	return &b
 }
 
+func Uint64Ptr(value uint64) *uint64 {
+	return &value
+}
+
 func findOrCreateEntry(entries *[]UsageEntry, userID string) *UsageEntry {
 	for i, entry := range *entries {
-		if entry.User == userID {
+		if entry.UserLevel.Meta.ID == userID {
 			return &(*entries)[i]
 		}
 	}
 
-	*entries = append(*entries, UsageEntry{User: userID})
+	*entries = append(*entries, UsageEntry{UserLevel: *NewRadosGWUserMetrics()})
+	return &(*entries)[len(*entries)-1]
+}
+
+func findOrCreateEntryByBucketOwner(entries *[]UsageEntry, userID string) *UsageEntry {
+	for i, entry := range *entries {
+		if len(entry.Buckets) > 0 && entry.Buckets[0].Meta.Owner == userID {
+			return &(*entries)[i]
+		}
+	}
+
+	*entries = append(*entries, UsageEntry{UserLevel: *NewRadosGWUserMetrics()})
 	return &(*entries)[len(*entries)-1]
 }
 
 // populateUserQuota populates the user quota information for a user in the entry.
 func populateQuotaInfo(entry *UsageEntry, userInfo admin.User) {
-	falsePtr := BoolPtr(false)
-	entry.UserQuota = admin.QuotaSpec{Enabled: falsePtr}
+	// Initialize user quota in UserLevel
+	entry.UserLevel.Quota.Enabled = false // Default to quota being disabled
 
+	// Check and populate user quota if enabled
 	if userInfo.UserQuota.Enabled != nil && *userInfo.UserQuota.Enabled {
-		entry.UserQuota = userInfo.UserQuota
+		entry.UserLevel.Quota.Enabled = true
+		entry.UserLevel.Quota.MaxSize = nil
+		entry.UserLevel.Quota.MaxObjects = nil
+
+		if userInfo.UserQuota.MaxSize != nil {
+			size := uint64(*userInfo.UserQuota.MaxSize)
+			entry.UserLevel.Quota.MaxSize = &size
+		}
+
+		if userInfo.UserQuota.MaxObjects != nil {
+			objects := uint64(*userInfo.UserQuota.MaxObjects)
+			entry.UserLevel.Quota.MaxObjects = &objects
+		}
 	}
 
 	if userInfo.BucketQuota.Enabled != nil && *userInfo.BucketQuota.Enabled {
 		// Find the correct bucket in entry.Buckets and set the quota
 		for i := range entry.Buckets {
-			if entry.Buckets[i].Bucket == userInfo.BucketQuota.Bucket {
-				entry.Buckets[i].BucketQuota = userInfo.BucketQuota
+			if entry.Buckets[i].Meta.Name == userInfo.BucketQuota.Bucket {
+				entry.Buckets[i].Quota.Enabled = false
+
+				if userInfo.BucketQuota.Enabled != nil && *userInfo.BucketQuota.Enabled {
+					entry.Buckets[i].Quota.Enabled = true
+					entry.Buckets[i].Quota.MaxSize = nil
+					entry.Buckets[i].Quota.MaxObjects = nil
+
+					if userInfo.BucketQuota.MaxSize != nil {
+						size := uint64(*userInfo.BucketQuota.MaxSize)
+						entry.Buckets[i].Quota.MaxSize = &size
+					}
+
+					if userInfo.BucketQuota.MaxObjects != nil {
+						objects := uint64(*userInfo.BucketQuota.MaxObjects)
+						entry.Buckets[i].Quota.MaxObjects = &objects
+					}
+				}
+
 				break // Found the bucket
 			}
 		}

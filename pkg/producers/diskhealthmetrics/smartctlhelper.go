@@ -87,37 +87,37 @@ func calculatePercentageUsed(attrValue int64) int64 {
 }
 
 func ProcessAndUpdateSmartAttributes(smartAttrs map[string]SmartAttribute, smartCtlOutput *SmartCtlOutput) {
-
-	for _, entry := range smartCtlOutput.ATASMARTAttributes.Table {
-		// Normalize the attribute name and resolve using alias map
-		attrName := strings.ToLower(entry.Name)
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		// If not found in aliasMap, the original attrName will be used
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = entry.Value
-			smartAttrs[attrName] = attr
-		}
-
-		// Check if the resolved name exists in smartAttrs
-		if attr, found := smartAttrs[attrName]; found {
-			// Handle special cases like Media_Wearout_Indicator
-			switch attrName {
-			case "media_wearout_indicator", "percent_life_remaining", "percent_lifetime_remain":
-				percentageUsed := calculatePercentageUsed(entry.Value)
-				attr.Value = percentageUsed
-			default:
-				// General handling: store value, worst, thresh, and raw data
-				attr.Value = entry.Value
-				attr.Worst = entry.Worst
-				attr.Threshold = entry.Thresh
-				attr.RawValue = entry.Raw.Value
+	if smartCtlOutput.ATASMARTAttributes != nil {
+		for _, entry := range smartCtlOutput.ATASMARTAttributes.Table {
+			// Normalize the attribute name and resolve using alias map
+			attrName := strings.ToLower(entry.Name)
+			if resolvedName, found := aliasMap[attrName]; found {
+				attrName = resolvedName
 			}
-			smartAttrs[attrName] = attr
+			// If not found in aliasMap, the original attrName will be used
+			if attr, found := smartAttrs[attrName]; found {
+				attr.Value = entry.Value
+				smartAttrs[attrName] = attr
+			}
+
+			// Check if the resolved name exists in smartAttrs
+			if attr, found := smartAttrs[attrName]; found {
+				// Handle special cases like Media_Wearout_Indicator
+				switch attrName {
+				case "media_wearout_indicator", "percent_life_remaining", "percent_lifetime_remain":
+					percentageUsed := calculatePercentageUsed(entry.Value)
+					attr.Value = percentageUsed
+				default:
+					// General handling: store value, worst, thresh, and raw data
+					attr.Value = entry.Value
+					attr.Worst = entry.Worst
+					attr.Threshold = entry.Thresh
+					attr.RawValue = entry.Raw.Value
+				}
+				smartAttrs[attrName] = attr
+			}
 		}
 	}
-
 	NormalizeVendor(smartCtlOutput)
 
 	// Process SCSI-specific attributes
