@@ -236,12 +236,12 @@ func populateBucketMetrics(entry UsageEntry, cfg *RadosGWUsageConfig) {
 		bucketCapacityUsage.With(bucketLabels).Set(float64(bucket.Totals.Capacity))
 		bucketThroughputBytesTotal.With(bucketLabels).Set(float64(bucket.Totals.BytesSent + bucket.Totals.BytesReceived))
 
-		bucketOpsPerSec.With(bucketLabels).Set(float64(bucket.Current.OpsPerSec))
-		bucketReadOpsPerSec.With(bucketLabels).Set(float64(bucket.Current.ReadOpsPerSec))
-		bucketWriteOpsPerSec.With(bucketLabels).Set(float64(bucket.Current.WriteOpsPerSec))
-		bucketBytesSentPerSec.With(bucketLabels).Set(float64(bucket.Current.BytesSentPerSec))
-		bucketBytesReceivedPerSec.With(bucketLabels).Set(float64(bucket.Current.BytesReceivedPerSec))
-		bucketThroughputBytesPerSec.With(bucketLabels).Set(float64(bucket.Current.ThroughputBytesPerSec))
+		bucketOpsPerSec.With(bucketLabels).Set(bucket.Current.OpsPerSec)
+		bucketReadOpsPerSec.With(bucketLabels).Set(bucket.Current.ReadOpsPerSec)
+		bucketWriteOpsPerSec.With(bucketLabels).Set(bucket.Current.WriteOpsPerSec)
+		bucketBytesSentPerSec.With(bucketLabels).Set(bucket.Current.BytesSentPerSec)
+		bucketBytesReceivedPerSec.With(bucketLabels).Set(bucket.Current.BytesReceivedPerSec)
+		bucketThroughputBytesPerSec.With(bucketLabels).Set(bucket.Current.ThroughputBytesPerSec)
 
 		// Set quota information
 		bucketQuotaEnabled.With(bucketLabels).Set(boolToFloat64(&bucket.Quota.Enabled))
@@ -336,10 +336,10 @@ func populateUserMetrics(entry UsageEntry, cfg *RadosGWUsageConfig) {
 func aggregateClusterMetrics(entry UsageEntry, clusterMetrics *RadosGWClusterMetrics) {
 
 	clusterMetrics.OpsTotal += entry.UserLevel.Totals.OpsTotal
-	clusterMetrics.ReadOpsPerSec += entry.UserLevel.Totals.ReadOpsTotal
-	clusterMetrics.WriteOpsPerSec += entry.UserLevel.Totals.WriteOpsTotal
-	clusterMetrics.BytesSentPerSec += entry.UserLevel.Totals.BytesSentTotal
-	clusterMetrics.BytesReceivedPerSec += entry.UserLevel.Totals.BytesReceivedTotal
+	clusterMetrics.ReadOpsPerSec += float64(entry.UserLevel.Totals.ReadOpsTotal)
+	clusterMetrics.WriteOpsPerSec += float64(entry.UserLevel.Totals.WriteOpsTotal)
+	clusterMetrics.BytesSentPerSec += float64(entry.UserLevel.Totals.BytesSentTotal)
+	clusterMetrics.BytesReceivedPerSec += float64(entry.UserLevel.Totals.BytesReceivedTotal)
 	clusterMetrics.ThroughputBytesPerSec += entry.UserLevel.Totals.ThroughputBytesTotal
 	clusterMetrics.CapacityUsageBytes += entry.UserLevel.Totals.TotalCapacity
 
@@ -361,13 +361,13 @@ func populateClusterMetrics(clusterID, node, instanceID string, clusterMetrics R
 	}
 
 	clusterOpsTotal.With(labels).Set(float64(clusterMetrics.OpsTotal))
-	clusterReadsPerSec.With(labels).Set(float64(clusterMetrics.ReadOpsPerSec))
-	clusterWritesPerSec.With(labels).Set(float64(clusterMetrics.WriteOpsPerSec))
-	clusterBytesSentPerSec.With(labels).Set(float64(clusterMetrics.BytesSentPerSec))
-	clusterBytesReceivedPerSec.With(labels).Set(float64(clusterMetrics.BytesReceivedPerSec))
+	clusterReadsPerSec.With(labels).Set(clusterMetrics.ReadOpsPerSec)
+	clusterWritesPerSec.With(labels).Set(clusterMetrics.WriteOpsPerSec)
+	clusterBytesSentPerSec.With(labels).Set(clusterMetrics.BytesSentPerSec)
+	clusterBytesReceivedPerSec.With(labels).Set(clusterMetrics.BytesReceivedPerSec)
 	clusterThroughputBytesPerSec.With(labels).Set(clusterMetrics.ThroughputBytesPerSec)
 	clusterErrorRate.With(labels).Set(clusterMetrics.ErrorRate)
-	clusterOpsPerSec.With(labels).Set(float64(clusterMetrics.CurrentOpsPerSec))
+	clusterOpsPerSec.With(labels).Set(clusterMetrics.CurrentOpsPerSec)
 	clusterCapacityUsageBytes.With(labels).Set(float64(clusterMetrics.CapacityUsageBytes))
 }
 

@@ -394,36 +394,37 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 		entry.ClusterID = cfg.ClusterID
 
 		// Calculate the current metrics for the bucket
-		currMetrics := CalculateCurrentBucketMetrics(bucketName, totalBytesSent, totalBytesReceived, readOps, writeOps, currentTime)
-
-		currMetrics.Meta.Name = bucketName
-		currMetrics.Meta.Owner = bucketOwner
-		currMetrics.Meta.Zonegroup = bucketZonegroup
-		currMetrics.Meta.Shards = bucketShards
-		currMetrics.Meta.CreatedAt = bucket.CreationTime
+		bucketMetrics := NewRadosGWBucketMetrics()
+		bucketMetrics.Meta.Name = bucketName
+		bucketMetrics.Meta.Owner = bucketOwner
+		bucketMetrics.Meta.Zonegroup = bucketZonegroup
+		bucketMetrics.Meta.Shards = bucketShards
+		bucketMetrics.Meta.CreatedAt = bucket.CreationTime
 
 		// Set the quota for the bucket
-		currMetrics.Quota.Enabled = bucketQuotaEnabled
-		currMetrics.Quota.MaxSize = Uint64Ptr(uint64(bucketQuotaMaxSize))
-		currMetrics.Quota.MaxObjects = Uint64Ptr(uint64(bucketQuotaMaxObjects))
+		bucketMetrics.Quota.Enabled = bucketQuotaEnabled
+		bucketMetrics.Quota.MaxSize = Uint64Ptr(uint64(bucketQuotaMaxSize))
+		bucketMetrics.Quota.MaxObjects = Uint64Ptr(uint64(bucketQuotaMaxObjects))
 
 		// Set the totals for the bucket
-		currMetrics.Totals.DataSize = bucketUsageBytes
-		currMetrics.Totals.UtilizedSize = bucketUtilizedBytes
-		currMetrics.Totals.Objects = bucketUsageObjects
-		currMetrics.Totals.ReadOps = readOps
-		currMetrics.Totals.WriteOps = writeOps
-		currMetrics.Totals.BytesSent = totalBytesSent
-		currMetrics.Totals.BytesReceived = totalBytesReceived
-		currMetrics.Totals.SuccessOps = successOps
-		currMetrics.Totals.OpsTotal = totalOps
-		currMetrics.Totals.ErrorRate = errorRate
-		currMetrics.Totals.Capacity = bucketUsageBytes //FIXME We may want to refine this if capacity is calculated differently
+		bucketMetrics.Totals.DataSize = bucketUsageBytes
+		bucketMetrics.Totals.UtilizedSize = bucketUtilizedBytes
+		bucketMetrics.Totals.Objects = bucketUsageObjects
+		bucketMetrics.Totals.ReadOps = readOps
+		bucketMetrics.Totals.WriteOps = writeOps
+		bucketMetrics.Totals.BytesSent = totalBytesSent
+		bucketMetrics.Totals.BytesReceived = totalBytesReceived
+		bucketMetrics.Totals.SuccessOps = successOps
+		bucketMetrics.Totals.OpsTotal = totalOps
+		bucketMetrics.Totals.ErrorRate = errorRate
+		bucketMetrics.Totals.Capacity = bucketUsageBytes //FIXME We may want to refine this if capacity is calculated differently
 
-		currMetrics.APIUsage = apiUsagePerBucket
+		bucketMetrics.APIUsage = apiUsagePerBucket
+
+		CalculateCurrentBucketMetrics(&bucketMetrics, totalBytesSent, totalBytesReceived, readOps, writeOps, currentTime)
 
 		// Append the bucket metrics to BucketLevels
-		entry.Buckets = append(entry.Buckets, currMetrics)
+		entry.Buckets = append(entry.Buckets, bucketMetrics)
 
 		bucketsProcessed++
 	}
@@ -446,7 +447,7 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 	for _, userInfo := range users {
 
 		// Find the corresponding entry for the user, or create a new one if not found
-		entry := findOrCreateEntry(entries, userInfo.ID)
+		entry := findOrCreateEntryByBucketOwner(entries, userInfo.ID)
 
 		// Populate static metadata only if it's not already set
 		if entry.UserLevel.Meta.ID == "" {
@@ -488,30 +489,10 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 			for category, ops := range bucket.APIUsage {
 				entry.UserLevel.APIUsagePerUser[category] += ops // Sum API usage from all buckets
 			}
-
-			// TODO: check logic for maxOps
-			// Track current and max ops for the account
-			// entry.CurrentOps += bucket.CurrentOps
-			// if bucket.MaxOps > entry.MaxOps {
-			// 	entry.MaxOps = bucket.MaxOps
-			// }
 		}
 
 		// Calculate current metrics
-		currMetrics := CalculateCurrentUserMetrics(
-			entry.UserLevel.Meta.ID,
-			entry.UserLevel.Totals.BytesSentTotal,
-			entry.UserLevel.Totals.BytesReceivedTotal,
-			entry.UserLevel.Totals.ReadOpsTotal,
-			entry.UserLevel.Totals.WriteOpsTotal,
-			currentTime,
-		)
-
-		entry.UserLevel.Current.OpsPerSec = currMetrics.CurrentOps
-		entry.UserLevel.Current.ThroughputBytesPerSec = currMetrics.Throughput
-
-		entry.UserLevel.Current.DataBytesSentPerSec = currMetrics.CurrentBytesSent
-		entry.UserLevel.Current.DataBytesReceivedPerSec = currMetrics.CurrentBytesReceived
+		CalculateCurrentUserMetrics(&entry.UserLevel, currentTime)
 	}
 
 	return nil
