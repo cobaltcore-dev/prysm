@@ -14,7 +14,94 @@
 
 package diskhealthmetrics
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/rs/zerolog/log"
+)
+
+// FillDeviceInfoFromSmartData populates the DeviceInfo struct based on the raw SMART data.
+// This function handles the initial extraction of device details such as model, vendor,
+// capacity, form factor, and other relevant attributes depending on the device protocol (ATA, SCSI, NVMe).
+func FillDeviceInfoFromSmartData(deviceInfo *DeviceInfo, smartData *SmartCtlOutput) {
+	// Fill in the device model and serial number, which are common across protocols.
+	deviceInfo.DeviceModel = smartData.DeviceModel
+	deviceInfo.SerialNumber = smartData.SerialNumber
+	deviceInfo.FirmwareVersion = smartData.FirmwareVersion
+
+	// Handle vendor and product details based on protocol.
+	switch smartData.Device.Protocol {
+	case "ATA":
+		// ATA-specific processing
+		deviceInfo.ModelFamily = smartData.ModelFamily
+		deviceInfo.Vendor = "ATA" // ATA devices might not have a specific vendor field
+		deviceInfo.Product = smartData.DeviceModel
+		deviceInfo.Media = "hdd" // Default to hdd for ATA, unless otherwise determined
+
+		// RPM and form factor, relevant for HDDs
+		if smartData.RotationRate > 0 {
+			deviceInfo.RPM = smartData.RotationRate
+		}
+		if smartData.FormFactor != nil {
+			deviceInfo.FormFactor = smartData.FormFactor.Name
+		}
+
+	case "SCSI":
+		// SCSI-specific processing
+		deviceInfo.DeviceModel = smartData.SCSIModelName
+		deviceInfo.Vendor = smartData.SCSIVendor
+		deviceInfo.Product = smartData.SCSIProduct
+		deviceInfo.LunID = smartData.LogicalUnitID
+		// Set media type (if not explicitly provided by the output, assume it's an HDD)
+		deviceInfo.Media = "hdd"
+		if smartData.SmartSupport.Available && strings.Contains(strings.ToLower(smartData.Device.Type), "ssd") {
+			deviceInfo.Media = "ssd"
+		}
+
+		// Capacity for SCSI
+		if smartData.UserCapacity != nil {
+			deviceInfo.Capacity = float64(smartData.UserCapacity.Bytes) / (1024 * 1024 * 1024)
+		}
+
+		// RPM and form factor, specific to SCSI drives
+		if smartData.RotationRate > 0 {
+			deviceInfo.RPM = smartData.RotationRate
+		}
+		if smartData.FormFactor != nil {
+			deviceInfo.FormFactor = smartData.FormFactor.Name
+		}
+
+	case "NVMe":
+		// NVMe-specific processing
+		// Use the ID and SubsystemID to represent the vendor, or leave blank if unavailable
+		if smartData.NVMePCIVendor != nil {
+			deviceInfo.Vendor = fmt.Sprintf("Vendor ID: %d, Subsystem ID: %d", smartData.NVMePCIVendor.ID, smartData.NVMePCIVendor.SubsystemID)
+		}
+		deviceInfo.Product = smartData.DeviceModel
+		deviceInfo.Media = "ssd" // NVMe is typically SSD
+
+		// Capacity for NVMe
+		if smartData.UserCapacity != nil {
+			deviceInfo.Capacity = float64(smartData.UserCapacity.Bytes) / (1024 * 1024 * 1024)
+		}
+
+		// DWPD (Drive Writes Per Day) if available
+		if smartData.NVMeSmartHealthInfoLog != nil {
+			deviceInfo.DWPD = float64(smartData.NVMeSmartHealthInfoLog.PercentageUsed)
+		}
+
+		// NVMe devices typically don’t have RPM, so leave it as 0
+		deviceInfo.RPM = 0
+	}
+
+	// Set health status based on smart status
+	if smartData.SmartStatus.Passed {
+		deviceInfo.HealthStatus = true
+	} else {
+		deviceInfo.HealthStatus = false
+	}
+}
 
 // NormalizeDeviceInfo updates the DeviceInfo struct based on the device model.
 // This function addresses the variability in vendor implementation and the inconsistencies
@@ -665,56 +752,50 @@ func NormalizeDeviceInfo(deviceInfo *DeviceInfo) {
 }
 
 // NormalizeVendor determines the vendor based on the device model or model family
-func NormalizeVendor(output *SmartCtlOutput) {
-	if output.DeviceModel == "" && output.ModelNumber != "" {
-		output.DeviceModel = output.ModelNumber
+// This function updates the Vendor field in the DeviceInfo struct based on known patterns.
+func NormalizeVendor(deviceInfo *DeviceInfo) {
+	// If the vendor is already populated, we skip further normalization.
+	if deviceInfo.Vendor != "" {
+		return
 	}
-	if output.Vendor == "" {
-		switch {
-		case strings.Contains(strings.ToLower(output.DeviceModel), "dl2400"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "dl2400"):
-			output.Vendor = "Seagate"
-		case strings.Contains(strings.ToLower(output.DeviceModel), "toshiba"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "toshiba"),
-			strings.Contains(strings.ToLower(output.DeviceModel), "mg0"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "mg0"):
-			output.Vendor = "Toshiba"
-		case strings.Contains(strings.ToLower(output.DeviceModel), "intel"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "intel"):
-			output.Vendor = "Intel"
-		case strings.Contains(strings.ToLower(output.DeviceModel), "kioxia"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "kioxia"):
-			output.Vendor = "Kioxia"
-		case strings.Contains(strings.ToLower(output.DeviceModel), "western"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "western"),
-			strings.Contains(strings.ToLower(output.DeviceModel), "wdc"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "wdc"),
-			strings.Contains(strings.ToLower(output.DeviceModel), "wd100"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "wd100"):
-			output.Vendor = "WesternDigital"
-		case strings.Contains(strings.ToLower(output.DeviceModel), "seagate"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "seagate"),
-			strings.Contains(strings.ToLower(output.DeviceModel), "st12"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "st12"):
-			output.Vendor = "Seagate"
-		case strings.Contains(strings.ToLower(output.DeviceModel), "hgst"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "hgst"),
-			strings.Contains(strings.ToLower(output.DeviceModel), "huhs"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "huhs"):
-			output.Vendor = "HGST"
-		case strings.Contains(strings.ToLower(output.DeviceModel), "micron"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "micron"),
-			strings.Contains(strings.ToLower(output.DeviceModel), "mtfd"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "mtfd"):
-			output.Vendor = "Micron"
-		case strings.Contains(strings.ToLower(output.DeviceModel), "sandisk"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "sandisk"):
-			output.Vendor = "SanDisk"
-		case strings.Contains(strings.ToLower(output.DeviceModel), "samsung"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "samsung"),
-			strings.Contains(strings.ToLower(output.DeviceModel), "mz7"),
-			strings.Contains(strings.ToLower(output.ModelFamily), "mz7"):
-			output.Vendor = "Samsung"
-		}
+
+	// Normalize the device model and family to lowercase for comparison.
+	model := strings.ToLower(deviceInfo.DeviceModel)
+	family := strings.ToLower(deviceInfo.ModelFamily)
+
+	// Match common vendor patterns based on the device model or model family.
+	switch {
+	case strings.Contains(model, "dl2400") || strings.Contains(family, "dl2400"):
+		deviceInfo.Vendor = "Seagate"
+	case strings.Contains(model, "toshiba") || strings.Contains(family, "toshiba"),
+		strings.Contains(model, "mg0") || strings.Contains(family, "mg0"):
+		deviceInfo.Vendor = "Toshiba"
+	case strings.Contains(model, "intel") || strings.Contains(family, "intel"):
+		deviceInfo.Vendor = "Intel"
+	case strings.Contains(model, "kioxia") || strings.Contains(family, "kioxia"):
+		deviceInfo.Vendor = "Kioxia"
+	case strings.Contains(model, "western") || strings.Contains(family, "western"),
+		strings.Contains(model, "wdc") || strings.Contains(family, "wdc"),
+		strings.Contains(model, "wd100") || strings.Contains(family, "wd100"):
+		deviceInfo.Vendor = "WesternDigital"
+	case strings.Contains(model, "seagate") || strings.Contains(family, "seagate"),
+		strings.Contains(model, "st12") || strings.Contains(family, "st12"):
+		deviceInfo.Vendor = "Seagate"
+	case strings.Contains(model, "hgst") || strings.Contains(family, "hgst"),
+		strings.Contains(model, "huhs") || strings.Contains(family, "huhs"):
+		deviceInfo.Vendor = "HGST"
+	case strings.Contains(model, "micron") || strings.Contains(family, "micron"),
+		strings.Contains(model, "mtfd") || strings.Contains(family, "mtfd"):
+		deviceInfo.Vendor = "Micron"
+	case strings.Contains(model, "sandisk") || strings.Contains(family, "sandisk"):
+		deviceInfo.Vendor = "SanDisk"
+	case strings.Contains(model, "samsung") || strings.Contains(family, "samsung"),
+		strings.Contains(model, "mz7") || strings.Contains(family, "mz7"):
+		deviceInfo.Vendor = "Samsung"
+	}
+
+	// If no vendor is detected, we can optionally log or leave it as an empty string.
+	if deviceInfo.Vendor == "" {
+		log.Warn().Str("device_model", deviceInfo.DeviceModel).Msg("Unknown vendor for device model")
 	}
 }

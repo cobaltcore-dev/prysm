@@ -57,18 +57,19 @@ type NatsEvent struct {
 }
 
 type DeviceInfo struct {
-	ModelFamily     string
-	DeviceModel     string
-	SerialNumber    string
-	FirmwareVersion string
-	Vendor          string
-	Product         string
-	LunID           string
-	Capacity        float64 // in GB
-	DWPD            float64 // Drive Writes Per Day
-	RPM             int64
-	FormFactor      string // e.g., sff, lff
-	Media           string // e.g., ssd, hdd
+	ModelFamily     string  // ATA devices might have this, but it can be left blank for SCSI/NVMe.
+	DeviceModel     string  // Device-specific model name (e.g., "Samsung SSD 970 EVO" for NVMe).
+	SerialNumber    string  // Unique identifier for the device.
+	FirmwareVersion string  // Firmware version if available (common for all protocols).
+	Vendor          string  // The vendor/manufacturer of the device (e.g., "Seagate", "LENOVO").
+	Product         string  // The product name or number (e.g., "WUS721010AL5204").
+	LunID           string  // Logical Unit Identifier, mostly used for SCSI devices.
+	Capacity        float64 // Capacity of the device in GB.
+	DWPD            float64 // Drive Writes Per Day (usually relevant for SSDs, NVMe).
+	RPM             int64   // Rotational speed in RPM (for HDDs, relevant for ATA/SCSI).
+	FormFactor      string  // Physical form factor, like "sff" or "lff".
+	Media           string  // Media type, such as "ssd", "hdd", "nvme".
+	HealthStatus    bool
 }
 
 // SmartAttribute defines the structure for a SMART attribute's metadata.
