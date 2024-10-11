@@ -29,28 +29,18 @@ func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData
 	for _, disk := range cfg.Disks {
 		//FIXME rawData, err := collectSmartData(fmt.Sprintf("/dev/%s", disk))
 		rawData, err := collectSmartData(disk)
-		// rawData, err := collectSmartDataFromFile("./cmd/smart1/output-A-j.json")
+		// rawData, err := collectSmartDataFromFile("../mat/devicehealth/sdm.json")
+		// rawData, err := collectSmartDataFromFile("../mat/devicehealth/sdl.json")
 		if err != nil {
 			log.Error().Err(err).Str("disk", disk).Msg("error running smartctl")
 			continue
 		}
 
 		// Normalize the device information
-		deviceInfo := DeviceInfo{
-			ModelFamily:     rawData.ModelFamily,
-			DeviceModel:     rawData.DeviceModel, // rawData.ModelName
-			SerialNumber:    rawData.SerialNumber,
-			FirmwareVersion: rawData.FirmwareVersion,
-			Vendor:          rawData.Vendor,
-			Product:         rawData.Product,
-			LunID:           rawData.LogicalUnitID,
-			Capacity:        -1,
-			DWPD:            0,
-			RPM:             0,
-			FormFactor:      "none",
-			Media:           "unknown",
-		}
-		NormalizeDeviceInfo(&deviceInfo)
+		deviceInfo := &DeviceInfo{}
+		FillDeviceInfoFromSmartData(deviceInfo, rawData)
+		NormalizeVendor(deviceInfo)
+		NormalizeDeviceInfo(deviceInfo)
 
 		// Normalize Smart Attributes
 		smartAttrs := GetSmartAttributes()
@@ -63,7 +53,7 @@ func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData
 		// }
 
 		// Normalize the data
-		normalizedData := normalizeSmartData(rawData, &deviceInfo, smartAttrs, cfg.NodeName, cfg.InstanceID)
+		normalizedData := normalizeSmartData(rawData, deviceInfo, smartAttrs, cfg.NodeName, cfg.InstanceID)
 
 		allMetrics = append(allMetrics, normalizedData)
 	}
@@ -92,15 +82,18 @@ func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attri
 		ssdLifeUsed = &smartData.NVMeSmartHealthInfoLog.PercentageUsed
 	}
 
-	// Initialize ATA-specific attributes only if ATASMARTAttributes is not nil
 	var reallocatedSectors, pendingSectors, powerOnHours *int64
 	var udmaCrcErrorCount int64
 
-	if smartData.ATASMARTAttributes != nil {
+	// Initialize device-specific attributes
+	if smartData.Device.Protocol == "ATA" && smartData.ATASMARTAttributes != nil {
 		reallocatedSectors = &findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 5).Raw.Value
 		pendingSectors = &findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 197).Raw.Value
 		udmaCrcErrorCount = findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 199).Raw.Value
 		powerOnHours = &smartData.PowerOnTime.Hours
+	} else if smartData.Device.Protocol == "SCSI" && smartData.SCSIStartStopCycleCounter != nil {
+		powerOnHours = &smartData.PowerOnTime.Hours
+		reallocatedSectors = &smartData.SCSIGrownDefectList
 	}
 
 	return NormalizedSmartData{

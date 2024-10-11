@@ -19,7 +19,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 func checkSmartctlInstalled() bool {
@@ -81,99 +84,103 @@ func collectSmartDataFromFile(filePath string) (*SmartCtlOutput, error) {
 // ////
 // ####
 // ///
-// Helper function to calculate percentage used
-func calculatePercentageUsed(attrValue int64) int64 {
-	return 100 - attrValue
-}
 
 func ProcessAndUpdateSmartAttributes(smartAttrs map[string]SmartAttribute, smartCtlOutput *SmartCtlOutput) {
+	// Process ATA-specific attributes
 	if smartCtlOutput.ATASMARTAttributes != nil {
-		for _, entry := range smartCtlOutput.ATASMARTAttributes.Table {
-			// Normalize the attribute name and resolve using alias map
-			attrName := strings.ToLower(entry.Name)
-			if resolvedName, found := aliasMap[attrName]; found {
-				attrName = resolvedName
-			}
-			// If not found in aliasMap, the original attrName will be used
-			if attr, found := smartAttrs[attrName]; found {
-				attr.Value = entry.Value
-				smartAttrs[attrName] = attr
-			}
-
-			// Check if the resolved name exists in smartAttrs
-			if attr, found := smartAttrs[attrName]; found {
-				// Handle special cases like Media_Wearout_Indicator
-				switch attrName {
-				case "media_wearout_indicator", "percent_life_remaining", "percent_lifetime_remain":
-					percentageUsed := calculatePercentageUsed(entry.Value)
-					attr.Value = percentageUsed
-				default:
-					// General handling: store value, worst, thresh, and raw data
-					attr.Value = entry.Value
-					attr.Worst = entry.Worst
-					attr.Threshold = entry.Thresh
-					attr.RawValue = entry.Raw.Value
-				}
-				smartAttrs[attrName] = attr
-			}
-		}
+		ProcessAndUpdateATASmartAttributes(smartAttrs, smartCtlOutput)
 	}
-	NormalizeVendor(smartCtlOutput)
 
 	// Process SCSI-specific attributes
 	ProcessAndUpdateSCSISmartAttributes(smartAttrs, smartCtlOutput)
+
 	// Process NVMe-specific attributes
 	ProcessAndUpdateNVMeSmartAttributes(smartAttrs, smartCtlOutput)
+}
+
+// Process and update ATA-specific SMART attributes
+func ProcessAndUpdateATASmartAttributes(smartAttrs map[string]SmartAttribute, smartCtlOutput *SmartCtlOutput) {
+	for _, entry := range smartCtlOutput.ATASMARTAttributes.Table {
+		// Normalize the attribute name and resolve using alias map
+		attrName := strings.ToLower(entry.Name)
+		if resolvedName, found := aliasMap[attrName]; found {
+			attrName = resolvedName
+		}
+
+		// If the attribute exists in smartAttrs, update its values
+		if attr, found := smartAttrs[attrName]; found {
+			// Process special cases like percentage-based attributes
+			switch attrName {
+			case "media_wearout_indicator", "percent_life_remaining", "percent_lifetime_remain":
+				// Special handling for percentage-based attributes
+				percentageUsed := calculatePercentageUsed(entry.Value)
+				attr.Value = percentageUsed
+			default:
+				// General attribute processing
+				attr.Value = entry.Value
+				attr.Worst = entry.Worst
+				attr.Threshold = entry.Thresh
+				attr.RawValue = entry.Raw.Value
+			}
+			smartAttrs[attrName] = attr
+		} else {
+			// Attribute not found in smartAttrs, log for debugging
+			log.Warn().Str("attribute_name", attrName).Msg("Unrecognized ATA SMART attribute")
+		}
+	}
 }
 
 // Process and update SCSI-specific SMART attributes
 func ProcessAndUpdateSCSISmartAttributes(smartAttrs map[string]SmartAttribute, output *SmartCtlOutput) {
 	// Update power-on hours
-	if output.PowerOnTime.Hours > 0 {
-		attrName := "power_on_hours"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.PowerOnTime.Hours
-			smartAttrs[attrName] = attr
-		}
-	}
+	updateAttributeFromValue(smartAttrs, "power_on_hours", output.PowerOnTime.Hours, output.PowerOnTime.Hours, -1, -1, "hours")
 
+	// Update temperature, adding a sanity check for 0°C or less
 	if output.Temperature.Current > 0 {
-		attrName := "temperature_celsius"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.Temperature.Current
-			smartAttrs[attrName] = attr
-		}
+		updateAttributeFromValue(smartAttrs, "temperature_celsius", output.Temperature.Current, output.Temperature.Current, -1, -1, "Celsius")
+	} else {
+		log.Warn().Msgf("Unexpected temperature value: %d°C for SCSI device", output.Temperature.Current)
 	}
 
-	// Update power cycle count
-	if output.SCSIStartStopCycleCounter != nil && output.SCSIStartStopCycleCounter.AccumulatedStartStopCycles > 0 {
-		attrName := "power_cycle_count"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.SCSIStartStopCycleCounter.AccumulatedStartStopCycles
-			smartAttrs[attrName] = attr
-		}
+	// Update power cycle count, only if the data exists
+	if output.SCSIStartStopCycleCounter != nil {
+		updateAttributeFromValue(smartAttrs, "power_cycle_count", output.SCSIStartStopCycleCounter.AccumulatedStartStopCycles, output.SCSIStartStopCycleCounter.AccumulatedStartStopCycles, -1, -1, "count")
 	}
 
 	// Update grown defects count
-	if output.SCSIGrownDefectList > 0 {
-		attrName := "grown_defects_count"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.SCSIGrownDefectList
-			smartAttrs[attrName] = attr
-		}
+	if output.SCSIGrownDefectList >= 0 {
+		updateAttributeFromValue(smartAttrs, "grown_defects_count", output.SCSIGrownDefectList, output.SCSIGrownDefectList, -1, -1, "count")
+	} else {
+		log.Warn().Msgf("Invalid grown defects count: %d for SCSI device", output.SCSIGrownDefectList)
 	}
+
+	// Update SCSI error log counters
+	if output.SCSIErrorCounterLog != nil {
+		updateSCSIErrorLog(smartAttrs, output.SCSIErrorCounterLog)
+	}
+}
+
+// Update SCSI error log attributes
+func updateSCSIErrorLog(smartAttrs map[string]SmartAttribute, log *SmartCtlSCSIErrorCounterLog) {
+	// Update read errors corrected
+	updateAttributeFromValue(smartAttrs, "read_errors_corrected", log.Read.TotalErrorsCorrected, log.Read.TotalErrorsCorrected, -1, -1, "count")
+
+	// Update write errors corrected
+	updateAttributeFromValue(smartAttrs, "write_errors_corrected", log.Write.TotalErrorsCorrected, log.Write.TotalErrorsCorrected, -1, -1, "count")
+
+	// Update verify errors corrected
+	updateAttributeFromValue(smartAttrs, "verify_errors_corrected", log.Verify.TotalErrorsCorrected, log.Verify.TotalErrorsCorrected, -1, -1, "count")
+
+	// Update read gigabytes processed
+	updateAttributeFromValue(smartAttrs, "read_gigabytes_processed", parseGigabytes(log.Read.GigabytesProcessed), parseGigabytes(log.Read.GigabytesProcessed), -1, -1, "GB")
+
+	// Update write gigabytes processed
+	updateAttributeFromValue(smartAttrs, "write_gigabytes_processed", parseGigabytes(log.Write.GigabytesProcessed), parseGigabytes(log.Write.GigabytesProcessed), -1, -1, "GB")
+
+	// Handle total uncorrected errors for read, write, and verify
+	updateAttributeFromValue(smartAttrs, "total_uncorrected_read_errors", log.Read.TotalUncorrectedErrors, log.Read.TotalUncorrectedErrors, -1, -1, "count")
+	updateAttributeFromValue(smartAttrs, "total_uncorrected_write_errors", log.Write.TotalUncorrectedErrors, log.Write.TotalUncorrectedErrors, -1, -1, "count")
+	updateAttributeFromValue(smartAttrs, "total_uncorrected_verify_errors", log.Verify.TotalUncorrectedErrors, log.Verify.TotalUncorrectedErrors, -1, -1, "count")
 }
 
 // Process and update NVMe-specific SMART attributes
@@ -182,147 +189,92 @@ func ProcessAndUpdateNVMeSmartAttributes(smartAttrs map[string]SmartAttribute, o
 		return
 	}
 
-	// Update power-on hours
-	if output.NVMeSmartHealthInfoLog.PowerOnHours > 0 {
-		attrName := "power_on_hours"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.PowerOnHours
-			smartAttrs[attrName] = attr
-		}
-	}
+	// Process power-on hours
+	updateAttributeFromValue(smartAttrs, "power_on_hours", output.NVMeSmartHealthInfoLog.PowerOnHours, output.NVMeSmartHealthInfoLog.PowerOnHours, -1, -1, "hours")
 
-	// Update temperature
+	// Process temperature
 	if output.NVMeSmartHealthInfoLog.Temperature > 0 {
-		attrName := "temperature_celsius"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.Temperature
-			smartAttrs[attrName] = attr
-		}
+		updateAttributeFromValue(smartAttrs, "temperature_celsius", output.NVMeSmartHealthInfoLog.Temperature, output.NVMeSmartHealthInfoLog.Temperature, -1, -1, "Celsius")
+	} else {
+		log.Warn().Msgf("Unexpected temperature value: %d°C for NVMe device", output.NVMeSmartHealthInfoLog.Temperature)
 	}
 
-	// Update power cycles
-	if output.NVMeSmartHealthInfoLog.PowerCycles > 0 {
-		attrName := "power_cycle_count"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.PowerCycles
-			smartAttrs[attrName] = attr
-		}
+	// Process power cycles
+	updateAttributeFromValue(smartAttrs, "power_cycle_count", output.NVMeSmartHealthInfoLog.PowerCycles, output.NVMeSmartHealthInfoLog.PowerCycles, -1, -1, "count")
+
+	// Process unsafe shutdowns
+	updateAttributeFromValue(smartAttrs, "unsafe_shutdowns", output.NVMeSmartHealthInfoLog.UnsafeShutdowns, output.NVMeSmartHealthInfoLog.UnsafeShutdowns, -1, -1, "count")
+
+	// Process host read commands
+	updateAttributeFromValue(smartAttrs, "host_read_commands", output.NVMeSmartHealthInfoLog.HostReads, output.NVMeSmartHealthInfoLog.HostReads, -1, -1, "commands")
+
+	// Process host write commands
+	updateAttributeFromValue(smartAttrs, "host_write_commands", output.NVMeSmartHealthInfoLog.HostWrites, output.NVMeSmartHealthInfoLog.HostWrites, -1, -1, "commands")
+
+	// Process controller busy time
+	updateAttributeFromValue(smartAttrs, "controller_busy_time", output.NVMeSmartHealthInfoLog.ControllerBusyTime, output.NVMeSmartHealthInfoLog.ControllerBusyTime, -1, -1, "minutes")
+
+	// Process error information log entries
+	updateAttributeFromValue(smartAttrs, "error_information_log_entries", output.NVMeSmartHealthInfoLog.NumErrLogEntries, output.NVMeSmartHealthInfoLog.NumErrLogEntries, -1, -1, "count")
+
+	// Process percentage used, adding a sanity check
+	if output.NVMeSmartHealthInfoLog.PercentageUsed >= 0 && output.NVMeSmartHealthInfoLog.PercentageUsed <= 100 {
+		updateAttributeFromValue(smartAttrs, "percentage_used", output.NVMeSmartHealthInfoLog.PercentageUsed, output.NVMeSmartHealthInfoLog.PercentageUsed, -1, -1, "percent")
+	} else {
+		log.Warn().Msgf("Unexpected percentage used value: %d for NVMe device", output.NVMeSmartHealthInfoLog.PercentageUsed)
 	}
 
-	// Update unsafe shutdowns
-	if output.NVMeSmartHealthInfoLog.UnsafeShutdowns > 0 {
-		attrName := "unsafe_shutdowns"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.UnsafeShutdowns
-			smartAttrs[attrName] = attr
-		}
+	// Process available spare
+	updateAttributeFromValue(smartAttrs, "available_spare", output.NVMeSmartHealthInfoLog.AvailableSpare, output.NVMeSmartHealthInfoLog.AvailableSpare, -1, -1, "percent")
+
+	// Process available spare threshold
+	updateAttributeFromValue(smartAttrs, "available_spare_threshold", output.NVMeSmartHealthInfoLog.AvailableSpareThreshold, output.NVMeSmartHealthInfoLog.AvailableSpareThreshold, -1, -1, "percent")
+
+	// Process media and data integrity errors
+	updateAttributeFromValue(smartAttrs, "media_and_data_integrity_errors", output.NVMeSmartHealthInfoLog.MediaErrors, output.NVMeSmartHealthInfoLog.MediaErrors, -1, -1, "count")
+}
+
+// Helper function to update attributes by resolving alias and updating values
+func updateAttributeFromValue(smartAttrs map[string]SmartAttribute, attrName string, value int64, rawValue int64, threshold int64, worst int64, unit string) {
+	// Resolve the attribute name using the alias map
+	if resolvedName, found := aliasMap[attrName]; found {
+		attrName = resolvedName
 	}
 
-	// Update host read commands
-	if output.NVMeSmartHealthInfoLog.HostReads > 0 {
-		attrName := "host_read_commands"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.HostReads
-			smartAttrs[attrName] = attr
-		}
-	}
+	// If the attribute exists in the map, update its fields
+	if attr, found := smartAttrs[attrName]; found {
+		attr.Value = value
+		attr.RawValue = rawValue
 
-	// Update host write commands
-	if output.NVMeSmartHealthInfoLog.HostWrites > 0 {
-		attrName := "host_write_commands"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
+		// Update threshold if provided
+		if threshold != -1 {
+			attr.Threshold = threshold
 		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.HostWrites
-			smartAttrs[attrName] = attr
-		}
-	}
 
-	// Update controller busy time
-	if output.NVMeSmartHealthInfoLog.ControllerBusyTime > 0 {
-		attrName := "controller_busy_time"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
+		// Update worst value if provided
+		if worst != -1 {
+			attr.Worst = worst
 		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.ControllerBusyTime
-			smartAttrs[attrName] = attr
-		}
-	}
 
-	// Update error information log entries
-	if output.NVMeSmartHealthInfoLog.NumErrLogEntries > 0 {
-		attrName := "error_information_log_entries"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
+		// Update unit if provided and it's different from the current one
+		if unit != "" && attr.Unit != unit {
+			attr.Unit = unit
 		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.NumErrLogEntries
-			smartAttrs[attrName] = attr
-		}
-	}
 
-	// Update percentage used
-	if output.NVMeSmartHealthInfoLog.PercentageUsed > 0 {
-		attrName := "percentage_used"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.PercentageUsed
-			smartAttrs[attrName] = attr
-		}
+		smartAttrs[attrName] = attr
+	} else {
+		// Log a warning if the attribute was not found in smartAttrs
+		log.Warn().Str("attribute_name", attrName).Msg("Unrecognized SMART attribute")
 	}
+}
 
-	// Update available spare
-	if output.NVMeSmartHealthInfoLog.AvailableSpare > 0 {
-		attrName := "available_spare"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.AvailableSpare
-			smartAttrs[attrName] = attr
-		}
-	}
+// Helper function to parse gigabytes from string
+func parseGigabytes(value string) int64 {
+	gb, _ := strconv.ParseFloat(value, 64)
+	return int64(gb)
+}
 
-	// Update available spare threshold
-	if output.NVMeSmartHealthInfoLog.AvailableSpareThreshold > 0 {
-		attrName := "available_spare_threshold"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.AvailableSpareThreshold
-			smartAttrs[attrName] = attr
-		}
-	}
-
-	// Update media and data integrity errors
-	if output.NVMeSmartHealthInfoLog.MediaErrors > 0 {
-		attrName := "media_and_data_integrity_errors"
-		if resolvedName, found := aliasMap[attrName]; found {
-			attrName = resolvedName
-		}
-		if attr, found := smartAttrs[attrName]; found {
-			attr.Value = output.NVMeSmartHealthInfoLog.MediaErrors
-			smartAttrs[attrName] = attr
-		}
-	}
+// Helper function to calculate percentage used
+func calculatePercentageUsed(attrValue int64) int64 {
+	return 100 - attrValue
 }

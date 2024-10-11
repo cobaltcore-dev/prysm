@@ -120,11 +120,11 @@ type RadosGWUserMetrics struct {
 
 	// Current metrics calculated using deltas
 	Current struct {
-		OpsPerSec               uint64  // Current operations per second (delta)
+		OpsPerSec               float64 // Current operations per second (delta)
 		ReadOpsPerSec           float64 // Current read operations per second (delta)
 		WriteOpsPerSec          float64 // Current write operations per second (delta)
-		DataBytesReceivedPerSec uint64  // Current data received per second (delta)
-		DataBytesSentPerSec     uint64  // Current data sent per second (delta)
+		DataBytesReceivedPerSec float64 // Current data received per second (delta)
+		DataBytesSentPerSec     float64 // Current data sent per second (delta)
 		ThroughputBytesPerSec   float64 // Current throughput in bytes per second (read and write combined)
 	}
 
@@ -193,18 +193,18 @@ func NewRadosGWUserMetrics() *RadosGWUserMetrics {
 		APIUsagePerUser: make(map[string]int64),
 
 		Current: struct {
-			OpsPerSec               uint64
+			OpsPerSec               float64
 			ReadOpsPerSec           float64
 			WriteOpsPerSec          float64
-			DataBytesReceivedPerSec uint64
-			DataBytesSentPerSec     uint64
+			DataBytesReceivedPerSec float64
+			DataBytesSentPerSec     float64
 			ThroughputBytesPerSec   float64
 		}{
-			OpsPerSec:               0,
+			OpsPerSec:               0.0,
 			ReadOpsPerSec:           0.0,
 			WriteOpsPerSec:          0.0,
-			DataBytesReceivedPerSec: 0,
-			DataBytesSentPerSec:     0,
+			DataBytesReceivedPerSec: 0.0,
+			DataBytesSentPerSec:     0.0,
 			ThroughputBytesPerSec:   0.0,
 		},
 	}
@@ -321,12 +321,12 @@ func NewRadosGWBucketMetrics() RadosGWBucketMetrics {
 
 type RadosGWClusterMetrics struct {
 	OpsTotal              uint64  // Total operations (read + write)
-	ReadOpsPerSec         uint64  // Total read operations per second
-	WriteOpsPerSec        uint64  // Total write operations per second
-	BytesSentPerSec       uint64  // Total bytes sent per second
-	BytesReceivedPerSec   uint64  // Total bytes received per second
+	ReadOpsPerSec         float64 // Total read operations per second
+	WriteOpsPerSec        float64 // Total write operations per second
+	BytesSentPerSec       float64 // Total bytes sent per second
+	BytesReceivedPerSec   float64 // Total bytes received per second
 	ThroughputBytesPerSec float64 // Total throughput in bytes per second (read + write)
 	ErrorRate             float64 // Total error rate across the cluster
-	CurrentOpsPerSec      uint64  // Current number of operations per second
+	CurrentOpsPerSec      float64 // Current number of operations per second
 	CapacityUsageBytes    uint64  // Total capacity usage across the cluster
 }
