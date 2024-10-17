@@ -50,7 +50,9 @@ var (
 	userQuotaMaxSize    = newGaugeVec("radosgw_usage_user_quota_size", "Maximum allowed size for user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
 	userQuotaMaxObjects = newGaugeVec("radosgw_usage_user_quota_size_objects", "Maximum allowed number of objects across all user buckets", []string{"user", "rgw_cluster_id", "node", "instance_id"})
 
-	apiUsagePerUser = newGaugeVec("radosgw_api_usage_per_user", "API usage per user and per category", []string{"user", "api_category", "rgw_cluster_id", "node", "instance_id"})
+	apiUsagePerUser            = newGaugeVec("radosgw_api_usage_per_user", "API usage per user and per category", []string{"user", "api_category", "rgw_cluster_id", "node", "instance_id"})
+	apiUsagePerUserPerSec      = newGaugeVec("radosgw_api_usage_per_user_per_sec", "API usage per second per user and category", []string{"user", "api_category", "rgw_cluster_id", "node", "instance_id"})
+	apiUsagePerUserTotalPerSec = newGaugeVec("radosgw_api_usage_per_user_total_per_sec", "Total API usage per second for each user", []string{"user", "rgw_cluster_id", "node", "instance_id"})
 
 	// Bucket-level metrics
 	bucketLabels               = []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"}
@@ -74,6 +76,8 @@ var (
 	bucketBytesSentPerSec       = newGaugeVec("radosgw_bucket_bytes_sent_per_sec", "Current bytes sent per second from each bucket", bucketLabels)
 	bucketBytesReceivedPerSec   = newGaugeVec("radosgw_bucket_bytes_received_per_sec", "Current bytes received per second by each bucket", bucketLabels)
 	bucketThroughputBytesPerSec = newGaugeVec("radosgw_bucket_throughput_bytes_per_sec", "Current throughput in bytes per second for each bucket (read and write combined)", bucketLabels)
+	bucketAPIUsagePerSec        = newGaugeVec("radosgw_bucket_api_usage_per_sec", "Current API usage rate (ops per second) for each bucket and category.", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id", "category"})
+	bucketAPIUsageTotalPerSec   = newGaugeVec("radosgw_bucket_api_usage_total_per_sec", "Total API usage per second for each bucket", []string{"bucket", "owner", "zonegroup", "rgw_cluster_id", "node", "instance_id"})
 
 	// Quota metrics
 	bucketQuotaEnabled    = newGaugeVec("radosgw_usage_bucket_quota_enabled", "Quota enabled for bucket", bucketLabels)
@@ -153,6 +157,8 @@ func init() {
 	prometheus.MustRegister(userQuotaMaxObjects)
 
 	prometheus.MustRegister(apiUsagePerUser)
+	prometheus.MustRegister(apiUsagePerUserPerSec)
+	prometheus.MustRegister(apiUsagePerUserTotalPerSec)
 
 	////
 	prometheus.MustRegister(bucketUsageBytes)
@@ -175,6 +181,8 @@ func init() {
 	prometheus.MustRegister(bucketBytesSentPerSec)
 	prometheus.MustRegister(bucketBytesReceivedPerSec)
 	prometheus.MustRegister(bucketThroughputBytesPerSec)
+	prometheus.MustRegister(bucketAPIUsagePerSec)
+	prometheus.MustRegister(bucketAPIUsageTotalPerSec)
 
 	prometheus.MustRegister(bucketQuotaEnabled)
 	prometheus.MustRegister(bucketQuotaMaxSize)
@@ -270,6 +278,31 @@ func populateBucketMetrics(entry UsageEntry, cfg *RadosGWUsageConfig) {
 			}
 			bucketAPIUsageTotal.With(apiLabels).Add(float64(ops)) // Total API ops for the category
 		}
+
+		// Set API usage per second for each category
+		for category, rate := range bucket.Current.APIUsage {
+			apiUsageLabels := prometheus.Labels{
+				"bucket":         bucket.Meta.Name,
+				"owner":          bucket.Meta.Owner,
+				"zonegroup":      bucket.Meta.Zonegroup,
+				"rgw_cluster_id": cfg.ClusterID,
+				"node":           cfg.NodeName,
+				"instance_id":    cfg.InstanceID,
+				"category":       category,
+			}
+			bucketAPIUsagePerSec.With(apiUsageLabels).Set(rate)
+		}
+
+		// Total API usage per second for the bucket
+		totalAPILabels := prometheus.Labels{
+			"bucket":         bucket.Meta.Name,
+			"owner":          bucket.Meta.Owner,
+			"zonegroup":      bucket.Meta.Zonegroup,
+			"rgw_cluster_id": cfg.ClusterID,
+			"node":           cfg.NodeName,
+			"instance_id":    cfg.InstanceID,
+		}
+		bucketAPIUsageTotalPerSec.With(totalAPILabels).Set(bucket.Current.TotalAPIUsagePerSec)
 	}
 }
 
@@ -330,6 +363,17 @@ func populateUserMetrics(entry UsageEntry, cfg *RadosGWUsageConfig) {
 		}).Add(float64(ops))
 	}
 
+	for apiCategory, rate := range entry.UserLevel.Current.APIUsagePerSec {
+		apiUsagePerUserPerSec.With(prometheus.Labels{
+			"user":           entry.UserLevel.Meta.ID,
+			"api_category":   apiCategory,
+			"rgw_cluster_id": cfg.ClusterID,
+			"node":           cfg.NodeName,
+			"instance_id":    cfg.InstanceID,
+		}).Set(rate)
+	}
+
+	apiUsagePerUserTotalPerSec.With(labels).Set(entry.UserLevel.Current.TotalAPIUsagePerSec)
 }
 
 // Aggregate cluster metrics from both user and bucket levels

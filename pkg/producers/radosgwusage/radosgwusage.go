@@ -345,7 +345,7 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 
 		// Prepare the category usage data from usageDict
 		var categories []CategoryUsage
-		apiUsagePerBucket := make(map[string]int64)
+		apiUsagePerBucket := make(map[string]uint64)
 		if bucketCategoryUsage, ok := usageDict[bucketOwner][bucketName]; ok {
 			for categoryName, metrics := range bucketCategoryUsage {
 				categories = append(categories, CategoryUsage{
@@ -356,7 +356,7 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 					BytesReceived: metrics.BytesReceived,
 				})
 
-				apiUsagePerBucket[categoryName] += int64(metrics.Ops)
+				apiUsagePerBucket[categoryName] += uint64(metrics.Ops)
 				// Aggregate metrics for total operations and other stats
 				totalOps += metrics.Ops
 				successOps += metrics.SuccessfulOps
@@ -422,6 +422,7 @@ func processBucketData(cfg RadosGWUsageConfig, bucketData []admin.Bucket, usageD
 		bucketMetrics.APIUsage = apiUsagePerBucket
 
 		CalculateCurrentBucketMetrics(&bucketMetrics, totalBytesSent, totalBytesReceived, readOps, writeOps, currentTime)
+		CalculateCurrentBucketAPIUsage(&bucketMetrics, bucketMetrics.APIUsage, currentTime)
 
 		// Append the bucket metrics to BucketLevels
 		entry.Buckets = append(entry.Buckets, bucketMetrics)
@@ -467,7 +468,7 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 
 		// Calculate the total number of buckets, objects, and data size for the user
 		entry.UserLevel.Totals.BucketsTotal = len(entry.Buckets)
-		entry.UserLevel.APIUsagePerUser = make(map[string]int64)
+		entry.UserLevel.APIUsagePerUser = make(map[string]uint64)
 		for _, bucket := range entry.Buckets {
 			entry.UserLevel.Totals.ObjectsTotal += bucket.Totals.Objects
 			entry.UserLevel.Totals.DataSizeTotal += bucket.Totals.DataSize
@@ -493,6 +494,7 @@ func processUserData(cfg RadosGWUsageConfig, entries *[]UsageEntry, users []admi
 
 		// Calculate current metrics
 		CalculateCurrentUserMetrics(&entry.UserLevel, currentTime)
+		CalculateCurrentAPIUsagePerUser(&entry.UserLevel, currentTime)
 	}
 
 	return nil
