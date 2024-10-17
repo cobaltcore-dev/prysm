@@ -133,7 +133,11 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 ### API Usage Metrics
 
 - `radosgw_api_usage_per_user`: API usage per user and per category.
+- `radosgw_api_usage_per_user_per_sec`: API usage per second per user and category.
+- `radosgw_api_usage_per_user_total_per_sec`: Total API usage per second for each user.
 - `radosgw_bucket_api_usage_total`: Total number of API operations by category for each bucket.
+- `radosgw_bucket_api_usage_per_sec`: Current API usage rate (ops per second) for each bucket and category.
+- `radosgw_bucket_api_usage_total_per_sec`: Total API usage per second for each bucket.
 
 ### Miscellaneous Metrics
 

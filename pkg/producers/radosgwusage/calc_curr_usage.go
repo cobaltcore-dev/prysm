@@ -37,11 +37,27 @@ type PreviousUsage struct {
 	LastCollected time.Time // Timestamp of the last collection for this bucket
 }
 
+type APIUsage struct {
+	Categories    map[string]uint64 // Map of API categories and their corresponding operation counts
+	LastCollected time.Time         // Timestamp of the last collection for API usage
+}
+
+type PreviousAPIUsage struct {
+	Usage         map[string]uint64 // API category and previous usage count
+	LastCollected time.Time         // Timestamp of the last collection
+}
+
 // Map to store previous usage for each user
 var previousUserUsage = make(map[string]PreviousUsage)
 
+// Map to store previous API usage for each user
+var previousUserAPIUsage = make(map[string]APIUsage)
+
 // Map to store previous usage for each bucket
 var previousBucketUsage = make(map[string]PreviousUsage)
+
+// Map to store previous API usage for each bucket
+var previousBucketAPIUsage = make(map[string]PreviousAPIUsage)
 
 // Function to calculate and return current values (deltas) and throughput
 func CalculateCurrentUserMetrics(userLevel *RadosGWUserMetrics, currentTime time.Time) {
@@ -133,6 +149,50 @@ func CalculateCurrentUserMetrics(userLevel *RadosGWUserMetrics, currentTime time
 	userLevel.Current.ThroughputBytesPerSec = throughput
 	userLevel.Current.DataBytesSentPerSec = currentBytesSentRate
 	userLevel.Current.DataBytesReceivedPerSec = currentBytesReceivedRate
+}
+
+func CalculateCurrentAPIUsagePerUser(userLevel *RadosGWUserMetrics, currentTime time.Time) {
+	prevUsage, exists := previousUserAPIUsage[userLevel.Meta.ID]
+
+	if !exists {
+		// Initialize the previous usage if it doesn't exist
+		previousUserAPIUsage[userLevel.Meta.ID] = APIUsage{
+			Categories:    userLevel.APIUsagePerUser, // Set current usage as previous
+			LastCollected: currentTime,
+		}
+		return
+	}
+
+	// Calculate the time difference in seconds
+	deltaTime := currentTime.Sub(prevUsage.LastCollected).Seconds()
+
+	totalAPIRatePerSec := 0.0
+
+	if deltaTime > 0 {
+		// Calculate API usage per second for each category
+		for category, currentOps := range userLevel.APIUsagePerUser {
+			prevOps, found := prevUsage.Categories[category]
+			if found {
+				opsDelta := currentOps - prevOps
+
+				// Calculate per-second rate and update current usage
+				apiRatePerSec := float64(opsDelta) / deltaTime
+				userLevel.Current.APIUsagePerSec[category] = apiRatePerSec
+
+				// Add to the total API usage per second
+				totalAPIRatePerSec += apiRatePerSec
+			}
+		}
+	}
+
+	// Set the total API usage per second in the user metrics
+	userLevel.Current.TotalAPIUsagePerSec = totalAPIRatePerSec
+
+	// Update the previous usage with the current values
+	previousUserAPIUsage[userLevel.Meta.ID] = APIUsage{
+		Categories:    userLevel.APIUsagePerUser,
+		LastCollected: currentTime,
+	}
 }
 
 func CalculateCurrentBucketMetrics(bucketMetrics *RadosGWBucketMetrics, currentBytesSent, currentBytesReceived, currentReadOps, currentWriteOps uint64, currentTime time.Time) {
@@ -235,4 +295,70 @@ func CalculateCurrentBucketMetrics(bucketMetrics *RadosGWBucketMetrics, currentB
 	bucketMetrics.Current.BytesSentPerSec = currentBytesSentRate
 	bucketMetrics.Current.BytesReceivedPerSec = currentBytesReceivedRate
 	bucketMetrics.Current.ThroughputBytesPerSec = throughput
+}
+
+func CalculateCurrentBucketAPIUsage(bucketMetrics *RadosGWBucketMetrics, currentAPIUsage map[string]uint64, currentTime time.Time) {
+	bucketName := bucketMetrics.Meta.Name
+	prevAPIUsage, exists := previousBucketAPIUsage[bucketName]
+
+	// Ensure the current API usage map is initialized
+	if bucketMetrics.Current.APIUsage == nil {
+		bucketMetrics.Current.APIUsage = make(map[string]float64)
+	}
+
+	totalAPIUsagePerSec := 0.0
+
+	if !exists {
+		// First collection, set previous usage and initialize current API usage to 0
+		previousBucketAPIUsage[bucketName] = PreviousAPIUsage{
+			Usage:         currentAPIUsage,
+			LastCollected: currentTime,
+		}
+		// Set initial API usage rate to 0 for all categories
+		for category := range currentAPIUsage {
+			bucketMetrics.Current.APIUsage[category] = 0.0
+		}
+		bucketMetrics.Current.TotalAPIUsagePerSec = 0.0
+		return
+	}
+
+	// Calculate time difference in seconds
+	deltaTime := currentTime.Sub(prevAPIUsage.LastCollected).Seconds()
+	if deltaTime <= 0 {
+		// If the time delta is zero or negative, skip the calculation
+		return
+	}
+
+	// Calculate the current rate (API operations per second) for each category
+	for category, currentOps := range currentAPIUsage {
+		prevOps, found := prevAPIUsage.Usage[category]
+
+		// Handle counter reset or missing previous operations
+		var opsDelta uint64
+		if found {
+			if currentOps >= prevOps {
+				opsDelta = currentOps - prevOps
+			} else {
+				opsDelta = currentOps // Assume a counter reset
+			}
+		} else {
+			// No previous data for this category, assume this is the first collection
+			opsDelta = currentOps
+		}
+
+		// Calculate the current API usage rate (operations per second)
+		currentOpsRate := float64(opsDelta) / deltaTime
+		bucketMetrics.Current.APIUsage[category] = currentOpsRate
+
+		// Accumulate the total API usage per second
+		totalAPIUsagePerSec += currentOpsRate
+	}
+
+	// Update the previous API usage with the current values
+	previousBucketAPIUsage[bucketName] = PreviousAPIUsage{
+		Usage:         currentAPIUsage,
+		LastCollected: currentTime,
+	}
+
+	bucketMetrics.Current.TotalAPIUsagePerSec = totalAPIUsagePerSec
 }
