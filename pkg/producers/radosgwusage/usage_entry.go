@@ -92,50 +92,58 @@ type UsageMetrics struct {
 
 ///// Redesign
 
+type RadosGWUserMetricsMeta struct {
+	ID                  string // User ID
+	DisplayName         string // User display name
+	Email               string // User email
+	DefaultStorageClass string // Default storage class for the user
+}
+
+type RadosGWUserMetricsTotals struct {
+	BucketsTotal         int     // Total number of buckets for each user
+	ObjectsTotal         uint64  // Total number of objects for each user
+	DataSizeTotal        uint64  // Total size of data for each user (in bytes)
+	OpsTotal             uint64  // Total operations (read + write) for each user
+	ReadOpsTotal         uint64  // Total read operations for each user
+	WriteOpsTotal        uint64  // Total write operations for each user
+	BytesSentTotal       uint64  // Total bytes sent by each user
+	BytesReceivedTotal   uint64  // Total bytes received by each user
+	SuccessOpsTotal      uint64  // Total successful operations for each user
+	ErrorRateTotal       float64 // Error rate for each user
+	ThroughputBytesTotal float64 // Total throughput for each user in bytes
+	TotalCapacity        uint64  // Total capacity usage for each user
+}
+
+type RadosGWUserMetricsCurrent struct {
+	OpsPerSec               float64            // Current operations per second (delta)
+	ReadOpsPerSec           float64            // Current read operations per second (delta)
+	WriteOpsPerSec          float64            // Current write operations per second (delta)
+	DataBytesReceivedPerSec float64            // Current data received per second (delta)
+	DataBytesSentPerSec     float64            // Current data sent per second (delta)
+	ThroughputBytesPerSec   float64            // Current throughput in bytes per second (read and write combined)
+	APIUsagePerSec          map[string]float64 // Current API usage by category per second (delta)
+	TotalAPIUsagePerSec     float64            // Total API usage per second (across all categories)
+}
+
+type RadosGWUserMetricsQuota struct {
+	Enabled    bool    // Is quota enabled?
+	MaxSize    *uint64 // Maximum size allowed for the user (optional, use pointer)
+	MaxObjects *uint64 // Maximum number of objects allowed for the user (optional, use pointer)
+}
+
 // RadosGWUserMetrics holds the user-level RADOSGW metrics
 type RadosGWUserMetrics struct {
 	// Static user metadata
-	Meta struct {
-		ID                  string // User ID
-		DisplayName         string // User display name
-		Email               string // User email
-		DefaultStorageClass string // Default storage class for the user
-	}
+	Meta RadosGWUserMetricsMeta
 
 	// Accumulated totals (Totals)
-	Totals struct {
-		BucketsTotal         int     // Total number of buckets for each user
-		ObjectsTotal         uint64  // Total number of objects for each user
-		DataSizeTotal        uint64  // Total size of data for each user (in bytes)
-		OpsTotal             uint64  // Total operations (read + write) for each user
-		ReadOpsTotal         uint64  // Total read operations for each user
-		WriteOpsTotal        uint64  // Total write operations for each user
-		BytesSentTotal       uint64  // Total bytes sent by each user
-		BytesReceivedTotal   uint64  // Total bytes received by each user
-		SuccessOpsTotal      uint64  // Total successful operations for each user
-		ErrorRateTotal       float64 // Error rate for each user
-		ThroughputBytesTotal float64 // Total throughput for each user in bytes
-		TotalCapacity        uint64  // Total capacity usage for each user
-	}
+	Totals RadosGWUserMetricsTotals
 
 	// Current metrics calculated using deltas
-	Current struct {
-		OpsPerSec               float64            // Current operations per second (delta)
-		ReadOpsPerSec           float64            // Current read operations per second (delta)
-		WriteOpsPerSec          float64            // Current write operations per second (delta)
-		DataBytesReceivedPerSec float64            // Current data received per second (delta)
-		DataBytesSentPerSec     float64            // Current data sent per second (delta)
-		ThroughputBytesPerSec   float64            // Current throughput in bytes per second (read and write combined)
-		APIUsagePerSec          map[string]float64 // Current API usage by category per second (delta)
-		TotalAPIUsagePerSec     float64            // Total API usage per second (across all categories)
-	}
+	Current RadosGWUserMetricsCurrent
 
 	// Quota information for the user
-	Quota struct {
-		Enabled    bool    // Is quota enabled?
-		MaxSize    *uint64 // Maximum size allowed for the user (optional, use pointer)
-		MaxObjects *uint64 // Maximum number of objects allowed for the user (optional, use pointer)
-	}
+	Quota RadosGWUserMetricsQuota
 
 	// API Usage per User, where the key is the API category (e.g., "get_obj", "put_obj") and the value is the count of operations for that category
 	APIUsagePerUser map[string]uint64 // API usage breakdown per user by category (e.g., "get_obj": 100, "put_obj": 50)
@@ -144,40 +152,18 @@ type RadosGWUserMetrics struct {
 // NewRadosGWUserMetrics creates and initializes a new instance of RadosGWUserMetrics
 func NewRadosGWUserMetrics() *RadosGWUserMetrics {
 	return &RadosGWUserMetrics{
-		Meta: struct {
-			ID                  string
-			DisplayName         string
-			Email               string
-			DefaultStorageClass string
-		}{
+		Meta: RadosGWUserMetricsMeta{
 			ID:                  "",
 			DisplayName:         "",
 			Email:               "",
 			DefaultStorageClass: "",
 		},
-		Quota: struct {
-			Enabled    bool
-			MaxSize    *uint64
-			MaxObjects *uint64
-		}{
+		Quota: RadosGWUserMetricsQuota{
 			Enabled:    false,
 			MaxSize:    nil,
 			MaxObjects: nil,
 		},
-		Totals: struct {
-			BucketsTotal         int
-			ObjectsTotal         uint64
-			DataSizeTotal        uint64
-			OpsTotal             uint64
-			ReadOpsTotal         uint64
-			WriteOpsTotal        uint64
-			BytesSentTotal       uint64
-			BytesReceivedTotal   uint64
-			SuccessOpsTotal      uint64
-			ErrorRateTotal       float64
-			ThroughputBytesTotal float64
-			TotalCapacity        uint64
-		}{
+		Totals: RadosGWUserMetricsTotals{
 			BucketsTotal:         0,
 			ObjectsTotal:         0,
 			DataSizeTotal:        0,
@@ -194,16 +180,7 @@ func NewRadosGWUserMetrics() *RadosGWUserMetrics {
 
 		APIUsagePerUser: make(map[string]uint64),
 
-		Current: struct {
-			OpsPerSec               float64
-			ReadOpsPerSec           float64
-			WriteOpsPerSec          float64
-			DataBytesReceivedPerSec float64
-			DataBytesSentPerSec     float64
-			ThroughputBytesPerSec   float64
-			APIUsagePerSec          map[string]float64
-			TotalAPIUsagePerSec     float64
-		}{
+		Current: RadosGWUserMetricsCurrent{
 			OpsPerSec:               0.0,
 			ReadOpsPerSec:           0.0,
 			WriteOpsPerSec:          0.0,
@@ -216,45 +193,53 @@ func NewRadosGWUserMetrics() *RadosGWUserMetrics {
 	}
 }
 
+type RadosGWBucketMetricsMeta struct {
+	Name      string     // Bucket name
+	Owner     string     // Bucket owner
+	Zonegroup string     // Zonegroup for the bucket
+	Shards    *uint64    // Number of shards for the bucket
+	CreatedAt *time.Time // Bucket creation time
+}
+
+type RadosGWBucketMetricsTotals struct {
+	DataSize      uint64  // Total size of data in the bucket (in bytes)
+	UtilizedSize  uint64  // Total utilized size of data in the bucket (in bytes)
+	Objects       uint64  // Total number of objects in the bucket
+	ReadOps       uint64  // Total read operations
+	WriteOps      uint64  // Total write operations
+	BytesSent     uint64  // Total bytes sent from the bucket
+	BytesReceived uint64  // Total bytes received by the bucket
+	SuccessOps    uint64  // Total successful operations
+	OpsTotal      uint64  // Total operations (read + write)
+	ErrorRate     float64 // Error rate for operations (percentage)
+	Capacity      uint64  // Total capacity used by the bucket
+}
+
+type RadosGWBucketMetricsCurrent struct {
+	OpsPerSec             float64            // Current total operations per second (read + write)
+	ReadOpsPerSec         float64            // Current read operations per second (delta)
+	WriteOpsPerSec        float64            // Current write operations per second (delta)
+	BytesSentPerSec       float64            // Current bytes sent per second
+	BytesReceivedPerSec   float64            // Current bytes received per second
+	ThroughputBytesPerSec float64            // Current throughput in bytes per second (read + write)
+	APIUsage              map[string]float64 // Current API usage rate (per category)
+	TotalAPIUsagePerSec   float64            // Total API usage per second (across all categories)
+}
+
+type RadosGWBucketMetricsQuota struct {
+	Enabled    bool    // Is quota enabled?
+	MaxSize    *uint64 // Maximum size allowed for the bucket (in bytes)
+	MaxObjects *uint64 // Maximum number of objects allowed for the bucket
+}
+
 type RadosGWBucketMetrics struct {
-	Meta struct {
-		Name      string     // Bucket name
-		Owner     string     // Bucket owner
-		Zonegroup string     // Zonegroup for the bucket
-		Shards    *uint64    // Number of shards for the bucket
-		CreatedAt *time.Time // Bucket creation time
-	}
+	Meta RadosGWBucketMetricsMeta
 
-	Totals struct {
-		DataSize      uint64  // Total size of data in the bucket (in bytes)
-		UtilizedSize  uint64  // Total utilized size of data in the bucket (in bytes)
-		Objects       uint64  // Total number of objects in the bucket
-		ReadOps       uint64  // Total read operations
-		WriteOps      uint64  // Total write operations
-		BytesSent     uint64  // Total bytes sent from the bucket
-		BytesReceived uint64  // Total bytes received by the bucket
-		SuccessOps    uint64  // Total successful operations
-		OpsTotal      uint64  // Total operations (read + write)
-		ErrorRate     float64 // Error rate for operations (percentage)
-		Capacity      uint64  // Total capacity used by the bucket
-	}
+	Totals RadosGWBucketMetricsTotals
 
-	Current struct {
-		OpsPerSec             float64            // Current total operations per second (read + write)
-		ReadOpsPerSec         float64            // Current read operations per second (delta)
-		WriteOpsPerSec        float64            // Current write operations per second (delta)
-		BytesSentPerSec       float64            // Current bytes sent per second
-		BytesReceivedPerSec   float64            // Current bytes received per second
-		ThroughputBytesPerSec float64            // Current throughput in bytes per second (read + write)
-		APIUsage              map[string]float64 // Current API usage rate (per category)
-		TotalAPIUsagePerSec   float64            // Total API usage per second (across all categories)
-	}
+	Current RadosGWBucketMetricsCurrent
 
-	Quota struct {
-		Enabled    bool    // Is quota enabled?
-		MaxSize    *uint64 // Maximum size allowed for the bucket (in bytes)
-		MaxObjects *uint64 // Maximum number of objects allowed for the bucket
-	}
+	Quota RadosGWBucketMetricsQuota
 
 	APIUsage map[string]uint64 // API usage per category (e.g., "get_obj": 100, "put_obj": 50)
 }
@@ -262,41 +247,19 @@ type RadosGWBucketMetrics struct {
 // NewRadosGWBucketMetrics initializes and returns a new RadosGWBucketMetrics struct
 func NewRadosGWBucketMetrics() RadosGWBucketMetrics {
 	return RadosGWBucketMetrics{
-		Meta: struct {
-			Name      string
-			Owner     string
-			Zonegroup string
-			Shards    *uint64
-			CreatedAt *time.Time
-		}{
+		Meta: RadosGWBucketMetricsMeta{
 			Name:      "",
 			Owner:     "",
 			Zonegroup: "",
 			Shards:    nil,
 			CreatedAt: nil,
 		},
-		Quota: struct {
-			Enabled    bool
-			MaxSize    *uint64
-			MaxObjects *uint64
-		}{
+		Quota: RadosGWBucketMetricsQuota{
 			Enabled:    false,
 			MaxSize:    nil,
 			MaxObjects: nil,
 		},
-		Totals: struct {
-			DataSize      uint64
-			UtilizedSize  uint64
-			Objects       uint64
-			ReadOps       uint64
-			WriteOps      uint64
-			BytesSent     uint64
-			BytesReceived uint64
-			SuccessOps    uint64
-			OpsTotal      uint64
-			ErrorRate     float64
-			Capacity      uint64
-		}{
+		Totals: RadosGWBucketMetricsTotals{
 			DataSize:      0,
 			UtilizedSize:  0,
 			Objects:       0,
@@ -309,16 +272,7 @@ func NewRadosGWBucketMetrics() RadosGWBucketMetrics {
 			ErrorRate:     0,
 			Capacity:      0,
 		},
-		Current: struct {
-			OpsPerSec             float64
-			ReadOpsPerSec         float64
-			WriteOpsPerSec        float64
-			BytesSentPerSec       float64
-			BytesReceivedPerSec   float64
-			ThroughputBytesPerSec float64
-			APIUsage              map[string]float64
-			TotalAPIUsagePerSec   float64
-		}{
+		Current: RadosGWBucketMetricsCurrent{
 			OpsPerSec:             0.0,
 			ReadOpsPerSec:         0.0,
 			WriteOpsPerSec:        0.0,
