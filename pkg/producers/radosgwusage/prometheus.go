@@ -380,11 +380,14 @@ func populateUserMetrics(entry UsageEntry, cfg *RadosGWUsageConfig) {
 func aggregateClusterMetrics(entry UsageEntry, clusterMetrics *RadosGWClusterMetrics) {
 
 	clusterMetrics.OpsTotal += entry.UserLevel.Totals.OpsTotal
-	clusterMetrics.ReadOpsPerSec += float64(entry.UserLevel.Totals.ReadOpsTotal)
-	clusterMetrics.WriteOpsPerSec += float64(entry.UserLevel.Totals.WriteOpsTotal)
-	clusterMetrics.BytesSentPerSec += float64(entry.UserLevel.Totals.BytesSentTotal)
-	clusterMetrics.BytesReceivedPerSec += float64(entry.UserLevel.Totals.BytesReceivedTotal)
-	clusterMetrics.ThroughputBytesPerSec += entry.UserLevel.Totals.ThroughputBytesTotal
+	clusterMetrics.BytesSent += float64(entry.UserLevel.Totals.BytesSentTotal)
+	clusterMetrics.BytesReceived += float64(entry.UserLevel.Totals.BytesReceivedTotal)
+	clusterMetrics.ThroughputBytes += float64(entry.UserLevel.Totals.ThroughputBytesTotal)
+	clusterMetrics.ReadOpsPerSec += float64(entry.UserLevel.Current.ReadOpsPerSec)
+	clusterMetrics.WriteOpsPerSec += float64(entry.UserLevel.Current.WriteOpsPerSec)
+	clusterMetrics.BytesSentPerSec += float64(entry.UserLevel.Current.DataBytesSentPerSec)
+	clusterMetrics.BytesReceivedPerSec += float64(entry.UserLevel.Current.DataBytesReceivedPerSec)
+	clusterMetrics.ThroughputBytesPerSec += entry.UserLevel.Current.ThroughputBytesPerSec
 	clusterMetrics.CapacityUsageBytes += entry.UserLevel.Totals.TotalCapacity
 
 	// Error rate is averaged across all users/buckets
@@ -405,6 +408,8 @@ func populateClusterMetrics(clusterID, node, instanceID string, clusterMetrics R
 	}
 
 	clusterOpsTotal.With(labels).Set(float64(clusterMetrics.OpsTotal))
+	clusterBytesSentTotal.With(labels).Set(float64(clusterMetrics.BytesSent))
+	clusterBytesReceivedTotal.With(labels).Set(float64(clusterMetrics.BytesReceived))
 	clusterReadsPerSec.With(labels).Set(clusterMetrics.ReadOpsPerSec)
 	clusterWritesPerSec.With(labels).Set(clusterMetrics.WriteOpsPerSec)
 	clusterBytesSentPerSec.With(labels).Set(clusterMetrics.BytesSentPerSec)

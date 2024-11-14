@@ -64,7 +64,7 @@ var previousBucketAPIUsage = make(map[string]PreviousAPIUsage)
 func CalculateCurrentUserMetrics(userLevel *RadosGWUserMetrics, currentTime time.Time) {
 	prevUsage, exists := previousUserUsage[userLevel.Meta.ID]
 
-	var throughput, currentBytesSentRate, currentBytesReceivedRate, currentOpsRate float64
+	var throughput, currentBytesSentRate, currentBytesReceivedRate, currentOpsRate, currentReadOpsRate, currentWriteOpsRate float64
 
 	// If this is the first collection, initialize the values
 	if !exists {
@@ -80,6 +80,8 @@ func CalculateCurrentUserMetrics(userLevel *RadosGWUserMetrics, currentTime time
 		userLevel.Current.ThroughputBytesPerSec = 0.0
 		userLevel.Current.DataBytesSentPerSec = 0.0
 		userLevel.Current.DataBytesReceivedPerSec = 0.0
+		userLevel.Current.ReadOpsPerSec = 0.0
+		userLevel.Current.WriteOpsPerSec = 0.0
 		return
 	}
 
@@ -121,19 +123,29 @@ func CalculateCurrentUserMetrics(userLevel *RadosGWUserMetrics, currentTime time
 			throughput = 0.0
 		}
 
-		// Calculate total operations (read + write) per second if there is activity
-		if readOpsDelta > 0 || writeOpsDelta > 0 {
-			currentOpsRate = float64(readOpsDelta+writeOpsDelta) / deltaTime
+		// Calculate read and write operations per second individually
+		if readOpsDelta > 0 {
+			currentReadOpsRate = float64(readOpsDelta) / deltaTime
 		} else {
-			// Reset operations rate if there are no operations
-			currentOpsRate = 0.0
+			currentReadOpsRate = 0.0
 		}
+
+		if writeOpsDelta > 0 {
+			currentWriteOpsRate = float64(writeOpsDelta) / deltaTime
+		} else {
+			currentWriteOpsRate = 0.0
+		}
+
+		// Calculate total operations (read + write) per second
+		currentOpsRate = currentReadOpsRate + currentWriteOpsRate
 	} else {
 		// If deltaTime is zero or negative, reset the rates
 		currentOpsRate = 0.0
 		throughput = 0.0
 		currentBytesSentRate = 0.0
 		currentBytesReceivedRate = 0.0
+		currentReadOpsRate = 0.0
+		currentWriteOpsRate = 0.0
 	}
 
 	// Update previous usage data with current values
@@ -150,6 +162,8 @@ func CalculateCurrentUserMetrics(userLevel *RadosGWUserMetrics, currentTime time
 	userLevel.Current.ThroughputBytesPerSec = throughput
 	userLevel.Current.DataBytesSentPerSec = currentBytesSentRate
 	userLevel.Current.DataBytesReceivedPerSec = currentBytesReceivedRate
+	userLevel.Current.ReadOpsPerSec = currentReadOpsRate
+	userLevel.Current.WriteOpsPerSec = currentWriteOpsRate
 }
 
 func CalculateCurrentAPIUsagePerUser(userLevel *RadosGWUserMetrics, currentTime time.Time) {
@@ -285,24 +299,11 @@ func CalculateCurrentBucketMetrics(bucketMetrics *RadosGWBucketMetrics, currentB
 	}
 
 	// Calculate individual read/write ops rates
-	if readOpsDelta > 0 {
-		currentReadOpsRate = float64(readOpsDelta) / deltaTime
-	} else {
-		currentReadOpsRate = 0.0
-	}
-
-	if writeOpsDelta > 0 {
-		currentWriteOpsRate = float64(writeOpsDelta) / deltaTime
-	} else {
-		currentWriteOpsRate = 0.0
-	}
+	currentReadOpsRate = float64(readOpsDelta) / deltaTime
+	currentWriteOpsRate = float64(writeOpsDelta) / deltaTime
 
 	// Calculate total operations (read + write) per second
-	if readOpsDelta > 0 || writeOpsDelta > 0 {
-		currentOpsRate = float64(readOpsDelta+writeOpsDelta) / deltaTime
-	} else {
-		currentOpsRate = 0.0
-	}
+	currentOpsRate = currentReadOpsRate + currentWriteOpsRate
 
 	// Update the previous usage data with the current values
 	previousBucketUsage[bucketName] = PreviousUsage{

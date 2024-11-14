@@ -287,6 +287,9 @@ func NewRadosGWBucketMetrics() RadosGWBucketMetrics {
 
 type RadosGWClusterMetrics struct {
 	OpsTotal              uint64  // Total operations (read + write)
+	BytesSent             float64 // Total bytes sent in the cluster.
+	BytesReceived         float64 // Total bytes received in the cluster.
+	ThroughputBytes       float64 // Total throughput in bytesreceived in the cluster. (read + write)
 	ReadOpsPerSec         float64 // Total read operations per second
 	WriteOpsPerSec        float64 // Total write operations per second
 	BytesSentPerSec       float64 // Total bytes sent per second
