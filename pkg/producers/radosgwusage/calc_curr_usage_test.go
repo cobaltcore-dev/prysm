@@ -30,6 +30,8 @@ func TestCalculateCurrentUserMetrics(t *testing.T) {
 	assert.Equal(t, 0.0, userMetrics.Current.ThroughputBytesPerSec)
 	assert.Equal(t, 0.0, userMetrics.Current.DataBytesSentPerSec)
 	assert.Equal(t, 0.0, userMetrics.Current.DataBytesReceivedPerSec)
+	assert.Equal(t, 0.0, userMetrics.Current.ReadOpsPerSec)
+	assert.Equal(t, 0.0, userMetrics.Current.WriteOpsPerSec)
 
 	// Simulate updated metrics after 1 second
 	time.Sleep(time.Second)
@@ -46,13 +48,17 @@ func TestCalculateCurrentUserMetrics(t *testing.T) {
 	expectedBytesSentRate := 2000.0     // (3000 - 1000) / 1 second
 	expectedBytesReceivedRate := 3000.0 // (5000 - 2000) / 1 second
 	expectedThroughput := expectedBytesSentRate + expectedBytesReceivedRate
-	expectedOpsRate := 700.0 // (600 + 800 - (300 + 400)) / 1 second
+	expectedReadOpsRate := 300.0  // (600 - 300) / 1 second
+	expectedWriteOpsRate := 400.0 // (800 - 400) / 1 second
+	expectedOpsRate := expectedReadOpsRate + expectedWriteOpsRate
 
 	// Assert calculated values match expected
 	assert.Equal(t, expectedOpsRate, userMetrics.Current.OpsPerSec)
 	assert.Equal(t, expectedThroughput, userMetrics.Current.ThroughputBytesPerSec)
 	assert.Equal(t, expectedBytesSentRate, userMetrics.Current.DataBytesSentPerSec)
 	assert.Equal(t, expectedBytesReceivedRate, userMetrics.Current.DataBytesReceivedPerSec)
+	assert.Equal(t, expectedReadOpsRate, userMetrics.Current.ReadOpsPerSec)
+	assert.Equal(t, expectedWriteOpsRate, userMetrics.Current.WriteOpsPerSec)
 }
 
 func TestCalculateCurrentAPIUsagePerUser(t *testing.T) {
