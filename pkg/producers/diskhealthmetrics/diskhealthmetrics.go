@@ -29,7 +29,7 @@ func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData
 	for _, disk := range cfg.Disks {
 		//FIXME rawData, err := collectSmartData(fmt.Sprintf("/dev/%s", disk))
 		rawData, err := collectSmartData(disk)
-		// rawData, err := collectSmartDataFromFile("../mat/devicehealth/sdm.json")
+		// rawData, err := collectSmartDataFromFile("../mat/devicehealth/nvme0.json")
 		// rawData, err := collectSmartDataFromFile("../mat/devicehealth/sdl.json")
 		if err != nil {
 			log.Error().Err(err).Str("disk", disk).Msg("error running smartctl")

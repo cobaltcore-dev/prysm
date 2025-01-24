@@ -111,9 +111,9 @@ func PublishToPrometheus(metrics []NormalizedSmartData, cfg DiskHealthMetricsCon
 				"node":     metric.NodeName,
 				"instance": metric.InstanceID,
 			}).Set(float64(*metric.TemperatureCelsius))
-		}
 
-		log.Info().Msgf("Prometheus temperature set for disk %s: %f", metric.Device, float64(*metric.TemperatureCelsius))
+			log.Info().Msgf("Prometheus temperature set for disk %s: %f", metric.Device, float64(*metric.TemperatureCelsius))
+		}
 
 		if metric.ReallocatedSectors != nil {
 			reallocatedSectorsGauge.With(prometheus.Labels{

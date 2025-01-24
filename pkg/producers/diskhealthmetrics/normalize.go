@@ -79,11 +79,15 @@ func FillDeviceInfoFromSmartData(deviceInfo *DeviceInfo, smartData *SmartCtlOutp
 			deviceInfo.Vendor = fmt.Sprintf("Vendor ID: %d, Subsystem ID: %d", smartData.NVMePCIVendor.ID, smartData.NVMePCIVendor.SubsystemID)
 		}
 		deviceInfo.Product = smartData.DeviceModel
-		deviceInfo.Media = "ssd" // NVMe is typically SSD
+		deviceInfo.Media = "nvme"
 
 		// Capacity for NVMe
-		if smartData.UserCapacity != nil {
-			deviceInfo.Capacity = float64(smartData.UserCapacity.Bytes) / (1024 * 1024 * 1024)
+		if smartData.NVMeTotalCapacity > 0 {
+			// Use NVMeTotalCapacity if available
+			deviceInfo.Capacity = float64(smartData.NVMeTotalCapacity) / (1024 * 1024 * 1024) // Convert to GiB
+		} else if smartData.UserCapacity != nil {
+			// Fallback to UserCapacity if NVMeTotalCapacity is not available
+			deviceInfo.Capacity = float64(smartData.UserCapacity.Bytes) / (1024 * 1024 * 1024) // Convert to GiB
 		}
 
 		// DWPD (Drive Writes Per Day) if available
