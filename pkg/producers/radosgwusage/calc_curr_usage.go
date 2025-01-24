@@ -15,7 +15,6 @@
 package radosgwusage
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -177,7 +176,6 @@ func CalculateCurrentAPIUsagePerUser(userLevel *RadosGWUserMetrics, currentTime 
 
 	// If this is the first collection, initialize and return
 	if !exists {
-		fmt.Println("First data point; initializing previous usage.")
 		previousUserAPIUsage[userLevel.Meta.ID] = APIUsage{
 			Categories:    copyMap(userLevel.APIUsagePerUser),
 			LastCollected: currentTime,
@@ -380,6 +378,7 @@ func CalculateCurrentBucketAPIUsage(bucketMetrics *RadosGWBucketMetrics, current
 	}
 
 	// Update the previous usage data with the latest values
+
 	previousBucketAPIUsage[bucketName] = PreviousAPIUsage{
 		Usage:         make(map[string]uint64),
 		LastCollected: currentTime,

@@ -24,18 +24,22 @@ import (
 )
 
 var (
-	rgwuAdminURL       string
-	rgwuAccessKey      string
-	rgwuSecretKey      string
-	rgwuNatsURL        string
-	rgwuNatsSubject    string
-	rgwuUseNats        bool
-	rgwuPrometheus     bool
-	rgwuPrometheusPort int
-	rgwuNodeName       string
-	rgwuInstanceID     string
-	rgwuInterval       int
-	rgwuClusterID      string
+	rgwuAdminURL                string
+	rgwuAccessKey               string
+	rgwuSecretKey               string
+	rgwuNatsURL                 string
+	rgwuNatsSubject             string
+	rgwuUseNats                 bool
+	rgwuPrometheus              bool
+	rgwuPrometheusPort          int
+	rgwuNodeName                string
+	rgwuInstanceID              string
+	rgwuInterval                int
+	rgwuClusterID               string
+	rgwuSyncControlNats         bool
+	rgwuSyncExternalNats        bool
+	rgwuSyncControlURL          string
+	rgwuSyncControlBucketPrefix string
 )
 
 var radosGWUsageCmd = &cobra.Command{
@@ -43,18 +47,22 @@ var radosGWUsageCmd = &cobra.Command{
 	Short: "RadosGW usage exporter",
 	Run: func(cmd *cobra.Command, args []string) {
 		config := radosgwusage.RadosGWUsageConfig{
-			AdminURL:       rgwuAdminURL,
-			AccessKey:      rgwuAccessKey,
-			SecretKey:      rgwuSecretKey,
-			NatsURL:        rgwuNatsURL,
-			NatsSubject:    rgwuNatsSubject,
-			UseNats:        rgwuUseNats,
-			Prometheus:     rgwuPrometheus,
-			PrometheusPort: rgwuPrometheusPort,
-			NodeName:       rgwuNodeName,
-			InstanceID:     rgwuInstanceID,
-			Interval:       rgwuInterval,
-			ClusterID:      rgwuClusterID,
+			AdminURL:                rgwuAdminURL,
+			AccessKey:               rgwuAccessKey,
+			SecretKey:               rgwuSecretKey,
+			NatsURL:                 rgwuNatsURL,
+			NatsSubject:             rgwuNatsSubject,
+			UseNats:                 rgwuUseNats,
+			Prometheus:              rgwuPrometheus,
+			PrometheusPort:          rgwuPrometheusPort,
+			NodeName:                rgwuNodeName,
+			InstanceID:              rgwuInstanceID,
+			Interval:                rgwuInterval,
+			ClusterID:               rgwuClusterID,
+			SyncControlNats:         rgwuSyncControlNats,
+			SyncExternalNats:        rgwuSyncExternalNats,
+			SyncControlURL:          rgwuSyncControlURL,
+			SyncControlBucketPrefix: rgwuSyncControlBucketPrefix,
 		}
 
 		config = mergeRadosGWUsageConfigWithEnv(config)
@@ -77,6 +85,15 @@ var radosGWUsageCmd = &cobra.Command{
 		event.Int("interval_seconds", config.Interval)
 		event.Str("cluster_id", config.ClusterID)
 
+		event.Bool("sync_control_nats_enabled", config.SyncControlNats)
+		if config.SyncControlNats {
+			event.Bool("sync_external_nats_enabled", config.SyncExternalNats)
+			if config.SyncExternalNats {
+				event.Str("sync_control_url", config.SyncControlURL)
+			}
+			event.Str("sync_control_bucket_prefix", config.SyncControlBucketPrefix)
+		}
+
 		// Finalize the log message with the main message
 		event.Msg("configuration_loaded")
 
@@ -98,6 +115,11 @@ func mergeRadosGWUsageConfigWithEnv(cfg radosgwusage.RadosGWUsageConfig) radosgw
 	cfg.PrometheusPort = getEnvInt("PROMETHEUS_PORT", cfg.PrometheusPort)
 	cfg.Interval = getEnvInt("INTERVAL", cfg.Interval)
 	cfg.ClusterID = getEnv("RGW_CLUSTER_ID", cfg.ClusterID)
+	// Sync control related parameters
+	cfg.SyncControlNats = getEnvBool("SYNC_CONTROL_NATS", cfg.SyncControlNats)
+	cfg.SyncExternalNats = getEnvBool("SYNC_EXTERNAL_NATS", cfg.SyncExternalNats)
+	cfg.SyncControlURL = getEnv("SYNC_CONTROL_URL", cfg.SyncControlURL)
+	cfg.SyncControlBucketPrefix = getEnv("SYNC_CONTROL_BUCKET_PREFIX", cfg.SyncControlBucketPrefix)
 
 	return cfg
 }
@@ -114,6 +136,12 @@ func init() {
 	radosGWUsageCmd.Flags().BoolVar(&rgwuPrometheus, "prometheus", false, "Enable Prometheus metrics")
 	radosGWUsageCmd.Flags().IntVar(&rgwuPrometheusPort, "prometheus-port", 8080, "Prometheus metrics port")
 	radosGWUsageCmd.Flags().IntVar(&rgwuInterval, "interval", 10, "Interval in seconds between usage collections")
+	// Sync control related flags
+	radosGWUsageCmd.Flags().BoolVar(&rgwuSyncControlNats, "sync-control-nats", true, "Enable sync control using NATS")
+	radosGWUsageCmd.Flags().BoolVar(&rgwuSyncExternalNats, "sync-external-nats", false, "Use external NATS server for sync control")
+	radosGWUsageCmd.Flags().StringVar(&rgwuSyncControlURL, "sync-control-url", "", "URL of the external NATS server for sync control")
+	radosGWUsageCmd.Flags().StringVar(&rgwuSyncControlBucketPrefix, "sync-control-bucket-prefix", "sync", "NATS KV bucket prefix for sync control")
+
 }
 
 func validateRadosGWUsageConfig(config radosgwusage.RadosGWUsageConfig) {
@@ -139,6 +167,18 @@ func validateRadosGWUsageConfig(config radosgwusage.RadosGWUsageConfig) {
 	if config.ClusterID == "" {
 		fmt.Println("Warning: --rgw-cluster-id or RGW_CLUSTER_ID must be set")
 		missingParams = true
+	}
+
+	// Validate sync control configuration
+	if config.SyncControlNats {
+		if config.SyncExternalNats && config.SyncControlURL == "" {
+			fmt.Println("Warning: --sync-control-url must be set when using an external NATS server")
+			missingParams = true
+		}
+		if config.SyncControlBucketPrefix == "" {
+			fmt.Println("Warning: --sync-control-bucket-prefix must be set for sync control")
+			missingParams = true
+		}
 	}
 
 	if missingParams {

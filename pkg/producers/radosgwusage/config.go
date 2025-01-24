@@ -15,16 +15,20 @@
 package radosgwusage
 
 type RadosGWUsageConfig struct {
-	AdminURL       string
-	AccessKey      string
-	SecretKey      string
-	NatsURL        string
-	NatsSubject    string
-	UseNats        bool
-	Prometheus     bool
-	PrometheusPort int
-	NodeName       string
-	InstanceID     string
-	Interval       int // in seconds
-	ClusterID      string
+	AdminURL                string
+	AccessKey               string
+	SecretKey               string
+	NatsURL                 string // For exporting metrics
+	NatsSubject             string // For exporting metrics
+	UseNats                 bool   // Indicates if NATS is used for metrics export
+	Prometheus              bool
+	PrometheusPort          int
+	NodeName                string
+	InstanceID              string
+	Interval                int // in seconds
+	ClusterID               string
+	SyncControlNats         bool   // Enable NATS for sync control
+	SyncExternalNats        bool   // Use external NATS for sync control
+	SyncControlURL          string // URL for the external NATS server (if applicable)
+	SyncControlBucketPrefix string // NATS-KV bucket prefix for sync data
 }

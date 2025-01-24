@@ -583,7 +583,7 @@ func populateQuotaInfo(entry *UsageEntry, userInfo admin.User) {
 // StartRadosGWUsageExporter starts the process of exporting RadosGW usage metrics.
 // The function supports exporting metrics to Prometheus, NATS, or printing them to stdout.
 // It runs indefinitely, collecting metrics at regular intervals as defined by the configuration.
-func StartRadosGWUsageExporter(cfg RadosGWUsageConfig) {
+func StartRadosGWUsageExporterXXX(cfg RadosGWUsageConfig) {
 	// If Prometheus is enabled in the configuration, start the Prometheus metrics server
 	if cfg.Prometheus {
 		go startPrometheusMetricsServer(cfg.PrometheusPort)
@@ -635,11 +635,11 @@ func StartRadosGWUsageExporter(cfg RadosGWUsageConfig) {
 			}
 
 			// Calculate duration and set it in the scrapeDurationSeconds metric
-			duration := time.Since(startTime).Seconds()
+			// duration := time.Since(startTime).Seconds()
 
 			// If Prometheus is enabled, publish the collected metrics to Prometheus
 			if cfg.Prometheus {
-				publishToPrometheus(entries, duration, cfg)
+				// publishToPrometheus(entries, duration, cfg)
 			}
 
 			// If NATS is enabled, publish the collected metrics to the specified NATS subject
