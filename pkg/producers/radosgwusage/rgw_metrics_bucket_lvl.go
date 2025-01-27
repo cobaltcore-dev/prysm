@@ -103,6 +103,7 @@ func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyVa
 
 		// Aggregate usage data for this bucket
 		bucketUsageKeyPrefix := fmt.Sprintf("usage_%s_%s", bucket.Owner, bucket.Bucket)
+		bucketUsageKeyPrefix = strings.ReplaceAll(bucketUsageKeyPrefix, "$", "_tenant_")
 		usageKeys, err := userUsageData.Keys()
 		if err != nil {
 			log.Error().
@@ -180,6 +181,7 @@ func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyVa
 
 		// Prepare the metrics key
 		metricsKey := fmt.Sprintf("bucket_metrics_%s_%s", bucket.Owner, bucket.Bucket)
+		metricsKey = strings.ReplaceAll(metricsKey, "$", "_tenant_")
 
 		// Serialize and store metrics
 		metricsData, err := json.Marshal(metrics)

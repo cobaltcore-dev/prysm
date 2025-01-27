@@ -46,6 +46,11 @@ type KVBucket struct {
 	BucketQuota       admin.QuotaSpec   `json:"bucketQuota"`
 }
 
+func (bucket *KVBucket) IsOwnedBy(owner string) bool {
+	tmpOwner := strings.ReplaceAll(owner, "_tenant_", "$")
+	return bucket.Owner == tmpOwner
+}
+
 type ExplicitPlacement struct {
 	DataPool      string `json:"data_pool"`
 	DataExtraPool string `json:"data_extra_pool"`
@@ -347,7 +352,6 @@ func fetchBucketInfo(co *admin.API, syncControl nats.KeyValue, bucketName string
 
 func storeBucketInKV(bucket admin.Bucket, bucketData nats.KeyValue) error {
 	bucketKey := fmt.Sprintf("bucket_%s", bucket.Bucket)
-
 	kvBucket := KVBucket{
 		Bucket:            bucket.Bucket,
 		NumShards:         bucket.NumShards,
@@ -396,6 +400,7 @@ func storeBucketInKV(bucket admin.Bucket, bucketData nats.KeyValue) error {
 		return err
 	}
 
+	bucketKey := fmt.Sprintf("bucket_%s", bucket.Bucket)
 	if _, err := bucketData.Put(bucketKey, bucketDataJSON); err != nil {
 		log.Warn().
 			Str("bucket", bucket.Bucket).
