@@ -83,13 +83,13 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 		}
 
 		log.Debug().
-			Str("user_id", user.ID).
+			Str("user_id", user.GetUserIdentification()).
 			Str("display_name", user.DisplayName).
 			Msg("Processing user metrics")
 
 		// Initialize metrics
 		metrics := UserLevelMetrics{
-			UserID:               user.ID,
+			UserID:               user.GetUserIdentification(),
 			DisplayName:          user.DisplayName,
 			Email:                user.Email,
 			DefaultStorageClass:  user.DefaultStorageClass,
@@ -135,17 +135,17 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 				continue
 			}
 
-			if bucket.Owner == user.ID {
+			if bucket.Owner == user.GetUserIdentification() {
 				metrics.BucketsTotal++
 			}
 		}
 
 		// Aggregate usage data for this user
-		userUsageKeyPrefix := fmt.Sprintf("usage_%s_", user.ID)
+		userUsageKeyPrefix := fmt.Sprintf("usage_%s_", user.GetKVFriendlyUserIdentification())
 		usageKeys, err := userUsageData.Keys()
 		if err != nil {
 			log.Error().
-				Str("user_id", user.ID).
+				Str("user_id", user.GetUserIdentification()).
 				Err(err).
 				Msg("Failed to fetch usage keys from KV")
 			continue
@@ -214,7 +214,7 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 		metricsData, err := json.Marshal(metrics)
 		if err != nil {
 			log.Error().
-				Str("user_id", user.ID).
+				Str("user_id", user.GetUserIdentification()).
 				Err(err).
 				Msg("Failed to serialize user metrics")
 			continue
@@ -222,12 +222,12 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 
 		if _, err := userMetrics.Put(metricsKey, metricsData); err != nil {
 			log.Error().
-				Str("user_id", user.ID).
+				Str("user_id", user.GetUserIdentification()).
 				Err(err).
 				Msg("Failed to store user metrics in KV")
 		} else {
 			log.Debug().
-				Str("user_id", user.ID).
+				Str("user_id", user.GetUserIdentification()).
 				Str("key", metricsKey).
 				Msg("User metrics stored in KV successfully")
 		}

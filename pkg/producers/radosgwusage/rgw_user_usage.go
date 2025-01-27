@@ -423,14 +423,14 @@ func performFullUserUsageSyncFromKV(userData, syncControl, userUsageData nats.Ke
 
 		// Prepare and fetch detailed usage for the user
 		detailedUsageRequest := admin.Usage{
-			UserID:      user.ID,
+			UserID:      user.GetUserIdentification(),
 			ShowEntries: &showEntries,
 		}
 
 		detailedUsage, err := co.GetUsage(context.Background(), detailedUsageRequest)
 		if err != nil {
 			log.Warn().
-				Str("user", user.ID).
+				Str("user", user.GetUserIdentification()).
 				Err(err).
 				Msg("Failed to fetch detailed usage for user")
 			usersFailed++
@@ -440,7 +440,7 @@ func performFullUserUsageSyncFromKV(userData, syncControl, userUsageData nats.Ke
 		// Store the detailed usage in KV
 		if err := storeUserUsageInKV(detailedUsage, userUsageData); err != nil {
 			log.Warn().
-				Str("user", user.ID).
+				Str("user", user.GetUserIdentification()).
 				Err(err).
 				Msg("Failed to store user usage in KV")
 			usersFailed++
@@ -523,7 +523,6 @@ func storeUserUsageInKV(userUsage admin.Usage, userUsageData nats.KeyValue) erro
 					Msg("Skipping non-bucket-specific usage ('-')")
 				continue
 			}
-			bucketKey := fmt.Sprintf("usage_%s_%s", entry.User, bucketName)
 
 			// Create the KV structure for the bucket usage
 			kvBucketUsage := KVUserUsage{
@@ -558,6 +557,9 @@ func storeUserUsageInKV(userUsage admin.Usage, userUsageData nats.KeyValue) erro
 				bucketsFailed++
 				continue
 			}
+
+			bucketKey := fmt.Sprintf("usage_%s_%s", entry.User, bucketName)
+			bucketKey = strings.ReplaceAll(bucketKey, "$", "_tenant_")
 
 			// Write the bucket usage data to the KV store
 			if _, err := userUsageData.Put(bucketKey, bucketDataJSON); err != nil {

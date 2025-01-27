@@ -46,6 +46,20 @@ type KVUser struct {
 	Stats               UserStats           `json:"stats"`
 }
 
+func (user *KVUser) GetUserIdentification() string {
+	if len(user.Tenant) > 0 {
+		return fmt.Sprintf("%s$%s", user.ID, user.Tenant)
+	}
+	return user.ID
+}
+
+func (user *KVUser) GetKVFriendlyUserIdentification() string {
+	if len(user.Tenant) > 0 {
+		return fmt.Sprintf("%s_tenant_%s", user.ID, user.Tenant)
+	}
+	return user.ID
+}
+
 type UserStats struct {
 	Size        *uint64 `json:"size"`
 	SizeRounded *uint64 `json:"sizeRounded"`
@@ -336,8 +350,6 @@ func fetchUserInfo(co *admin.API, syncControl nats.KeyValue, userID string, user
 }
 
 func storeUserInKV(user admin.User, userData nats.KeyValue) error {
-	userKey := fmt.Sprintf("user_%s", user.ID)
-
 	kvUser := KVUser{
 		ID:                  user.ID,
 		DisplayName:         user.DisplayName,
@@ -369,9 +381,10 @@ func storeUserInKV(user admin.User, userData nats.KeyValue) error {
 		return err
 	}
 
+	userKey := fmt.Sprintf("user_%s", kvUser.GetKVFriendlyUserIdentification())
 	if _, err := userData.Put(userKey, userDataJSON); err != nil {
 		log.Warn().
-			Str("user", user.ID).
+			Str("user", kvUser.GetUserIdentification()).
 			Err(err).
 			Msg("Failed to update KV for user")
 		return err
