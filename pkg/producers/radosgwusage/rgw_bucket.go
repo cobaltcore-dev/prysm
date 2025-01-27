@@ -351,6 +351,7 @@ func fetchBucketInfo(co *admin.API, syncControl nats.KeyValue, bucketName string
 }
 
 func storeBucketInKV(bucket admin.Bucket, bucketData nats.KeyValue) error {
+	bucketKey := fmt.Sprintf("bucket_%s", bucket.Bucket)
 	kvBucket := KVBucket{
 		Bucket:            bucket.Bucket,
 		NumShards:         bucket.NumShards,
@@ -400,7 +401,6 @@ func storeBucketInKV(bucket admin.Bucket, bucketData nats.KeyValue) error {
 	}
 
 	bucketKey := fmt.Sprintf("bucket_%s", bucket.Bucket)
-
 	if _, err := bucketData.Put(bucketKey, bucketDataJSON); err != nil {
 		log.Warn().
 			Str("bucket", bucket.Bucket).
