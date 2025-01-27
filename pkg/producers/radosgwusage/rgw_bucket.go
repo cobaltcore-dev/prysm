@@ -400,7 +400,6 @@ func storeBucketInKV(bucket admin.Bucket, bucketData nats.KeyValue) error {
 		return err
 	}
 
-	bucketKey := fmt.Sprintf("bucket_%s", bucket.Bucket)
 	if _, err := bucketData.Put(bucketKey, bucketDataJSON); err != nil {
 		log.Warn().
 			Str("bucket", bucket.Bucket).
