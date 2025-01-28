@@ -41,6 +41,9 @@ type UserBucketMetrics struct {
 	BytesReceivedTotal uint64            // Total Data Uploaded
 	NumShards          *uint64           // Shards
 	APIUsage           map[string]uint64 // Tracks API operations per category for the bucket
+	QuotaEnabled       bool
+	QuotaMaxSize       *int64
+	QuotaMaxObjects    *int64
 }
 
 func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyValue) error {
@@ -178,6 +181,15 @@ func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyVa
 
 		// Calculate throughput
 		metrics.Throughput = metrics.BytesSentTotal + metrics.BytesReceivedTotal
+
+		// Set quota information
+		metrics.QuotaEnabled = false
+		// Check and populate bucket quota if enabled
+		if bucket.BucketQuota.Enabled != nil && *bucket.BucketQuota.Enabled {
+			metrics.QuotaEnabled = true
+			metrics.QuotaMaxSize = bucket.BucketQuota.MaxSize
+			metrics.QuotaMaxObjects = bucket.BucketQuota.MaxObjects
+		}
 
 		// Prepare the metrics key
 		metricsKey := fmt.Sprintf("bucket_metrics_%s_%s", bucket.Owner, bucket.Bucket)
