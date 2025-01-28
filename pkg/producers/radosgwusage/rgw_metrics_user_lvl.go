@@ -42,6 +42,9 @@ type UserLevelMetrics struct {
 	UserSuccessOpsTotal  uint64            // Tracks the total successful operations performed by each user. Useful for reliability tracking. | Usage | = sum of summary.categories.successful_ops
 	ThroughputBytesTotal uint64            // Derived from total data read and written per client over time. Key for bandwidth analysis per client. | Usage | = (sum of summary.categories.bytes_sent + sum of summary.categories.bytes_received)
 	APIUsage             map[string]uint64 // Tracks API operations per category (e.g., "get_obj", "put_obj")
+	UserQuotaEnabled     bool
+	UserQuotaMaxSize     *int64
+	UserQuotaMaxObjects  *int64
 }
 
 func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats.KeyValue) error {
@@ -205,6 +208,14 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 		if metrics.TotalOPs > 0 {
 			errorOps := metrics.TotalOPs - metrics.UserSuccessOpsTotal
 			metrics.ErrorRatePerUser = (float64(errorOps) / float64(metrics.TotalOPs)) * 100
+		}
+		// Set quota information
+		metrics.UserQuotaEnabled = false
+		// Check and populate user quota if enabled
+		if user.UserQuota.Enabled != nil && *user.UserQuota.Enabled {
+			metrics.UserQuotaEnabled = true
+			metrics.UserQuotaMaxSize = user.UserQuota.MaxSize
+			metrics.UserQuotaMaxObjects = user.UserQuota.MaxObjects
 		}
 
 		// Prepare the metrics key
