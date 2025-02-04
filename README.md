@@ -1,3 +1,5 @@
+[![REUSE status](https://api.reuse.software/badge/github.com/cobaltcore-dev/prysm)](https://api.reuse.software/info/github.com/cobaltcore-dev/prysm)
+
 # Prysm - Comprehensive Observability CLI Tool for Ceph and Rados Gateway Monitoring
 
 > **Disclaimer**
@@ -107,19 +109,21 @@ through SMART attribute analysis. Whether you need to integrate with Prometheus,
 alerts via NATS, or simply log and visualize system performance, Prysm offers the tools and
 flexibility to meet your needs.
 
-## Contributing to the repository
+## Support, Feedback, Contributing
 
-The repository comes with a pre-commit hook configuration to validate contributions before they are
-submitted. The pre-commit package can be installed e.g. via `pip install pre-commit` or
-`brew install pre-commit`.
+This project is open to feature requests/suggestions, bug reports, etc. via [GitHub issues](https://github.com/cobaltcore-dev/prysm/issues). Contribution and feedback are encouraged and always welcome. For more information about how to contribute, the project structure, as well as additional contribution information, see our [Contribution Guidelines](CONTRIBUTING.md).
 
-Install the pre-commit hooks by running `pre-commit install`.
+## Security / Disclosure
 
-The pre-commit hooks can be run manually on all files by `pre-commit run --all-files`. It checks and
-fixes the markdown files within the repository currently, but may be enhanced in the future.
+If you find any bug that may be a security problem, please follow our instructions in [our security policy](https://github.com/cobaltcore-dev/prysm/security/policy) on how to report it. Please do not create GitHub issues for security-related doubts or problems.
 
-If you do not run the hook manually, it will be executed as part of the next commit automatically.
-If it detects and fixes any issues, you will have to commit its changes again.
+## Code of Conduct
+
+We as members, contributors, and leaders pledge to make participation in our community a harassment-free experience for everyone. By participating in this project, you agree to abide by its [Code of Conduct](https://github.com/SAP/.github/blob/main/CODE_OF_CONDUCT.md) at all times.
+
+## Licensing
+
+Copyright 2025 SAP SE or an SAP affiliate company and prysm contributors. Please see our [LICENSE](LICENSE) for copyright and license information. Detailed information including third-party components and their licensing/copyright information is available [via the REUSE tool](https://api.reuse.software/info/github.com/cobaltcore-dev/prysm).
 
 ---
 
