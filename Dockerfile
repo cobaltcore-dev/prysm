@@ -1,5 +1,9 @@
+# SPDX-FileCopyrightText: 2025 SAP SE or an SAP affiliate company and prysm contributors
+#
+# SPDX-License-Identifier: Apache-2.0
+
 # Build the manager binary
-FROM golang:1.22 AS builder
+FROM golang:1.23 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG GIT_COMMIT='not set'
