@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -18,6 +17,23 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var (
+	taskMutex      sync.Mutex
+	taskInProgress = make(map[string]bool)
+)
+
+func isTaskRunning(taskName string) bool {
+	taskMutex.Lock()
+	defer taskMutex.Unlock()
+	return taskInProgress[taskName]
+}
+
+func setTaskRunning(taskName string, running bool) {
+	taskMutex.Lock()
+	defer taskMutex.Unlock()
+	taskInProgress[taskName] = running
+}
+
 // StartRadosGWUsageExporter starts the process of exporting RadosGW usage metrics.
 // It supports exporting to Prometheus, NATS, or stdout and includes sync control using NATS-KV.
 func StartRadosGWUsageExporter(cfg RadosGWUsageConfig) {
@@ -25,59 +41,91 @@ func StartRadosGWUsageExporter(cfg RadosGWUsageConfig) {
 	if cfg.Prometheus {
 		go startPrometheusMetricsServer(cfg.PrometheusPort)
 	}
+	var err error
 
 	// Initialize NATS connection for metrics export
-	var natsConn *nats.Conn
+	var exportNatsConn *nats.Conn
 	if cfg.UseNats {
-		var err error
-		natsConn, err = nats.Connect(cfg.NatsURL)
+		exportNatsConn, err = nats.Connect(cfg.NatsURL)
 		if err != nil {
 			log.Fatal().Err(err).Msg("error connecting to NATS")
 		}
-		defer natsConn.Close()
+		defer exportNatsConn.Close()
 	}
+
+	var natsServer *server.Server
+	var nc *nats.Conn
+	var js nats.JetStreamContext
+	// Start NATS based on configuration
+	if cfg.SyncExternalNats {
+		nc, err := nats.Connect(cfg.SyncControlURL)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to connect to external NATS")
+		}
+		js, err = nc.JetStream()
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to initialize JetStream for external NATS")
+		}
+	} else {
+		natsServer, nc, js, err = startEmbeddedNATS()
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to start embedded NATS")
+		}
+		defer natsServer.Shutdown()
+	}
+	defer nc.Close()
 
 	// Initialize NATS-KVs for sync control (if enabled)
 	var kvStores map[string]nats.KeyValue
-	var err error
 	if cfg.SyncControlNats {
-		kvStores, err = initializeKeyValueStores(cfg)
+		kvStores, err = initializeKeyValueStores(cfg, js)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to initialize Key-Value stores")
 		}
 	}
 
 	// Start the metric collection loop
-	startMetricCollectionLoop(cfg, natsConn, kvStores)
+	startMetricCollectionLoop(cfg, exportNatsConn, nc, js, kvStores)
 }
 
-func initializeKeyValueStores(cfg RadosGWUsageConfig) (map[string]nats.KeyValue, error) {
-	var natsConn *nats.Conn
-	var err error
-
-	// Start NATS based on configuration
-	if cfg.SyncExternalNats {
-		// Connect to external NATS server
-		natsConn, err = nats.Connect(cfg.SyncControlURL)
-	} else {
-		// Start embedded NATS server
-		embeddedServer := startEmbeddedNATSServer()
-		natsConn, err = nats.Connect(embeddedServer.ClientURL())
+// Start embedded NATS with JetStream
+func startEmbeddedNATS() (*server.Server, *nats.Conn, nats.JetStreamContext, error) {
+	opts := &server.Options{
+		JetStream: true,
+		StoreDir:  "/tmp/nats", // Ensure this directory exists
 	}
 
+	s, err := server.NewServer(opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create NATS server: %w", err)
+	}
+
+	// Run NATS in a goroutine
+	go s.Start()
+
+	if !s.ReadyForConnections(10 * time.Second) {
+		return nil, nil, nil, fmt.Errorf("NATS Server did not start in time")
+	}
+
+	// Connect to the embedded NATS server
+	nc, err := nats.Connect(s.ClientURL())
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 
 	// Initialize JetStream
-	js, err := natsConn.JetStream()
+	js, err := nc.JetStream()
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize JetStream: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to initialize JetStream: %w", err)
 	}
 
+	return s, nc, js, nil
+}
+
+func initializeKeyValueStores(cfg RadosGWUsageConfig, js nats.JetStreamContext) (map[string]nats.KeyValue, error) {
 	// Define the buckets we need
 	bucketNames := []string{
-		fmt.Sprintf("%s_sync_control", cfg.SyncControlBucketPrefix),    // Sync control
+		// fmt.Sprintf("%s_sync_control", cfg.SyncControlBucketPrefix),    // Sync control
 		fmt.Sprintf("%s_user_data", cfg.SyncControlBucketPrefix),       // User information
 		fmt.Sprintf("%s_user_usage_data", cfg.SyncControlBucketPrefix), // User Usage information
 		fmt.Sprintf("%s_bucket_data", cfg.SyncControlBucketPrefix),     // Bucket information
@@ -106,26 +154,34 @@ func initializeKeyValueStores(cfg RadosGWUsageConfig) (map[string]nats.KeyValue,
 	return kvStores, nil
 }
 
-// startEmbeddedNATSServer initializes and starts an embedded NATS server.
-func startEmbeddedNATSServer() *server.Server {
-	opts := &server.Options{
-		Port:      -1, // Automatically choose an available port
-		JetStream: true,
-		StoreDir:  "/tmp/nats",
+func ensureKeyValueStores(cfg RadosGWUsageConfig, kvStores map[string]nats.KeyValue) (userData, userUsageData, bucketData, userMetrics, bucketMetrics, clusterMetrics nats.KeyValue) {
+	// Ensure required buckets are available
+	userData, ok := kvStores[fmt.Sprintf("%s_user_data", cfg.SyncControlBucketPrefix)]
+	if !ok {
+		log.Fatal().Msg("user_data bucket not found in Key-Value stores")
 	}
-
-	natsServer, err := server.NewServer(opts)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create embedded NATS server")
+	userUsageData, ok = kvStores[fmt.Sprintf("%s_user_usage_data", cfg.SyncControlBucketPrefix)]
+	if !ok {
+		log.Fatal().Msg("user_usage_data bucket not found in Key-Value stores")
 	}
-
-	go natsServer.Start()
-	if !natsServer.ReadyForConnections(10 * time.Second) {
-		log.Fatal().Err(err).Msg("embedded NATS server did not start in time")
+	bucketData, ok = kvStores[fmt.Sprintf("%s_bucket_data", cfg.SyncControlBucketPrefix)]
+	if !ok {
+		log.Fatal().Msg("bucket_data bucket not found in Key-Value stores")
 	}
-
-	log.Info().Str("url", natsServer.ClientURL()).Msg("embedded NATS server running")
-	return natsServer
+	// metrics
+	userMetrics, ok = kvStores[fmt.Sprintf("%s_user_metrics", cfg.SyncControlBucketPrefix)]
+	if !ok {
+		log.Fatal().Msg("user_metrics bucket not found in Key-Value stores")
+	}
+	bucketMetrics, ok = kvStores[fmt.Sprintf("%s_bucket_metrics", cfg.SyncControlBucketPrefix)]
+	if !ok {
+		log.Fatal().Msg("bucket_metrics bucket not found in Key-Value stores")
+	}
+	clusterMetrics, ok = kvStores[fmt.Sprintf("%s_cluster_metrics", cfg.SyncControlBucketPrefix)]
+	if !ok {
+		log.Fatal().Msg("user_metrics bucket not found in Key-Value stores")
+	}
+	return userData, userUsageData, bucketData, userMetrics, bucketMetrics, clusterMetrics
 }
 
 // func collectAndExportMetrics(cfg RadosGWUsageConfig, natsConn *nats.Conn, kv nats.KeyValue) {
@@ -165,89 +221,277 @@ func startEmbeddedNATSServer() *server.Server {
 // 	}
 // }
 
-func startMetricCollectionLoop(cfg RadosGWUsageConfig, natsConn *nats.Conn, kvStores map[string]nats.KeyValue) {
+func startMetricCollectionLoop(cfg RadosGWUsageConfig, exportNatsConn *nats.Conn, nc *nats.Conn, js nats.JetStreamContext, kvStores map[string]nats.KeyValue) {
 
 	var wg sync.WaitGroup
 
 	// Initialize thread-safe status
-	status := &PrysmStatus{}
+	prysmStatus := &PrysmStatus{}
 
-	// Ensure required buckets are available
-	syncControl, ok := kvStores[fmt.Sprintf("%s_sync_control", cfg.SyncControlBucketPrefix)]
-	if !ok {
-		log.Fatal().Msg("sync_control bucket not found in Key-Value stores")
-	}
-	userData, ok := kvStores[fmt.Sprintf("%s_user_data", cfg.SyncControlBucketPrefix)]
-	if !ok {
-		log.Fatal().Msg("user_data bucket not found in Key-Value stores")
-	}
-	userUsageData, ok := kvStores[fmt.Sprintf("%s_user_usage_data", cfg.SyncControlBucketPrefix)]
-	if !ok {
-		log.Fatal().Msg("user_usage_data bucket not found in Key-Value stores")
-	}
-	bucketData, ok := kvStores[fmt.Sprintf("%s_bucket_data", cfg.SyncControlBucketPrefix)]
-	if !ok {
-		log.Fatal().Msg("bucket_data bucket not found in Key-Value stores")
-	}
-	// metrics
-	userMetrics, ok := kvStores[fmt.Sprintf("%s_user_metrics", cfg.SyncControlBucketPrefix)]
-	if !ok {
-		log.Fatal().Msg("user_metrics bucket not found in Key-Value stores")
-	}
-	bucketMetrics, ok := kvStores[fmt.Sprintf("%s_bucket_metrics", cfg.SyncControlBucketPrefix)]
-	if !ok {
-		log.Fatal().Msg("bucket_metrics bucket not found in Key-Value stores")
-	}
-	clusterMetrics, ok := kvStores[fmt.Sprintf("%s_cluster_metrics", cfg.SyncControlBucketPrefix)]
-	if !ok {
-		log.Fatal().Msg("user_metrics bucket not found in Key-Value stores")
+	js, err := nc.JetStream()
+	if err != nil {
+		log.Fatal().Msg("Failed to initialize JetStream")
 	}
 
-	// Cleanup
-	syncControl.Delete("sync_users")
-	syncControl.Delete("sync_users_in_progress")
-	syncControl.Delete("sync_usages")
-	syncControl.Delete("sync_usages_in_progress")
-	syncControl.Delete("sync_buckets")
-	syncControl.Delete("sync_buckets_in_progress")
-	syncControl.Delete("metric_calc_in_progress")
+	// Ensure the stream exists
+	if err := ensureStream(js, "notifications"); err != nil {
+		log.Fatal().Msg("Failed to setup notification stream")
+	}
+
+	userData, userUsageData, bucketData, userMetrics, bucketMetrics, clusterMetrics := ensureKeyValueStores(cfg, kvStores)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			syncUsers(userData, cfg, prysmStatus)
+			syncBuckets(bucketData, cfg, prysmStatus)
+			syncUsage(userUsageData, cfg, prysmStatus)
+			updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics)
+			updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics)
+			updateClusterMetricsInKV(userMetrics, bucketMetrics, clusterMetrics)
+			if cfg.Prometheus {
+				populateStatus(prysmStatus)
+				populateMetricsFromKV(userMetrics, bucketMetrics, clusterMetrics, cfg)
+			}
+		}
+	}()
+
+	// sub, err := js.QueueSubscribe("notifications", "worker-group", func(msg *nats.Msg) {
+	// 	_ = msg.Ack() //FIXME
+	// 	var event map[string]interface{}
+	// 	if err := json.Unmarshal(msg.Data, &event); err != nil {
+	// 		log.Error().Err(err).Msg("Failed to parse event")
+	// 		_ = msg.Ack() // ACK to prevent infinite loop
+	// 		return
+	// 	}
+	// 	eventType := event["event"].(string)
+	// 	status := event["status"].(string)
+
+	// 	switch eventType {
+	// 	case "sync_users":
+	// 		if status == "in_progress" {
+	// 			if isTaskRunning("sync_users") {
+	// 				log.Debug().Msg("sync_users already in progress; skipping this event")
+	// 				_ = msg.Ack()
+	// 				return
+	// 			}
+	// 			setTaskRunning("sync_users", true)
+
+	// 			// Start a goroutine to periodically extend the ack deadline.
+	// 			done := make(chan struct{})
+	// 			go func() {
+	// 				ticker := time.NewTicker(30 * time.Second) // extend every 30 seconds
+	// 				defer ticker.Stop()
+	// 				for {
+	// 					select {
+	// 					case <-ticker.C:
+	// 						// Extend the ack deadline by calling InProgress without a specific timeout,
+	// 						// or you can specify a duration if needed.
+	// 						msg.InProgress(nats.AckWait(30 * time.Second))
+	// 					case <-done:
+	// 						return
+	// 					}
+	// 				}
+	// 			}()
+	// 			syncUsers(userData, cfg, prysmStatus, nc)
+	// 			// Signal that processing is done so the ticker can stop.
+	// 			close(done)
+
+	// 			// Publish event: Users sync completed
+	// 			publishEvent(nc, "sync_users", "completed", nil, nil)
+	// 			// Publish next event: Start bucket synchronization
+	// 			publishEvent(nc, "sync_buckets", "in_progress", nil, nil)
+
+	// 			// Acknowledge the message.
+	// 			if err := msg.Ack(); err != nil {
+	// 				log.Error().Err(err).Msg("Failed to acknowledge sync_usage message")
+	// 			}
+
+	// 			setTaskRunning("sync_users", false)
+	// 		}
+	// 	case "sync_buckets":
+	// 		if status == "in_progress" {
+	// 			if isTaskRunning("sync_buckets") {
+	// 				log.Debug().Msg("sync_buckets already in progress; skipping this event")
+	// 				_ = msg.Ack()
+	// 				return
+	// 			}
+	// 			setTaskRunning("sync_buckets", true)
+
+	// 			// Start a goroutine to periodically extend the ack deadline.
+	// 			done := make(chan struct{})
+	// 			go func() {
+	// 				ticker := time.NewTicker(30 * time.Second) // extend every 30 seconds
+	// 				defer ticker.Stop()
+	// 				for {
+	// 					select {
+	// 					case <-ticker.C:
+	// 						// Extend the ack deadline by calling InProgress without a specific timeout,
+	// 						// or you can specify a duration if needed.
+	// 						msg.InProgress(nats.AckWait(30 * time.Second))
+	// 					case <-done:
+	// 						return
+	// 					}
+	// 				}
+	// 			}()
+	// 			err = syncBuckets(bucketData, cfg, prysmStatus)
+	// 			if err != nil{
+	// 			 	publishEvent(nc, "sync_buckets", "failed", nil, nil)
+	// 			}
+	// 			// Signal that processing is done so the ticker can stop.
+	// 			close(done)
+
+	// 			// Notify that sync is completed
+	// 			publishEvent(nc, "sync_buckets", "completed", nil, nil)
+	// 			// Publish next event: Start usage synchronization
+	// 			publishEvent(nc, "sync_usage", "in_progress", nil, nil)
+
+	// 			// Acknowledge the message.
+	// 			if err := msg.Ack(); err != nil {
+	// 				log.Error().Err(err).Msg("Failed to acknowledge sync_usage message")
+	// 			}
+
+	// 			setTaskRunning("sync_buckets", false)
+	// 		}
+	// 	case "sync_usage":
+	// 		if status == "in_progress" {
+	// 			if isTaskRunning("sync_usage") {
+	// 				log.Debug().Msg("sync_usage already in progress; skipping this event")
+	// 				_ = msg.Ack()
+	// 				return
+	// 			}
+	// 			setTaskRunning("sync_usage", true)
+
+	// 			// Start a goroutine to periodically extend the ack deadline.
+	// 			done := make(chan struct{})
+	// 			go func() {
+	// 				ticker := time.NewTicker(30 * time.Second) // extend every 30 seconds
+	// 				defer ticker.Stop()
+	// 				for {
+	// 					select {
+	// 					case <-ticker.C:
+	// 						// Extend the ack deadline by calling InProgress without a specific timeout,
+	// 						// or you can specify a duration if needed.
+	// 						msg.InProgress(nats.AckWait(30 * time.Second))
+	// 					case <-done:
+	// 						return
+	// 					}
+	// 				}
+	// 			}()
+	// 			// Perform the long-running sync process.
+	// 			syncUsage(userUsageData, cfg, prysmStatus, nc)
+	// 			// Signal that processing is done so the ticker can stop.
+	// 			close(done)
+
+	// 			// Publish a notification that sync is completed.
+	// 			publishEvent(nc, "sync_usage", "completed", nil, nil)
+	// 			// Publish next event: Start metric generation
+	// 			publishEvent(nc, "generate_metrics", "in_progress", nil, nil)
+
+	// 			// Acknowledge the message.
+	// 			if err := msg.Ack(); err != nil {
+	// 				log.Error().Err(err).Msg("Failed to acknowledge sync_usage message")
+	// 			}
+
+	// 			setTaskRunning("sync_usage", false)
+	// 		}
+	// 	case "generate_metrics":
+	// 		if status == "in_progress" {
+	// 			if isTaskRunning("generate_metrics") {
+	// 				log.Debug().Msg("generate_metrics already in progress; skipping this event")
+	// 				_ = msg.Ack()
+	// 				return
+	// 			}
+	// 			setTaskRunning("generate_metrics", true)
+
+	// 			// Start a goroutine to periodically extend the ack deadline.
+	// 			done := make(chan struct{})
+	// 			go func() {
+	// 				ticker := time.NewTicker(30 * time.Second) // extend every 30 seconds
+	// 				defer ticker.Stop()
+	// 				for {
+	// 					select {
+	// 					case <-ticker.C:
+	// 						// Extend the ack deadline by calling InProgress without a specific timeout,
+	// 						// or you can specify a duration if needed.
+	// 						msg.InProgress(nats.AckWait(30 * time.Second))
+	// 					case <-done:
+	// 						return
+	// 					}
+	// 				}
+	// 			}()
+	// 			updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics)
+	// 			updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics)
+	// 			updateClusterMetricsInKV(userMetrics, bucketMetrics, clusterMetrics)
+	// 			if cfg.Prometheus {
+	// 				populateStatus(prysmStatus)
+	// 				populateMetricsFromKV(userMetrics, bucketMetrics, clusterMetrics, cfg)
+	// 			}
+	// 			// Signal that processing is done so the ticker can stop.
+	// 			close(done)
+
+	// 			publishEvent(nc, "generate_metrics", "completed", nil, nil)
+	// 			//restart
+	// 			publishEvent(nc, "sync_users", "in_progress", nil, map[string]string{"sync_mode": "full"})
+
+	// 			// Acknowledge the message.
+	// 			if err := msg.Ack(); err != nil {
+	// 				log.Error().Err(err).Msg("Failed to acknowledge sync_usage message")
+	// 			}
+
+	// 			setTaskRunning("generate_metrics", false)
+	// 		}
+	// 	default:
+	// 		log.Warn().Str("event", eventType).Msg("Unknown event received")
+	// 	}
+
+	// 	_ = msg.Ack() // Explicitly acknowledge successful processing
+	// }, nats.ManualAck()) // Use Manual Acknowledgment
+
+	// if err != nil {
+	// 	log.Fatal().Err(err).Msg("Failed to subscribe to notifications")
+	// }
+	// defer sub.Unsubscribe()
+
+	// publishEvent(nc, "generate_metrics", "in_progress", nil, map[string]string{"sync_mode": "full"})
 
 	// Launch goroutines for refreshing users, usages, and buckets
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		checkAndRefreshUsers(syncControl, userData, cfg, status)
-	}()
+	// wg.Add(1)
+	// go func() {
+	// 	defer wg.Done()
+	// 	checkAndRefreshUsers(syncControl, userData, cfg, status)
+	// }()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		checkAndRefreshUserUsages(syncControl, userUsageData, userData, cfg, status)
-	}()
+	// wg.Add(1)
+	// go func() {
+	// 	defer wg.Done()
+	// 	checkAndRefreshUserUsages(syncControl, userUsageData, userData, cfg, status)
+	// }()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		checkAndRefreshBuckets(syncControl, bucketData, cfg, status)
-	}()
+	// wg.Add(1)
+	// go func() {
+	// 	defer wg.Done()
+	// 	checkAndRefreshBuckets(syncControl, bucketData, cfg, status)
+	// }()
 
-	// Launch a goroutine to update metrics periodically
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		updateMetricsPeriodically(cfg, syncControl, userData, userUsageData, bucketData, userMetrics, bucketMetrics, clusterMetrics)
-	}()
+	// // Launch a goroutine to update metrics periodically
+	// wg.Add(1)
+	// go func() {
+	// 	defer wg.Done()
+	// 	updateMetricsPeriodically(cfg, syncControl, userData, userUsageData, bucketData, userMetrics, bucketMetrics, clusterMetrics)
+	// }()
 
-	// Launch a goroutine to populate metrics periodically
-	if cfg.Prometheus {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			populateMetricsPeriodically(
-				cfg, syncControl, userMetrics, bucketMetrics, clusterMetrics, status,
-			)
-		}()
-	}
+	// // Launch a goroutine to populate metrics periodically
+	// if cfg.Prometheus {
+	// 	wg.Add(1)
+	// 	go func() {
+	// 		defer wg.Done()
+	// 		populateMetricsPeriodically(
+	// 			cfg, syncControl, userMetrics, bucketMetrics, clusterMetrics, status,
+	// 		)
+	// 	}()
+	// }
 
 	// Wait for termination signal
 	sigChan := make(chan os.Signal, 1)
@@ -262,107 +506,15 @@ func startMetricCollectionLoop(cfg RadosGWUsageConfig, natsConn *nats.Conn, kvSt
 	log.Info().Msg("All tasks completed. Exiting.")
 }
 
-func processSyncControlFlags(kv nats.KeyValue) bool {
-	keys, err := kv.Keys()
-	if err != nil {
-		log.Error().Err(err).Msg("error fetching sync control keys")
-		return false
-	}
-
-	processed := false
-	for _, key := range keys {
-		value, err := kv.Get(key)
-		if err != nil || value == nil {
-			continue
-		}
-
-		needsSync := string(value.Value()) == "true"
-		if needsSync {
-			parts := strings.Split(key, ":")
-			if len(parts) != 2 {
-				log.Warn().Msgf("invalid sync key format: %s", key)
-				continue
-			}
-
-			// tenantID := parts[0]
-			// accountID := parts[1]
-
-			// Synchronize data for this tenant and account
-			// if err := syncDataForAccount(tenantID, accountID); err == nil {
-			// 	_ = kv.Delete(key) // Reset the sync flag
-			// 	processed = true
-			// }
-		}
-	}
-
-	return processed
+// Ptr returns a pointer to the given value (generic version for any type)
+func ptr[T any](v T) *T {
+	return &v
 }
-
-func startSyncListener(natsConn *nats.Conn, syncControl nats.KeyValue) error {
-	if natsConn == nil || natsConn.Status() != nats.CONNECTED {
-		return fmt.Errorf("invalid or uninitialized NATS connection")
-	}
-
-	// User Sync Listener
-	_, err := natsConn.Subscribe("rgw-usage.sync.user", func(msg *nats.Msg) {
-		userID := string(msg.Data)
-		if userID == "" {
-			log.Warn().Msg("Received empty user ID on rgw-usage.sync.user subject")
-			return
-		}
-
-		log.Info().Str("user", userID).Msg("Received sync request for user")
-		if err := triggerUserSync(syncControl, userID); err != nil {
-			log.Error().Str("user", userID).Err(err).Msg("Failed to trigger user sync")
-		}
-	})
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to rgw-usage.sync.user: %w", err)
-	}
-
-	// Bucket Sync Listener
-	_, err = natsConn.Subscribe("rgw-usage.sync.bucket", func(msg *nats.Msg) {
-		bucketName := string(msg.Data)
-		if bucketName == "" {
-			log.Warn().Msg("Received empty bucket name on rgw-usage.sync.bucket subject")
-			return
-		}
-
-		log.Info().Str("bucket", bucketName).Msg("Received sync request for bucket")
-		if err := triggerBucketSync(syncControl, bucketName); err != nil {
-			log.Error().Str("bucket", bucketName).Err(err).Msg("Failed to trigger bucket sync")
-		}
-	})
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to rgw-usage.sync.bucket: %w", err)
-	}
-
-	log.Info().Msg("NATS sync listeners started successfully")
-	return nil
-}
-
-func setFlag(syncControl nats.KeyValue, key string, value bool) {
-	if value {
-		if _, err := syncControl.Put(key, []byte("true")); err != nil {
-			log.Error().Err(err).Str("key", key).Msg("Failed to set flag")
-		}
-	} else {
-		if err := syncControl.Delete(key); err != nil {
-			log.Warn().Err(err).Str("key", key).Msg("Failed to clear flag")
+func contains(list []string, item string) bool {
+	for _, v := range list {
+		if v == item {
+			return true
 		}
 	}
-}
-
-func areAllFlagsUnset(syncControl nats.KeyValue, keys []string) bool {
-	for _, key := range keys {
-		if isFlagSet(syncControl, key) {
-			return false
-		}
-	}
-	return true
-}
-
-func isFlagSet(syncControl nats.KeyValue, key string) bool {
-	_, err := syncControl.Get(key)
-	return err == nil
+	return false
 }
