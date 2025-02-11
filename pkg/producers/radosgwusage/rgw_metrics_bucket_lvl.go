@@ -47,13 +47,6 @@ func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyVa
 	}
 
 	for _, key := range keys {
-		if !strings.HasPrefix(key, "bucket_") {
-			log.Debug().
-				Str("key", key).
-				Msg("Skipping non-bucket key")
-			continue
-		}
-
 		// Fetch bucket metadata
 		entry, err := bucketData.Get(key)
 		if err != nil {
@@ -95,8 +88,8 @@ func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyVa
 		}
 
 		// Aggregate usage data for this bucket
-		bucketUsageKeyPrefix := fmt.Sprintf("usage_%s_%s", bucket.Owner, bucket.Bucket)
-		bucketUsageKeyPrefix = strings.ReplaceAll(bucketUsageKeyPrefix, "$", "_tenant_")
+		user, tenant := SplitUserTenant(bucket.Owner)
+		bucketUsageKeyPrefix := BuildUserTenantBucketKey(user, tenant, bucket.Bucket)
 		usageKeys, err := userUsageData.Keys()
 		if err != nil {
 			log.Error().
@@ -182,8 +175,8 @@ func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyVa
 		}
 
 		// Prepare the metrics key
-		metricsKey := fmt.Sprintf("bucket_metrics_%s_%s", bucket.Owner, bucket.Bucket)
-		metricsKey = strings.ReplaceAll(metricsKey, "$", "_tenant_")
+		user, tenant = SplitUserTenant(bucket.Owner)
+		metricsKey := BuildUserTenantBucketKey(user, tenant, bucket.Bucket)
 
 		// Serialize and store metrics
 		metricsData, err := json.Marshal(metrics)
@@ -223,10 +216,6 @@ func GetBucketCountForUser(userID string, bucketData nats.KeyValue) (uint64, err
 	}
 
 	for _, key := range keys {
-		if !strings.HasPrefix(key, "bucket_") {
-			continue
-		}
-
 		entry, err := bucketData.Get(key)
 		if err != nil {
 			continue

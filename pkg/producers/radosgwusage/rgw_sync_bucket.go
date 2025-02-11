@@ -196,7 +196,7 @@ func fetchBucketInfo(co *admin.API, bucketName string) (admin.Bucket, error) {
 }
 
 func storeBucketInKV(bucket admin.Bucket, bucketData nats.KeyValue) error {
-	bucketKey := fmt.Sprintf("bucket_%s", bucket.Bucket)
+	bucketKey := BuildUserTenantBucketKey(bucket.Owner, bucket.Tenant, bucket.Bucket)
 	kvBucket := KVBucket{
 		Bucket:            bucket.Bucket,
 		NumShards:         bucket.NumShards,

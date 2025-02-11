@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/ceph/go-ceph/rgw/admin"
@@ -193,8 +192,8 @@ func storeUserUsageInKV(userUsage admin.Usage, userUsageData nats.KeyValue) erro
 				continue
 			}
 
-			bucketKey := fmt.Sprintf("usage_%s_%s", entry.User, bucketName)
-			bucketKey = strings.ReplaceAll(bucketKey, "$", "_tenant_")
+			user, tenant := SplitUserTenant(entry.User)
+			bucketKey := BuildUserTenantBucketKey(user, tenant, bucketName)
 
 			// Write the bucket usage data to the KV store
 			if _, err := userUsageData.Put(bucketKey, bucketDataJSON); err != nil {

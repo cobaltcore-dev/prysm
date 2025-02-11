@@ -49,13 +49,6 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 
 	// Prepare user metrics aggregation
 	for _, key := range keys {
-		if !strings.HasPrefix(key, "user_") {
-			log.Debug().
-				Str("key", key).
-				Msg("Skipping non-user key")
-			continue
-		}
-
 		// Fetch user metadata
 		entry, err := userData.Get(key)
 		if err != nil {
@@ -134,7 +127,7 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 		}
 
 		// Aggregate usage data for this user
-		userUsageKeyPrefix := fmt.Sprintf("usage_%s_", user.GetKVFriendlyUserIdentification())
+		userUsageKeyPrefix := BuildUserTenantKey(user.ID, user.Tenant)
 		usageKeys, err := userUsageData.Keys()
 		if err != nil {
 			log.Error().
@@ -209,7 +202,7 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 		}
 
 		// Prepare the metrics key
-		metricsKey := fmt.Sprintf("user_metrics_%s", user.ID)
+		metricsKey := BuildUserTenantKey(user.ID, user.Tenant)
 
 		// Serialize and store metrics
 		metricsData, err := json.Marshal(metrics)

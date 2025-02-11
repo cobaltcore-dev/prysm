@@ -42,13 +42,6 @@ func (user *KVUser) GetUserIdentification() string {
 	return user.ID
 }
 
-func (user *KVUser) GetKVFriendlyUserIdentification() string {
-	if len(user.Tenant) > 0 {
-		return fmt.Sprintf("%s_tenant_%s", user.ID, user.Tenant)
-	}
-	return user.ID
-}
-
 type UserStats struct {
 	Size        *uint64 `json:"size"`
 	SizeRounded *uint64 `json:"sizeRounded"`
@@ -194,10 +187,10 @@ func storeUsersInKV(users []admin.User, userData nats.KeyValue) error {
 			continue // Skip storing this user but continue others
 		}
 
-		userKey := fmt.Sprintf("user_%s", kvUser.GetKVFriendlyUserIdentification())
+		userKey := BuildUserTenantKey(kvUser.ID, kvUser.Tenant)
 		if _, err := userData.Put(userKey, userDataJSON); err != nil {
 			log.Warn().
-				Str("user", kvUser.GetUserIdentification()).
+				Str("user", userKey).
 				Err(err).
 				Msg("Failed to update KV for user")
 		}
