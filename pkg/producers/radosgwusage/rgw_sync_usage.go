@@ -48,32 +48,34 @@ func syncUsage(userUsageData nats.KeyValue, cfg RadosGWUsageConfig, status *Prys
 }
 
 func fetchUserUsageGlobal(co *rgwadmin.API, userUsageData nats.KeyValue) error {
-	// For global sync
-	usageRequest := rgwadmin.Usage{
-		UserID:      "",
-		Start:       "",
-		ShowEntries: ptr(true),
-		ShowSummary: ptr(false),
-	}
-
 	// Fetch the initial global usage data.
-	globalUsage, err := co.GetUsage(context.Background(), usageRequest)
+	// globalUsage, err := co.GetUsage(context.Background(), rgwadmin.Usage{
+	// 	ShowEntries: ptr(true),
+	// 	ShowSummary: ptr(false),
+	// })
+	// if err != nil {
+	// 	return fmt.Errorf("failed to fetch global usage: %w", err)
+	// }
+
+	// if len(globalUsage.Entries) == 0 {
+	// 	return nil
+	// }
+	userIDs, err := co.GetUsers(context.Background())
 	if err != nil {
-		return fmt.Errorf("failed to fetch global usage: %w", err)
+		return fmt.Errorf("failed to get user list: %v", err)
 	}
 
-	if len(globalUsage.Entries) == 0 {
-		return nil
-	}
-
-	usageDataCh := make(chan rgwadmin.Usage, len(globalUsage.Entries))
-	errCh := make(chan string, len(globalUsage.Entries))
+	usageDataCh := make(chan rgwadmin.Usage, len(userIDs))
+	errCh := make(chan string, len(userIDs))
+	// usageDataCh := make(chan rgwadmin.Usage, len(globalUsage.Entries))
+	// errCh := make(chan string, len(globalUsage.Entries))
 
 	var wg sync.WaitGroup
 	const maxConcurrency = 10
 	sem := make(chan struct{}, maxConcurrency)
 
-	for _, entry := range globalUsage.Entries {
+	// for _, entry := range globalUsage.Entries {
+	for _, entry := range userIDs {
 		wg.Add(1)
 		sem <- struct{}{} // Acquire a semaphore token
 		go func(userID string) {
@@ -81,7 +83,8 @@ func fetchUserUsageGlobal(co *rgwadmin.API, userUsageData nats.KeyValue) error {
 			defer func() { <-sem }() // Release token when done
 			fetchUsageDetails(co, userID, usageDataCh, errCh)
 
-		}(entry.User)
+		}(entry)
+		// }(entry.User)
 	}
 
 	wg.Wait()
