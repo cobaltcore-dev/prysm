@@ -185,7 +185,6 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 	// Check if the log file should be rotated
 	rotateLogIfNeeded(cfg, watcher)
 }
-
 func rotateLogIfNeeded(cfg OpsLogConfig, watcher *fsnotify.Watcher) {
 	fileInfo, err := os.Stat(cfg.LogFilePath)
 	if err != nil {
@@ -193,8 +192,23 @@ func rotateLogIfNeeded(cfg OpsLogConfig, watcher *fsnotify.Watcher) {
 		return
 	}
 
-	// Check if the log file should be rotated based on size
-	if fileInfo.Size() >= cfg.MaxLogFileSize*1024*1024 {
+	fileSizeMB := float64(fileInfo.Size()) / (1024 * 1024) // Convert bytes to MB
+	maxSizeMB := float64(cfg.MaxLogFileSize)               // Ensure max size is in MB
+
+	log.Info().
+		Str("file", cfg.LogFilePath).
+		Float64("size_mb", fileSizeMB).
+		Float64("max_size_mb", maxSizeMB).
+		Int64("max_size_raw", cfg.MaxLogFileSize).
+		Msg("Checking log file size for rotation")
+
+	if fileSizeMB >= maxSizeMB && maxSizeMB > 0 {
+		log.Warn().
+			Str("file", cfg.LogFilePath).
+			Float64("size_mb", fileSizeMB).
+			Float64("max_size_mb", maxSizeMB).
+			Msg("Rotating log due to size limit")
+
 		err = rotateLogFile(cfg, watcher)
 		if err != nil {
 			log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error rotating log file")
@@ -206,7 +220,17 @@ func rotateLogIfNeeded(cfg OpsLogConfig, watcher *fsnotify.Watcher) {
 
 	// Check if the log file should be rotated based on time
 	logFileAgeHours := time.Since(fileInfo.ModTime()).Hours()
+	log.Info().
+		Str("file", cfg.LogFilePath).
+		Float64("age_hours", logFileAgeHours).
+		Msg("Checking log file age for rotation")
+
 	if logFileAgeHours >= float64(cfg.LogRetentionDays*24) {
+		log.Warn().
+			Str("file", cfg.LogFilePath).
+			Float64("age_hours", logFileAgeHours).
+			Msg("Rotating log due to age limit")
+
 		err = rotateLogFile(cfg, watcher)
 		if err != nil {
 			log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error rotating log file")
