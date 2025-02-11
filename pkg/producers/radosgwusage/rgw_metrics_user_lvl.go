@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ceph/go-ceph/rgw/admin"
+	"github.com/cobaltcore-dev/prysm/pkg/producers/radosgwusage/rgwadmin"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
@@ -59,7 +60,7 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 			continue
 		}
 
-		var user KVUser
+		var user rgwadmin.KVUser
 		if err := json.Unmarshal(entry.Value(), &user); err != nil {
 			log.Warn().
 				Str("key", key).
@@ -130,10 +131,10 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 		userUsageKeyPrefix := BuildUserTenantKey(user.ID, user.Tenant)
 		usageKeys, err := userUsageData.Keys()
 		if err != nil {
-			log.Error().
-				Str("user_id", user.GetUserIdentification()).
-				Err(err).
-				Msg("Failed to fetch usage keys from KV")
+			// log.Error().
+			// 	Str("user_id", user.GetUserIdentification()).
+			// 	Err(err).
+			// 	Msg("Failed to fetch usage keys from KV")
 			continue
 		}
 
@@ -152,7 +153,7 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 				continue
 			}
 
-			var usage KVUserUsage
+			var usage rgwadmin.Usage
 			if err := json.Unmarshal(usageEntry.Value(), &usage); err != nil {
 				log.Warn().
 					Str("key", usageKey).
@@ -161,7 +162,7 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 				continue
 			}
 
-			for _, usageEntry := range usage.Usage.Entries {
+			for _, usageEntry := range usage.Entries {
 				for _, bucket := range usageEntry.Buckets {
 					for _, category := range bucket.Categories {
 						// Aggregate metrics at the user level

@@ -20,6 +20,7 @@ func DecodeComponent(s string) (string, error) {
 	return string(data), nil
 }
 
+const MissingUserPlaceholder = "none"
 const MissingTenantPlaceholder = "none"
 
 // splitUserTenant checks if the input string contains a '$'.
@@ -36,7 +37,12 @@ func SplitUserTenant(s string) (user, tenant string) {
 // BuildUserTenantKey builds a KV key in the format "<user>.<tenant>".
 // If tenant is an empty string, it substitutes the MissingTenantPlaceholder.
 func BuildUserTenantKey(user, tenant string) string {
-	encodedUser := EncodeComponent(user)
+	var encodedUser string
+	if user == "" {
+		encodedUser = MissingUserPlaceholder
+	} else {
+		encodedUser = EncodeComponent(user)
+	}
 	var encodedTenant string
 	if tenant == "" {
 		encodedTenant = MissingTenantPlaceholder
@@ -49,7 +55,12 @@ func BuildUserTenantKey(user, tenant string) string {
 // BuildUserTenantBucketKey builds a KV key in the format "<user>.<tenant>.<bucket>".
 // If tenant is empty, MissingTenantPlaceholder is used.
 func BuildUserTenantBucketKey(user, tenant, bucket string) string {
-	encodedUser := EncodeComponent(user)
+	var encodedUser string
+	if tenant == "" {
+		encodedUser = MissingUserPlaceholder
+	} else {
+		encodedUser = EncodeComponent(user)
+	}
 	var encodedTenant string
 	if tenant == "" {
 		encodedTenant = MissingTenantPlaceholder

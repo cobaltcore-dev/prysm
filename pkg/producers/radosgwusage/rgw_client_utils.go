@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ceph/go-ceph/rgw/admin"
+	"github.com/cobaltcore-dev/prysm/pkg/producers/radosgwusage/rgwadmin"
 )
 
-func createRadosGWClient(cfg RadosGWUsageConfig, status *PrysmStatus) (*admin.API, error) {
+func createRadosGWClient(cfg RadosGWUsageConfig, status *PrysmStatus) (*rgwadmin.API, error) {
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	co, err := admin.New(cfg.AdminURL, cfg.AccessKey, cfg.SecretKey, httpClient)
+	co, err := rgwadmin.New(cfg.AdminURL, cfg.AccessKey, cfg.SecretKey, httpClient)
 	if err != nil {
 		// Explicitly set TargetUp to false on failure
 		status.UpdateTargetUp(false)

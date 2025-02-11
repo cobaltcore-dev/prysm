@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ceph/go-ceph/rgw/admin"
+	"github.com/cobaltcore-dev/prysm/pkg/producers/radosgwusage/rgwadmin"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
@@ -92,10 +93,10 @@ func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyVa
 		bucketUsageKeyPrefix := BuildUserTenantBucketKey(user, tenant, bucket.Bucket)
 		usageKeys, err := userUsageData.Keys()
 		if err != nil {
-			log.Error().
-				Str("bucket_id", bucket.Bucket).
-				Err(err).
-				Msg("Failed to fetch usage keys from KV")
+			// log.Error().
+			// 	Str("bucket_id", bucket.Bucket).
+			// 	Err(err).
+			// 	Msg("Failed to fetch usage keys from KV")
 			continue
 		}
 
@@ -114,7 +115,7 @@ func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyVa
 				continue
 			}
 
-			var usage KVUserUsage
+			var usage rgwadmin.Usage
 			if err := json.Unmarshal(usageEntry.Value(), &usage); err != nil {
 				log.Warn().
 					Str("key", usageKey).
@@ -123,7 +124,7 @@ func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyVa
 				continue
 			}
 
-			for _, entry := range usage.Usage.Entries {
+			for _, entry := range usage.Entries {
 				for _, bucketUsage := range entry.Buckets {
 					if bucketUsage.Bucket != bucket.Bucket {
 						continue
