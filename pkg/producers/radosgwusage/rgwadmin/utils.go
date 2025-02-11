@@ -26,10 +26,12 @@ func valueToURLParams(i interface{}, acceptableFields []string) url.Values {
 	values := url.Values{}
 	values.Add("format", "json")
 
-	// Convert acceptableFields to a map for faster lookups
+	// Convert acceptableFields to a map for fast lookups
 	allowed := make(map[string]struct{}, len(acceptableFields))
 	for _, field := range acceptableFields {
-		allowed[field] = struct{}{}
+		if field != "" { // Ensure empty fields are ignored
+			allowed[field] = struct{}{}
+		}
 	}
 
 	populateURLParams(i, allowed, &values)
@@ -40,7 +42,9 @@ func valueToURLParams(i interface{}, acceptableFields []string) url.Values {
 func addToURLParams(v *url.Values, i interface{}, acceptableFields []string) {
 	allowed := make(map[string]struct{}, len(acceptableFields))
 	for _, field := range acceptableFields {
-		allowed[field] = struct{}{}
+		if field != "" { // Ensure empty fields are ignored
+			allowed[field] = struct{}{}
+		}
 	}
 	populateURLParams(i, allowed, v)
 }
@@ -68,8 +72,8 @@ func populateURLParams(i interface{}, allowedFields map[string]struct{}, values 
 		fieldType := t.Field(i)
 		tag := fieldType.Tag.Get("url")
 
-		// Skip fields explicitly marked as "-"
-		if tag == "-" {
+		// Skip fields explicitly marked as "-" or if tag is empty
+		if tag == "-" || tag == "" {
 			continue
 		}
 
@@ -79,16 +83,24 @@ func populateURLParams(i interface{}, allowedFields map[string]struct{}, values 
 			name = fieldType.Name
 		}
 
-		// Ensure the field is allowed
+		// Ensure the field is in the allowed list
 		if _, ok := allowedFields[name]; !ok {
 			continue
 		}
 
-		// Handle different data types
+		// Handle different data types and ensure no empty values are added
 		switch fieldValue.Kind() {
-		case reflect.String, reflect.Bool, reflect.Int:
-			if fieldValue.IsValid() {
-				values.Add(name, fmt.Sprint(fieldValue))
+		case reflect.String:
+			if fieldValue.String() != "" {
+				values.Add(name, fieldValue.String())
+			}
+
+		case reflect.Bool:
+			values.Add(name, fmt.Sprint(fieldValue.Bool()))
+
+		case reflect.Int, reflect.Int64, reflect.Int32:
+			if fieldValue.Int() != 0 {
+				values.Add(name, fmt.Sprint(fieldValue.Int()))
 			}
 
 		case reflect.Ptr:
@@ -98,7 +110,10 @@ func populateURLParams(i interface{}, allowedFields map[string]struct{}, values 
 
 		case reflect.Slice:
 			for j := 0; j < fieldValue.Len(); j++ {
-				values.Add(name, fmt.Sprint(fieldValue.Index(j)))
+				item := fieldValue.Index(j)
+				if item.IsValid() {
+					values.Add(name, fmt.Sprint(item))
+				}
 			}
 
 		case reflect.Struct:
