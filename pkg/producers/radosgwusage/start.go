@@ -253,6 +253,7 @@ func startMetricCollectionLoop(cfg RadosGWUsageConfig, exportNatsConn *nats.Conn
 			if cfg.Prometheus {
 				populateMetricsFromKV(userMetrics, bucketMetrics, clusterMetrics, cfg)
 			}
+			time.Sleep(time.Duration(cfg.CooldownInterval) * time.Second)
 		}
 	}()
 

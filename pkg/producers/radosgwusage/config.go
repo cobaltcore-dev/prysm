@@ -15,7 +15,7 @@ type RadosGWUsageConfig struct {
 	PrometheusPort          int
 	NodeName                string
 	InstanceID              string
-	Interval                int // in seconds
+	CooldownInterval        int // in seconds
 	ClusterID               string
 	SyncControlNats         bool   // Enable NATS for sync control
 	SyncExternalNats        bool   // Use external NATS for sync control
