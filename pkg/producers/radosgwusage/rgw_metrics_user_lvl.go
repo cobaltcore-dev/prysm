@@ -8,14 +8,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
-	"github.com/ceph/go-ceph/rgw/admin"
+	"github.com/cobaltcore-dev/prysm/pkg/producers/radosgwusage/rgwadmin"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
 
 type UserLevelMetrics struct {
-	UserID               string
+	User                 string
+	Tenant               string
 	DisplayName          string
 	Email                string
 	DefaultStorageClass  string
@@ -37,205 +39,173 @@ type UserLevelMetrics struct {
 	UserQuotaMaxObjects  *int64
 }
 
+func (m *UserLevelMetrics) GetUserIdentification() string {
+	if len(m.Tenant) > 0 {
+		return fmt.Sprintf("%s$%s", m.User, m.Tenant)
+	}
+	return m.User
+}
+
 func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats.KeyValue) error {
 	log.Debug().Msg("Starting user-level metrics aggregation")
 
-	// Fetch all keys from userData KV
-	keys, err := userData.Keys()
+	bucketKeyMap := make(map[string]uint64)
+	bucketKeys, err := bucketData.Keys()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to fetch keys from bucket data")
+		return fmt.Errorf("failed to fetch keys from bucket data: %w", err)
+	}
+	for _, key := range bucketKeys {
+		prefix := key[:strings.LastIndex(key, ".")]
+		bucketKeyMap[prefix]++ // Count this bucket for its owner.
+	}
+
+	usageKeyMap := make(map[string][]string)
+	usageKeys, err := userUsageData.Keys()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to fetch usage keys from KV")
+		return fmt.Errorf("failed to fetch keys from usage data: %w", err)
+	}
+	for _, key := range usageKeys {
+		prefix := key[:strings.LastIndex(key, ".")]
+		usageKeyMap[prefix] = append(usageKeyMap[prefix], key)
+	}
+
+	userKeys, err := userData.Keys()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to fetch keys from user data")
 		return fmt.Errorf("failed to fetch keys from user data: %w", err)
 	}
 
-	// Prepare user metrics aggregation
-	for _, key := range keys {
-		if !strings.HasPrefix(key, "user_") {
-			log.Debug().
-				Str("key", key).
-				Msg("Skipping non-user key")
-			continue
-		}
+	// Create a worker pool to process users concurrently.
+	const numWorkers = 10
+	userCh := make(chan string, len(userKeys))
+	var wg sync.WaitGroup
 
-		// Fetch user metadata
-		entry, err := userData.Get(key)
-		if err != nil {
-			log.Warn().
-				Str("key", key).
-				Err(err).
-				Msg("Failed to fetch user data from KV")
-			continue
-		}
-
-		var user KVUser
-		if err := json.Unmarshal(entry.Value(), &user); err != nil {
-			log.Warn().
-				Str("key", key).
-				Err(err).
-				Msg("Failed to unmarshal user data")
-			continue
-		}
-
-		log.Debug().
-			Str("user_id", user.GetUserIdentification()).
-			Str("display_name", user.DisplayName).
-			Msg("Processing user metrics")
-
-		// Initialize metrics
-		metrics := UserLevelMetrics{
-			UserID:               user.GetUserIdentification(),
-			DisplayName:          user.DisplayName,
-			Email:                user.Email,
-			DefaultStorageClass:  user.DefaultStorageClass,
-			BucketsTotal:         0,   // To be calculated
-			ObjectsTotal:         0,   // To be aggregated from user stats
-			DataSizeTotal:        0,   // To be aggregated from user stats
-			TotalOPs:             0,   // To be aggregated from usage
-			TotalReadOPs:         0,   // To be aggregated from usage
-			TotalWriteOPs:        0,   // To be aggregated from usage
-			BytesSentTotal:       0,   // To be aggregated from usage
-			BytesReceivedTotal:   0,   // To be aggregated from usage
-			ErrorRatePerUser:     0.0, // To be calculated from usage
-			UserSuccessOpsTotal:  0,   // To be aggregated from usage
-			ThroughputBytesTotal: 0,   // To be calculated from usage
-		}
-
-		// Process static user metadata
-		if user.Stats.NumObjects != nil {
-			metrics.ObjectsTotal = *user.Stats.NumObjects
-		}
-		if user.Stats.Size != nil {
-			metrics.DataSizeTotal = *user.Stats.Size
-		}
-
-		// Calculate bucket count from bucketData
-		bucketKeys, _ := bucketData.Keys()
-		for _, bucketKey := range bucketKeys {
-			bucketEntry, err := bucketData.Get(bucketKey)
-			if err != nil {
-				log.Warn().
-					Str("bucket_key", bucketKey).
-					Err(err).
-					Msg("Failed to fetch bucket data")
-				continue
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for key := range userCh {
+				processUserMetrics(key, userData, userUsageData, userMetrics, bucketKeyMap, usageKeyMap)
 			}
-
-			var bucket admin.Bucket
-			if err := json.Unmarshal(bucketEntry.Value(), &bucket); err != nil {
-				log.Warn().
-					Str("bucket_key", bucketKey).
-					Err(err).
-					Msg("Failed to unmarshal bucket data")
-				continue
-			}
-
-			if bucket.Owner == user.GetUserIdentification() {
-				metrics.BucketsTotal++
-			}
-		}
-
-		// Aggregate usage data for this user
-		userUsageKeyPrefix := fmt.Sprintf("usage_%s_", user.GetKVFriendlyUserIdentification())
-		usageKeys, err := userUsageData.Keys()
-		if err != nil {
-			log.Error().
-				Str("user_id", user.GetUserIdentification()).
-				Err(err).
-				Msg("Failed to fetch usage keys from KV")
-			continue
-		}
-
-		for _, usageKey := range usageKeys {
-			if !strings.HasPrefix(usageKey, userUsageKeyPrefix) {
-				continue
-			}
-
-			// Fetch usage data
-			usageEntry, err := userUsageData.Get(usageKey)
-			if err != nil {
-				log.Warn().
-					Str("key", usageKey).
-					Err(err).
-					Msg("Failed to fetch usage data")
-				continue
-			}
-
-			var usage KVUserUsage
-			if err := json.Unmarshal(usageEntry.Value(), &usage); err != nil {
-				log.Warn().
-					Str("key", usageKey).
-					Err(err).
-					Msg("Failed to unmarshal usage data")
-				continue
-			}
-
-			for _, usageEntry := range usage.Usage.Entries {
-				for _, bucket := range usageEntry.Buckets {
-					for _, category := range bucket.Categories {
-						// Aggregate metrics at the user level
-						metrics.TotalOPs += category.Ops
-						metrics.UserSuccessOpsTotal += category.SuccessfulOps
-						metrics.BytesSentTotal += category.BytesSent
-						metrics.BytesReceivedTotal += category.BytesReceived
-
-						if isReadCategory(category.Category) {
-							metrics.TotalReadOPs += category.Ops
-						} else if isWriteCategory(category.Category) {
-							metrics.TotalWriteOPs += category.Ops
-						}
-
-						// Track API usage per user
-						if metrics.APIUsage == nil {
-							metrics.APIUsage = make(map[string]uint64)
-						}
-						metrics.APIUsage[category.Category] += category.Ops
-					}
-				}
-			}
-		}
-
-		// Calculate derived metrics
-		metrics.ThroughputBytesTotal = metrics.BytesSentTotal + metrics.BytesReceivedTotal
-		if metrics.TotalOPs > 0 {
-			errorOps := metrics.TotalOPs - metrics.UserSuccessOpsTotal
-			metrics.ErrorRatePerUser = (float64(errorOps) / float64(metrics.TotalOPs)) * 100
-		}
-		// Set quota information
-		metrics.UserQuotaEnabled = false
-		// Check and populate user quota if enabled
-		if user.UserQuota.Enabled != nil && *user.UserQuota.Enabled {
-			metrics.UserQuotaEnabled = true
-			metrics.UserQuotaMaxSize = user.UserQuota.MaxSize
-			metrics.UserQuotaMaxObjects = user.UserQuota.MaxObjects
-		}
-
-		// Prepare the metrics key
-		metricsKey := fmt.Sprintf("user_metrics_%s", user.ID)
-
-		// Serialize and store metrics
-		metricsData, err := json.Marshal(metrics)
-		if err != nil {
-			log.Error().
-				Str("user_id", user.GetUserIdentification()).
-				Err(err).
-				Msg("Failed to serialize user metrics")
-			continue
-		}
-
-		if _, err := userMetrics.Put(metricsKey, metricsData); err != nil {
-			log.Error().
-				Str("user_id", user.GetUserIdentification()).
-				Err(err).
-				Msg("Failed to store user metrics in KV")
-		} else {
-			log.Debug().
-				Str("user_id", user.GetUserIdentification()).
-				Str("key", metricsKey).
-				Msg("User metrics stored in KV successfully")
-		}
+		}()
 	}
+
+	// Feed the channel.
+	for _, key := range userKeys {
+		userCh <- key
+	}
+	close(userCh)
+	wg.Wait()
 
 	log.Info().Msg("Completed user metrics aggregation and storage")
 	return nil
+}
+
+func processUserMetrics(key string, userData, userUsageData, userMetrics nats.KeyValue, bucketKeyMap map[string]uint64, usageKeyMap map[string][]string) {
+	entry, err := userData.Get(key)
+	if err != nil {
+		log.Warn().Str("key", key).Err(err).Msg("Failed to fetch user data from KV")
+		return
+	}
+
+	var user rgwadmin.KVUser
+	if err := json.Unmarshal(entry.Value(), &user); err != nil {
+		log.Warn().Str("key", key).Err(err).Msg("Failed to unmarshal user data")
+		return
+	}
+
+	log.Debug().
+		Str("user_id", user.GetUserIdentification()).
+		Str("display_name", user.DisplayName).
+		Msg("Processing user metrics")
+
+	// Initialize metrics.
+	userID := user.ID
+	if strings.Index(userID, "$") > 0 { // if tenant is part of owner with devider $
+		userID = userID[:strings.Index(userID, "$")]
+	}
+	metrics := UserLevelMetrics{
+		User:                userID,
+		Tenant:              user.Tenant,
+		DisplayName:         user.DisplayName,
+		Email:               user.Email,
+		DefaultStorageClass: user.DefaultStorageClass,
+		// Initialize numeric fields to zero.
+	}
+
+	// Process static user metadata.
+	if user.Stats.NumObjects != nil {
+		metrics.ObjectsTotal = *user.Stats.NumObjects
+	}
+	if user.Stats.Size != nil {
+		metrics.DataSizeTotal = *user.Stats.Size
+	}
+
+	// Use the pre-indexed bucket count.
+	metrics.BucketsTotal = bucketKeyMap[key]
+
+	// Aggregate usage data.
+	userUsageKeyPrefix := BuildUserTenantKey(user.ID, user.Tenant)
+
+	for _, usageKey := range usageKeyMap[userUsageKeyPrefix] {
+		usageEntry, err := userUsageData.Get(usageKey)
+		if err != nil {
+			log.Warn().Str("key", usageKey).Err(err).Msg("Failed to fetch usage data")
+			continue
+		}
+		var usage rgwadmin.UsageEntryBucket
+		if err := json.Unmarshal(usageEntry.Value(), &usage); err != nil {
+			log.Warn().Str("key", usageKey).Err(err).Msg("Failed to unmarshal usage data")
+			continue
+		}
+
+		for _, cat := range usage.Categories {
+			metrics.TotalOPs += cat.Ops
+			metrics.UserSuccessOpsTotal += cat.SuccessfulOps
+			metrics.BytesSentTotal += cat.BytesSent
+			metrics.BytesReceivedTotal += cat.BytesReceived
+			if isReadCategory(cat.Category) {
+				metrics.TotalReadOPs += cat.Ops
+			} else if isWriteCategory(cat.Category) {
+				metrics.TotalWriteOPs += cat.Ops
+			}
+			if metrics.APIUsage == nil {
+				metrics.APIUsage = make(map[string]uint64)
+			}
+			metrics.APIUsage[cat.Category] += cat.Ops
+		}
+	}
+
+	// Calculate derived metrics.
+	metrics.ThroughputBytesTotal = metrics.BytesSentTotal + metrics.BytesReceivedTotal
+	if metrics.TotalOPs > 0 {
+		errorOps := metrics.TotalOPs - metrics.UserSuccessOpsTotal
+		metrics.ErrorRatePerUser = (float64(errorOps) / float64(metrics.TotalOPs)) * 100
+	}
+
+	// Set quota information.
+	if user.UserQuota.Enabled != nil && *user.UserQuota.Enabled {
+		metrics.UserQuotaEnabled = true
+		metrics.UserQuotaMaxSize = user.UserQuota.MaxSize
+		metrics.UserQuotaMaxObjects = user.UserQuota.MaxObjects
+	}
+
+	// Prepare the metrics key.
+	metricsKey := BuildUserTenantKey(user.ID, user.Tenant)
+
+	// Serialize and store metrics.
+	metricsData, err := json.Marshal(metrics)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", user.GetUserIdentification()).Msg("Failed to serialize user metrics")
+		return
+	}
+	if _, err := userMetrics.Put(metricsKey, metricsData); err != nil {
+		log.Error().Err(err).Str("user_id", user.GetUserIdentification()).Msg("Failed to store user metrics in KV")
+	} else {
+		log.Debug().Str("user_id", user.GetUserIdentification()).Str("key", metricsKey).Msg("User metrics stored in KV successfully")
+	}
 }
 
 func isReadCategory(category string) bool {

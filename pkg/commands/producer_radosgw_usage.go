@@ -24,7 +24,7 @@ var (
 	rgwuPrometheusPort          int
 	rgwuNodeName                string
 	rgwuInstanceID              string
-	rgwuInterval                int
+	rgwuCooldownInterval        int
 	rgwuClusterID               string
 	rgwuSyncControlNats         bool
 	rgwuSyncExternalNats        bool
@@ -47,7 +47,7 @@ var radosGWUsageCmd = &cobra.Command{
 			PrometheusPort:          rgwuPrometheusPort,
 			NodeName:                rgwuNodeName,
 			InstanceID:              rgwuInstanceID,
-			Interval:                rgwuInterval,
+			CooldownInterval:        rgwuCooldownInterval,
 			ClusterID:               rgwuClusterID,
 			SyncControlNats:         rgwuSyncControlNats,
 			SyncExternalNats:        rgwuSyncExternalNats,
@@ -72,7 +72,7 @@ var radosGWUsageCmd = &cobra.Command{
 
 		event.Str("node_name", config.NodeName)
 		event.Str("instance_id", config.InstanceID)
-		event.Int("interval_seconds", config.Interval)
+		event.Int("cooldown_interval_seconds", config.CooldownInterval)
 		event.Str("cluster_id", config.ClusterID)
 
 		event.Bool("sync_control_nats_enabled", config.SyncControlNats)
@@ -103,7 +103,7 @@ func mergeRadosGWUsageConfigWithEnv(cfg radosgwusage.RadosGWUsageConfig) radosgw
 	cfg.InstanceID = getEnv("INSTANCE_ID", cfg.InstanceID)
 	cfg.Prometheus = getEnvBool("PROMETHEUS_ENABLED", cfg.Prometheus)
 	cfg.PrometheusPort = getEnvInt("PROMETHEUS_PORT", cfg.PrometheusPort)
-	cfg.Interval = getEnvInt("INTERVAL", cfg.Interval)
+	cfg.CooldownInterval = getEnvInt("COOLDOWN_INTERVAL", cfg.CooldownInterval)
 	cfg.ClusterID = getEnv("RGW_CLUSTER_ID", cfg.ClusterID)
 	// Sync control related parameters
 	cfg.SyncControlNats = getEnvBool("SYNC_CONTROL_NATS", cfg.SyncControlNats)
@@ -125,7 +125,7 @@ func init() {
 	radosGWUsageCmd.Flags().StringVar(&rgwuInstanceID, "instance-id", "", "Instance ID")
 	radosGWUsageCmd.Flags().BoolVar(&rgwuPrometheus, "prometheus", false, "Enable Prometheus metrics")
 	radosGWUsageCmd.Flags().IntVar(&rgwuPrometheusPort, "prometheus-port", 8080, "Prometheus metrics port")
-	radosGWUsageCmd.Flags().IntVar(&rgwuInterval, "interval", 10, "Interval in seconds between usage collections")
+	radosGWUsageCmd.Flags().IntVar(&rgwuCooldownInterval, "cooldown-interval", 120, "Cooldown interval in seconds")
 	// Sync control related flags
 	radosGWUsageCmd.Flags().BoolVar(&rgwuSyncControlNats, "sync-control-nats", true, "Enable sync control using NATS")
 	radosGWUsageCmd.Flags().BoolVar(&rgwuSyncExternalNats, "sync-external-nats", false, "Use external NATS server for sync control")
@@ -149,8 +149,8 @@ func validateRadosGWUsageConfig(config radosgwusage.RadosGWUsageConfig) {
 		fmt.Println("Warning: --secret-key or SECRET_KEY must be set")
 		missingParams = true
 	}
-	if config.Interval <= 0 {
-		fmt.Println("Warning: --interval or INTERVAL must be a positive duration")
+	if config.CooldownInterval <= 0 {
+		fmt.Println("Warning: --cooldown-interval or INTERVAL must be a positive duration")
 		missingParams = true
 	}
 

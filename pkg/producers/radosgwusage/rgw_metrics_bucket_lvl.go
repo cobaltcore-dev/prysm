@@ -8,15 +8,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
-	"github.com/ceph/go-ceph/rgw/admin"
+	"github.com/cobaltcore-dev/prysm/pkg/producers/radosgwusage/rgwadmin"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
 
 type UserBucketMetrics struct {
 	BucketID      string
-	Owner         string
+	User          string
+	Tenant        string
 	Zonegroup     string
 	TotalReadOPs  uint64 // Cumulative read operations for a specific bucket. Critical for understanding bucket usage.
 	TotalWriteOPs uint64 // Cumulative write operations. Helps track data being uploaded to a bucket.
@@ -36,211 +38,141 @@ type UserBucketMetrics struct {
 	QuotaMaxObjects    *int64
 }
 
+func (m *UserBucketMetrics) GetUserIdentification() string {
+	if len(m.Tenant) > 0 {
+		return fmt.Sprintf("%s$%s", m.User, m.Tenant)
+	}
+	return m.User
+}
+
 func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyValue) error {
 	log.Debug().Msg("Starting bucket-level metrics aggregation")
 
-	// Fetch all keys from bucketData KV
-	keys, err := bucketData.Keys()
+	bucketKeys, err := bucketData.Keys()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to fetch keys from bucket data")
 		return fmt.Errorf("failed to fetch keys from bucket data: %w", err)
 	}
 
-	for _, key := range keys {
-		if !strings.HasPrefix(key, "bucket_") {
-			log.Debug().
-				Str("key", key).
-				Msg("Skipping non-bucket key")
-			continue
-		}
+	// Create a worker pool to process buckets concurrently.
+	const numWorkers = 10
+	bucketCh := make(chan string, len(bucketKeys))
+	var wg sync.WaitGroup
 
-		// Fetch bucket metadata
-		entry, err := bucketData.Get(key)
-		if err != nil {
-			log.Warn().
-				Str("key", key).
-				Err(err).
-				Msg("Failed to fetch bucket data from KV")
-			continue
-		}
-
-		var bucket admin.Bucket
-		if err := json.Unmarshal(entry.Value(), &bucket); err != nil {
-			log.Warn().
-				Str("key", key).
-				Err(err).
-				Msg("Failed to unmarshal bucket data")
-			continue
-		}
-
-		log.Debug().
-			Str("bucket_id", bucket.Bucket).
-			Str("owner", bucket.Owner).
-			Msg("Processing bucket metrics")
-
-		// Initialize metrics
-		metrics := UserBucketMetrics{
-			BucketID:           bucket.Bucket,
-			Owner:              bucket.Owner,
-			CreationTime:       bucket.Mtime,
-			Zonegroup:          "",
-			TotalReadOPs:       0,
-			TotalWriteOPs:      0,
-			TotalOPs:           0,
-			Throughput:         0,
-			ObjectCount:        uint64(0),
-			BucketSize:         uint64(0),
-			BytesSentTotal:     0,
-			BytesReceivedTotal: 0,
-		}
-
-		// Aggregate usage data for this bucket
-		bucketUsageKeyPrefix := fmt.Sprintf("usage_%s_%s", bucket.Owner, bucket.Bucket)
-		bucketUsageKeyPrefix = strings.ReplaceAll(bucketUsageKeyPrefix, "$", "_tenant_")
-		usageKeys, err := userUsageData.Keys()
-		if err != nil {
-			log.Error().
-				Str("bucket_id", bucket.Bucket).
-				Err(err).
-				Msg("Failed to fetch usage keys from KV")
-			continue
-		}
-
-		for _, usageKey := range usageKeys {
-			if !strings.HasPrefix(usageKey, bucketUsageKeyPrefix) {
-				continue
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for key := range bucketCh {
+				processBucketMetrics(key, bucketData, userUsageData, bucketMetrics)
 			}
-
-			// Fetch usage data
-			usageEntry, err := userUsageData.Get(usageKey)
-			if err != nil {
-				log.Warn().
-					Str("key", usageKey).
-					Err(err).
-					Msg("Failed to fetch usage data")
-				continue
-			}
-
-			var usage KVUserUsage
-			if err := json.Unmarshal(usageEntry.Value(), &usage); err != nil {
-				log.Warn().
-					Str("key", usageKey).
-					Err(err).
-					Msg("Failed to unmarshal usage data")
-				continue
-			}
-
-			for _, entry := range usage.Usage.Entries {
-				for _, bucketUsage := range entry.Buckets {
-					if bucketUsage.Bucket != bucket.Bucket {
-						continue
-					}
-
-					for _, category := range bucketUsage.Categories {
-						// Aggregate metrics at the bucket level
-						metrics.TotalOPs += category.Ops
-						metrics.BytesSentTotal += category.BytesSent
-						metrics.BytesReceivedTotal += category.BytesReceived
-
-						if isReadCategory(category.Category) {
-							metrics.TotalReadOPs += category.Ops
-						} else if isWriteCategory(category.Category) {
-							metrics.TotalWriteOPs += category.Ops
-						}
-
-						// Track API usage per bucket
-						if metrics.APIUsage == nil {
-							metrics.APIUsage = make(map[string]uint64)
-						}
-						metrics.APIUsage[category.Category] += category.Ops
-					}
-				}
-			}
-		}
-
-		// Populate static metrics from bucket data
-		metrics.Zonegroup = bucket.Zonegroup
-		metrics.NumShards = bucket.NumShards
-
-		if bucket.Usage.RgwMain.NumObjects != nil {
-			metrics.ObjectCount = *bucket.Usage.RgwMain.NumObjects
-		}
-		if bucket.Usage.RgwMain.SizeActual != nil {
-			metrics.BucketSize = *bucket.Usage.RgwMain.SizeActual
-		}
-
-		// Calculate throughput
-		metrics.Throughput = metrics.BytesSentTotal + metrics.BytesReceivedTotal
-
-		// Set quota information
-		metrics.QuotaEnabled = false
-		// Check and populate bucket quota if enabled
-		if bucket.BucketQuota.Enabled != nil && *bucket.BucketQuota.Enabled {
-			metrics.QuotaEnabled = true
-			metrics.QuotaMaxSize = bucket.BucketQuota.MaxSize
-			metrics.QuotaMaxObjects = bucket.BucketQuota.MaxObjects
-		}
-
-		// Prepare the metrics key
-		metricsKey := fmt.Sprintf("bucket_metrics_%s_%s", bucket.Owner, bucket.Bucket)
-		metricsKey = strings.ReplaceAll(metricsKey, "$", "_tenant_")
-
-		// Serialize and store metrics
-		metricsData, err := json.Marshal(metrics)
-		if err != nil {
-			log.Error().
-				Str("bucket_id", bucket.Bucket).
-				Err(err).
-				Msg("Failed to serialize bucket metrics")
-			continue
-		}
-
-		if _, err := bucketMetrics.Put(metricsKey, metricsData); err != nil {
-			log.Error().
-				Str("bucket_id", bucket.Bucket).
-				Err(err).
-				Msg("Failed to store bucket metrics in KV")
-		} else {
-			log.Debug().
-				Str("bucket_id", bucket.Bucket).
-				Str("key", metricsKey).
-				Msg("Bucket metrics stored in KV successfully")
-		}
+		}()
 	}
+
+	// Feed the channel.
+	for _, key := range bucketKeys {
+		bucketCh <- key
+	}
+	close(bucketCh)
+	wg.Wait()
 
 	log.Info().Msg("Completed bucket metrics aggregation and storage")
 	return nil
 }
 
-// Count buckets directly from bucketData
-func GetBucketCountForUser(userID string, bucketData nats.KeyValue) (uint64, error) {
-	bucketCount := uint64(0)
-
-	// Fetch all keys from bucketData KV
-	keys, err := bucketData.Keys()
+func processBucketMetrics(key string, bucketData, userUsageData, bucketMetrics nats.KeyValue) {
+	// Fetch bucket metadata
+	entry, err := bucketData.Get(key)
 	if err != nil {
-		return 0, fmt.Errorf("failed to fetch keys from bucket data: %w", err)
+		log.Warn().Str("bucket_key", key).Err(err).Msg("Failed to fetch bucket data from KV")
+		return
 	}
 
-	for _, key := range keys {
-		if !strings.HasPrefix(key, "bucket_") {
-			continue
-		}
-
-		entry, err := bucketData.Get(key)
-		if err != nil {
-			continue
-		}
-
-		var bucket admin.Bucket
-		if err := json.Unmarshal(entry.Value(), &bucket); err != nil {
-			continue
-		}
-
-		if bucket.Owner == userID {
-			bucketCount++
-		}
+	var bucket rgwadmin.Bucket
+	if err := json.Unmarshal(entry.Value(), &bucket); err != nil {
+		log.Warn().Str("bucket_key", key).Err(err).Msg("Failed to unmarshal bucket data")
+		return
 	}
 
-	return bucketCount, nil
+	log.Debug().
+		Str("bucket_id", bucket.Bucket).
+		Str("owner", bucket.Owner).
+		Msg("Processing bucket metrics")
+
+	// Initialize metrics.
+	userID := bucket.Owner
+	if strings.Index(userID, "$") > 0 { // if tenant is part of owner with devider $
+		userID = userID[:strings.Index(userID, "$")]
+	}
+	metrics := UserBucketMetrics{
+		BucketID:     bucket.Bucket,
+		User:         userID,
+		Tenant:       bucket.Tenant,
+		CreationTime: bucket.Mtime, // Using Mtime as a substitute for creation time.
+		Zonegroup:    bucket.Zonegroup,
+		APIUsage:     make(map[string]uint64),
+	}
+
+	// (Populate other static fields as needed.)
+	if bucket.Usage.RgwMain.NumObjects != nil {
+		metrics.ObjectCount = *bucket.Usage.RgwMain.NumObjects
+	}
+	if bucket.Usage.RgwMain.SizeActual != nil {
+		metrics.BucketSize = *bucket.Usage.RgwMain.SizeActual
+	}
+
+	usageEntry, err := userUsageData.Get(key)
+	if err != nil {
+		log.Warn().Str("usage_key", key).Err(err).Msg("Failed to fetch usage data")
+		return
+	}
+
+	var usage rgwadmin.UsageEntryBucket
+	if err := json.Unmarshal(usageEntry.Value(), &usage); err != nil {
+		log.Warn().Str("usage_key", key).Err(err).Msg("Failed to unmarshal usage data")
+		return
+	}
+
+	for _, category := range usage.Categories {
+		metrics.TotalOPs += category.Ops
+		metrics.BytesSentTotal += category.BytesSent
+		metrics.BytesReceivedTotal += category.BytesReceived
+		if isReadCategory(category.Category) {
+			metrics.TotalReadOPs += category.Ops
+		} else if isWriteCategory(category.Category) {
+			metrics.TotalWriteOPs += category.Ops
+		}
+		metrics.APIUsage[category.Category] += category.Ops
+	}
+
+	// Calculate derived metrics.
+	metrics.Throughput = metrics.BytesSentTotal + metrics.BytesReceivedTotal
+
+	// Set quota information.
+	metrics.QuotaEnabled = false
+	if bucket.BucketQuota.Enabled != nil && *bucket.BucketQuota.Enabled {
+		metrics.QuotaEnabled = true
+		metrics.QuotaMaxSize = bucket.BucketQuota.MaxSize
+		metrics.QuotaMaxObjects = bucket.BucketQuota.MaxObjects
+	}
+
+	// Prepare the KV key for bucket metrics.
+	metricsJSON, err := json.Marshal(metrics)
+	if err != nil {
+		log.Error().
+			Str("bucket_id", bucket.Bucket).
+			Err(err).Msg("Failed to serialize bucket metrics")
+		return
+	}
+
+	if _, err := bucketMetrics.Put(key, metricsJSON); err != nil {
+		log.Error().
+			Str("bucket_id", bucket.Bucket).
+			Err(err).Msg("Failed to store bucket metrics in KV")
+	} else {
+		log.Debug().
+			Str("bucket_id", bucket.Bucket).
+			Str("key", key).
+			Msg("Bucket metrics stored in KV successfully")
+	}
 }

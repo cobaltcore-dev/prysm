@@ -6,8 +6,8 @@ package radosgwusage
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus"
@@ -150,17 +150,25 @@ func init() {
 }
 
 func startPrometheusMetricsServer(port int) {
-	http.Handle("/metrics", promhttp.Handler())
-	http.ListenAndServe(":"+strconv.Itoa(port), nil)
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		log.Info().Msgf("starting prometheus metrics server on :%d", port)
+		err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+		if err != nil {
+			log.Fatal().Err(err).Msg("error starting prometheus metrics server")
+		}
+	}()
 }
 
 func populateStatus(status *PrysmStatus) {
+	log.Trace().Msg("Starting to populate prysmStatus")
 	// Safely get the current status snapshot
 	up, errors := status.GetSnapshot()
 
 	// Update Prometheus metrics
 	prysmTartgetUp.With(prometheus.Labels{}).Set(up)
 	scrapeErrors.With(prometheus.Labels{}).Add(float64(errors))
+	log.Trace().Msg("Completed populating prysmStatus")
 }
 
 func populateMetricsFromKV(userMetrics, bucketMetrics, clusterMetrics nats.KeyValue, cfg RadosGWUsageConfig) {
@@ -199,7 +207,7 @@ func populateUserMetricsFromKV(userMetrics nats.KeyValue, cfg RadosGWUsageConfig
 		}
 
 		userMetadata.With(prometheus.Labels{
-			"user":           metrics.UserID,
+			"user":           metrics.GetUserIdentification(),
 			"display_name":   metrics.DisplayName,
 			"email":          metrics.Email,
 			"storage_class":  metrics.DefaultStorageClass,
@@ -209,7 +217,7 @@ func populateUserMetricsFromKV(userMetrics nats.KeyValue, cfg RadosGWUsageConfig
 		}).Set(1)
 
 		labels := prometheus.Labels{
-			"user":           metrics.UserID,
+			"user":           metrics.GetUserIdentification(),
 			"rgw_cluster_id": cfg.ClusterID,
 			"node":           cfg.NodeName,
 			"instance_id":    cfg.InstanceID,
@@ -231,7 +239,7 @@ func populateUserMetricsFromKV(userMetrics nats.KeyValue, cfg RadosGWUsageConfig
 
 		for category, ops := range metrics.APIUsage {
 			labels := prometheus.Labels{
-				"user":           metrics.UserID,
+				"user":           metrics.GetUserIdentification(),
 				"rgw_cluster_id": cfg.ClusterID,
 				"node":           cfg.NodeName,
 				"instance_id":    cfg.InstanceID,
@@ -273,7 +281,7 @@ func populateBucketMetricsFromKV(bucketMetrics nats.KeyValue, cfg RadosGWUsageCo
 
 		labels := prometheus.Labels{
 			"bucket":         metrics.BucketID,
-			"owner":          metrics.Owner,
+			"owner":          metrics.GetUserIdentification(),
 			"zonegroup":      metrics.Zonegroup,
 			"rgw_cluster_id": cfg.ClusterID,
 			"node":           cfg.NodeName,
@@ -296,7 +304,7 @@ func populateBucketMetricsFromKV(bucketMetrics nats.KeyValue, cfg RadosGWUsageCo
 		for category, ops := range metrics.APIUsage {
 			labels := prometheus.Labels{
 				"bucket":         metrics.BucketID,
-				"owner":          metrics.Owner,
+				"owner":          metrics.GetUserIdentification(),
 				"zonegroup":      metrics.Zonegroup,
 				"rgw_cluster_id": cfg.ClusterID,
 				"node":           cfg.NodeName,
