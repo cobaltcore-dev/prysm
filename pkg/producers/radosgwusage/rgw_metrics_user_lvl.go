@@ -142,29 +142,26 @@ func processUserMetrics(key string, userData, userUsageData, userMetrics nats.Ke
 			log.Warn().Str("key", usageKey).Err(err).Msg("Failed to fetch usage data")
 			continue
 		}
-		var usage rgwadmin.Usage
+		var usage rgwadmin.UsageEntryBucket
 		if err := json.Unmarshal(usageEntry.Value(), &usage); err != nil {
 			log.Warn().Str("key", usageKey).Err(err).Msg("Failed to unmarshal usage data")
 			continue
 		}
-		for _, ue := range usage.Entries {
-			for _, bucket := range ue.Buckets {
-				for _, cat := range bucket.Categories {
-					metrics.TotalOPs += cat.Ops
-					metrics.UserSuccessOpsTotal += cat.SuccessfulOps
-					metrics.BytesSentTotal += cat.BytesSent
-					metrics.BytesReceivedTotal += cat.BytesReceived
-					if isReadCategory(cat.Category) {
-						metrics.TotalReadOPs += cat.Ops
-					} else if isWriteCategory(cat.Category) {
-						metrics.TotalWriteOPs += cat.Ops
-					}
-					if metrics.APIUsage == nil {
-						metrics.APIUsage = make(map[string]uint64)
-					}
-					metrics.APIUsage[cat.Category] += cat.Ops
-				}
+
+		for _, cat := range usage.Categories {
+			metrics.TotalOPs += cat.Ops
+			metrics.UserSuccessOpsTotal += cat.SuccessfulOps
+			metrics.BytesSentTotal += cat.BytesSent
+			metrics.BytesReceivedTotal += cat.BytesReceived
+			if isReadCategory(cat.Category) {
+				metrics.TotalReadOPs += cat.Ops
+			} else if isWriteCategory(cat.Category) {
+				metrics.TotalWriteOPs += cat.Ops
 			}
+			if metrics.APIUsage == nil {
+				metrics.APIUsage = make(map[string]uint64)
+			}
+			metrics.APIUsage[cat.Category] += cat.Ops
 		}
 	}
 
