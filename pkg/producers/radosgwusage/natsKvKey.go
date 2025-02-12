@@ -56,7 +56,7 @@ func BuildUserTenantKey(user, tenant string) string {
 // If tenant is empty, MissingTenantPlaceholder is used.
 func BuildUserTenantBucketKey(user, tenant, bucket string) string {
 	var encodedUser string
-	if tenant == "" {
+	if user == "" {
 		encodedUser = MissingUserPlaceholder
 	} else {
 		encodedUser = EncodeComponent(user)
