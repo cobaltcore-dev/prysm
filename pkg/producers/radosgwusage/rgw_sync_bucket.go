@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -138,7 +139,11 @@ func storeBucketInKV(bucket rgwadmin.Bucket, bucketData nats.KeyValue) error {
 		return err
 	}
 
-	bucketKey := BuildUserTenantBucketKey(bucket.Owner, bucket.Tenant, bucket.Bucket)
+	user := bucket.Owner
+	if strings.Index(user, "$") > 0 { // if tenant is part of owner with devider $
+		user = user[:strings.Index(user, "$")]
+	}
+	bucketKey := BuildUserTenantBucketKey(user, bucket.Tenant, bucket.Bucket)
 	if _, err := bucketData.Put(bucketKey, bucketDataJSON); err != nil {
 		log.Warn().
 			Str("bucket", bucket.Bucket).

@@ -7,6 +7,7 @@ package radosgwusage
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/cobaltcore-dev/prysm/pkg/producers/radosgwusage/rgwadmin"
@@ -16,7 +17,8 @@ import (
 
 type UserBucketMetrics struct {
 	BucketID      string
-	Owner         string
+	User          string
+	Tenant        string
 	Zonegroup     string
 	TotalReadOPs  uint64 // Cumulative read operations for a specific bucket. Critical for understanding bucket usage.
 	TotalWriteOPs uint64 // Cumulative write operations. Helps track data being uploaded to a bucket.
@@ -34,6 +36,13 @@ type UserBucketMetrics struct {
 	QuotaEnabled       bool
 	QuotaMaxSize       *int64
 	QuotaMaxObjects    *int64
+}
+
+func (m *UserBucketMetrics) GetUserIdentification() string {
+	if len(m.Tenant) > 0 {
+		return fmt.Sprintf("%s$%s", m.User, m.Tenant)
+	}
+	return m.User
 }
 
 func updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics nats.KeyValue) error {
@@ -91,9 +100,14 @@ func processBucketMetrics(key string, bucketData, userUsageData, bucketMetrics n
 		Msg("Processing bucket metrics")
 
 	// Initialize metrics.
+	userID := bucket.Owner
+	if strings.Index(userID, "$") > 0 { // if tenant is part of owner with devider $
+		userID = userID[:strings.Index(userID, "$")]
+	}
 	metrics := UserBucketMetrics{
 		BucketID:     bucket.Bucket,
-		Owner:        bucket.Owner,
+		User:         userID,
+		Tenant:       bucket.Tenant,
 		CreationTime: bucket.Mtime, // Using Mtime as a substitute for creation time.
 		Zonegroup:    bucket.Zonegroup,
 		APIUsage:     make(map[string]uint64),

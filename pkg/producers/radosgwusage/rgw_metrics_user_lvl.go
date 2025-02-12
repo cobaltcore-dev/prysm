@@ -16,7 +16,8 @@ import (
 )
 
 type UserLevelMetrics struct {
-	UserID               string
+	User                 string
+	Tenant               string
 	DisplayName          string
 	Email                string
 	DefaultStorageClass  string
@@ -36,6 +37,13 @@ type UserLevelMetrics struct {
 	UserQuotaEnabled     bool
 	UserQuotaMaxSize     *int64
 	UserQuotaMaxObjects  *int64
+}
+
+func (m *UserLevelMetrics) GetUserIdentification() string {
+	if len(m.Tenant) > 0 {
+		return fmt.Sprintf("%s$%s", m.User, m.Tenant)
+	}
+	return m.User
 }
 
 func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats.KeyValue) error {
@@ -114,8 +122,13 @@ func processUserMetrics(key string, userData, userUsageData, userMetrics nats.Ke
 		Msg("Processing user metrics")
 
 	// Initialize metrics.
+	userID := user.ID
+	if strings.Index(userID, "$") > 0 { // if tenant is part of owner with devider $
+		userID = userID[:strings.Index(userID, "$")]
+	}
 	metrics := UserLevelMetrics{
-		UserID:              user.GetUserIdentification(),
+		User:                userID,
+		Tenant:              user.Tenant,
 		DisplayName:         user.DisplayName,
 		Email:               user.Email,
 		DefaultStorageClass: user.DefaultStorageClass,

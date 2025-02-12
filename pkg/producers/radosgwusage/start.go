@@ -251,11 +251,28 @@ func startMetricCollectionLoop(cfg RadosGWUsageConfig, exportNatsConn *nats.Conn
 			updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics)
 			updateClusterMetricsInKV(userMetrics, bucketMetrics, clusterMetrics)
 			if cfg.Prometheus {
-				populateStatus(prysmStatus)
 				populateMetricsFromKV(userMetrics, bucketMetrics, clusterMetrics, cfg)
 			}
 		}
 	}()
+
+	// Update prysm status
+	if cfg.Prometheus {
+		wg.Add(1)
+		ticker := time.NewTicker(2 * time.Second)
+		quit := make(chan struct{})
+		go func() {
+			for {
+				select {
+				case <-ticker.C:
+					populateStatus(prysmStatus)
+				case <-quit:
+					ticker.Stop()
+					return
+				}
+			}
+		}()
+	}
 
 	// sub, err := js.QueueSubscribe("notifications", "worker-group", func(msg *nats.Msg) {
 	// 	_ = msg.Ack() //FIXME
