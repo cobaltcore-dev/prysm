@@ -5,34 +5,63 @@
 package opslog
 
 import (
+	"io"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
-
-	"io"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog/log"
 )
 
-// rotateLogFile truncates the log file while preserving ModTime and ownership
+func rotateLogIfNeeded(cfg OpsLogConfig, watcher *fsnotify.Watcher) {
+	fileInfo, err := os.Stat(cfg.LogFilePath)
+	if err != nil {
+		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error getting log file info")
+		return
+	}
+
+	fileSizeMB := float64(fileInfo.Size()) / (1024 * 1024) // Convert bytes to MB
+	maxSizeMB := float64(cfg.MaxLogFileSize)
+
+	shouldRotate := false
+
+	// Check if the log file should be rotated due to size
+	if maxSizeMB > 0 && fileSizeMB >= maxSizeMB {
+		log.Warn().
+			Str("file", cfg.LogFilePath).
+			Float64("size_mb", fileSizeMB).
+			Float64("max_size_mb", maxSizeMB).
+			Msg("Rotating log due to size limit")
+		shouldRotate = true
+	}
+
+	// Check if the log file should be rotated due to age
+	logFileAgeHours := time.Since(fileInfo.ModTime()).Hours()
+	if cfg.LogRetentionDays > 0 && logFileAgeHours >= float64(cfg.LogRetentionDays*24) {
+		log.Warn().
+			Str("file", cfg.LogFilePath).
+			Float64("age_hours", logFileAgeHours).
+			Msg("Rotating log due to age limit")
+		shouldRotate = true
+	}
+
+	// Rotate only if necessary
+	if shouldRotate {
+		if err := rotateLogFile(cfg, watcher); err != nil {
+			log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error rotating log file")
+		} else {
+			log.Info().Str("file", cfg.LogFilePath).Msg("Log file rotated successfully")
+		}
+	}
+}
+
 func rotateLogFile(cfg OpsLogConfig, watcher *fsnotify.Watcher) error {
 	logDir := filepath.Dir(cfg.LogFilePath)
 	timestamp := time.Now().Format("20060102-150405")
 	rotatedLogPath := filepath.Join(logDir, "radosgw.log."+timestamp)
 
-	// Step 1: Retrieve original file ownership (UID, GID) and ModTime
-	var originalStat syscall.Stat_t
-	if err := syscall.Stat(cfg.LogFilePath, &originalStat); err != nil {
-		log.Error().Err(err).Msg("Error getting log file metadata")
-		return err
-	}
-	originalUID := int(originalStat.Uid)
-	originalGID := int(originalStat.Gid)
-	originalModTime := time.Unix(originalStat.Mtim.Sec, originalStat.Mtim.Nsec)
-
-	// Step 2: Copy the current log file to a rotated version
+	// Step 1: Copy the log file contents to a new rotated file
 	srcFile, err := os.Open(cfg.LogFilePath)
 	if err != nil {
 		log.Error().Err(err).Msg("Error opening log file for rotation")
@@ -54,28 +83,16 @@ func rotateLogFile(cfg OpsLogConfig, watcher *fsnotify.Watcher) error {
 	}
 	dstFile.Close()
 
-	// Step 3: Truncate the original log file (clear content)
+	// Step 2: Truncate the original log file to 0 bytes (like copytruncate)
 	err = os.Truncate(cfg.LogFilePath, 0)
 	if err != nil {
 		log.Error().Err(err).Msg("Error truncating log file")
 		return err
 	}
 
-	// Step 4: Restore original UID/GID on the truncated file
-	if err := os.Chown(cfg.LogFilePath, originalUID, originalGID); err != nil {
-		log.Error().Err(err).Msg("Error restoring UID/GID on new log file")
-		return err
-	}
+	log.Info().Str("rotatedLogPath", rotatedLogPath).Msg("Rotated log file successfully using copytruncate method")
 
-	// Step 5: Restore the original ModTime
-	if err := os.Chtimes(cfg.LogFilePath, originalModTime, originalModTime); err != nil {
-		log.Error().Err(err).Msg("Error restoring ModTime on log file")
-		return err
-	}
-
-	log.Info().Str("rotatedLogPath", rotatedLogPath).Msg("Rotated log file successfully, preserving metadata")
-
-	// Ensure the file watcher remains intact
+	// Step 3: Ensure the file watcher remains intact
 	_ = watcher.Remove(cfg.LogFilePath)
 	_ = watcher.Add(cfg.LogFilePath)
 
@@ -88,47 +105,39 @@ func rotateLogFile(cfg OpsLogConfig, watcher *fsnotify.Watcher) error {
 func deleteOldLogs(cfg OpsLogConfig) {
 	// Define the directory and pattern for rotated logs
 	logDir := filepath.Dir(cfg.LogFilePath)
-	logPattern := filepath.Base(cfg.LogFilePath) + ".*"
+	logPattern := filepath.Join(logDir, filepath.Base(cfg.LogFilePath)+".*")
 
 	// Get the current time
 	now := time.Now()
 
-	// Walk through the log directory and find files matching the pattern
-	err := filepath.Walk(logDir, func(path string, info os.FileInfo, err error) error {
+	// Get a list of matching log files
+	files, err := filepath.Glob(logPattern)
+	if err != nil {
+		log.Error().Err(err).Msg("Error finding rotated log files")
+		return
+	}
+
+	// Iterate over matched files
+	for _, path := range files {
+		info, err := os.Lstat(path) // Use Lstat to handle symbolic links
 		if err != nil {
-			log.Error().Err(err).Str("file", path).Msg("Error accessing file")
-			return nil
+			log.Warn().Err(err).Str("file", path).Msg("Skipping file due to error accessing metadata")
+			continue
 		}
 
 		// Skip directories
 		if info.IsDir() {
-			return nil
+			continue
 		}
 
-		// Check if the file matches the rotated log pattern
-		matched, err := filepath.Match(logPattern, info.Name())
-		if err != nil {
-			log.Error().Err(err).Str("file", info.Name()).Msg("Error matching file")
-			return nil
-		}
-
-		if matched {
-			// Check the file's modification time
-			if now.Sub(info.ModTime()).Hours() > float64(cfg.LogRetentionDays*24) {
-				// Delete the file if it is older than the retention period
-				err := os.Remove(path)
-				if err != nil {
-					log.Error().Err(err).Str("file", path).Msg("Error deleting old log file")
-				} else {
-					log.Info().Str("file", path).Msg("Deleted old log file")
-				}
+		// Check the file's modification time
+		if now.Sub(info.ModTime()).Hours() > float64(cfg.LogRetentionDays*24) {
+			// Attempt to delete old log file
+			if err := os.Remove(path); err != nil {
+				log.Warn().Err(err).Str("file", path).Msg("Failed to delete old log file (might be in use or permissions issue)")
+			} else {
+				log.Info().Str("file", path).Msg("Successfully deleted old log file")
 			}
 		}
-
-		return nil
-	})
-
-	if err != nil {
-		log.Error().Err(err).Msg("Error walking the log directory")
 	}
 }

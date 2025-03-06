@@ -14,14 +14,17 @@ import (
 )
 
 var (
-	opsLogFilePath        string
-	opsSocketPath         string
-	opsNatsURL            string
-	opsNatsSubject        string
-	opsNatsMetricsSubject string
-	opsLogToStdout        bool
-	opsLogRetentionDays   int
-	opsMaxLogFileSize     int64
+	opsLogFilePath             string
+	opsSocketPath              string
+	opsNatsURL                 string
+	opsNatsSubject             string
+	opsNatsMetricsSubject      string
+	opsLogToStdout             bool
+	opsLogRetentionDays        int
+	opsMaxLogFileSize          int64
+	opsPromEnabled             bool
+	opsPromPort                int
+	opsIgnoreAnonymousRequests bool
 )
 
 var opsLogCmd = &cobra.Command{
@@ -45,13 +48,17 @@ Then restart all RadosGW daemons:
 Following this configuration change, the RadosGW will log operations to the file /var/log/ceph/ceph-rgw-ops.json.log.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		config := opslog.OpsLogConfig{
-			LogFilePath:        opsLogFilePath,
-			SocketPath:         opsSocketPath,
-			NatsURL:            opsNatsURL,
-			NatsSubject:        opsNatsSubject,
-			NatsMetricsSubject: opsNatsMetricsSubject,
-			LogToStdout:        opsLogToStdout,
-			LogRetentionDays:   opsLogRetentionDays,
+			LogFilePath:             opsLogFilePath,
+			SocketPath:              opsSocketPath,
+			NatsURL:                 opsNatsURL,
+			NatsSubject:             opsNatsSubject,
+			NatsMetricsSubject:      opsNatsMetricsSubject,
+			LogToStdout:             opsLogToStdout,
+			LogRetentionDays:        opsLogRetentionDays,
+			MaxLogFileSize:          opsMaxLogFileSize,
+			Prometheus:              opsPromEnabled,
+			PrometheusPort:          opsPromPort,
+			IgnoreAnonymousRequests: opsIgnoreAnonymousRequests,
 		}
 
 		config = mergeOpsLogConfigWithEnv(config)
@@ -81,6 +88,11 @@ Following this configuration change, the RadosGW will log operations to the file
 		event.Int("log_retention_days", config.LogRetentionDays)
 		event.Int64("max_log_file_size", config.MaxLogFileSize)
 
+		event.Bool("prometheus_enabled", config.Prometheus)
+		if config.Prometheus {
+			event.Int("prometheus_port", config.PrometheusPort)
+		}
+
 		validateOpsLogConfig(config)
 
 		if config.SocketPath != "" {
@@ -100,6 +112,9 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.LogToStdout = getEnvBool("LOG_TO_STDOUT", cfg.LogToStdout)
 	cfg.LogRetentionDays = getEnvInt("LOG_RETENTION_DAYS", cfg.LogRetentionDays)
 	cfg.MaxLogFileSize = getEnvInt64("MAX_LOG_FILE_SIZE", cfg.MaxLogFileSize)
+	cfg.PrometheusPort = getEnvInt("PROMETHEUS_PORT", cfg.PrometheusPort)
+	cfg.PodName = getEnv("POD_NAME", cfg.PodName)
+	cfg.IgnoreAnonymousRequests = getEnvBool("IGNORE_ANONYMOUS_REQUESTS", cfg.IgnoreAnonymousRequests)
 
 	return cfg
 }
@@ -113,6 +128,9 @@ func init() {
 	opsLogCmd.Flags().BoolVar(&opsLogToStdout, "log-to-stdout", false, "Log operations to stdout instead of a file")
 	opsLogCmd.Flags().IntVar(&opsLogRetentionDays, "log-retention-days", 1, "Number of days to retain old log files")
 	opsLogCmd.Flags().Int64Var(&opsMaxLogFileSize, "max-log-file-size", 10, "Maximum log file size in MB before rotation (e.g., 10 for 10 MB)")
+	opsLogCmd.Flags().BoolVar(&opsPromEnabled, "prometheus", false, "Enable Prometheus metrics")
+	opsLogCmd.Flags().IntVar(&opsPromPort, "prometheus-port", 8080, "Prometheus metrics port")
+	opsLogCmd.Flags().BoolVar(&opsIgnoreAnonymousRequests, "ignore-anonymous-requests", true, "Ignore anonymous requests")
 }
 
 func validateOpsLogConfig(config opslog.OpsLogConfig) {
