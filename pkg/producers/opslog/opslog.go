@@ -187,16 +187,6 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 			continue
 		}
 
-		// Quick check: Ensure line starts with { and ends with }
-		// if !strings.HasPrefix(line, "{") || !strings.HasSuffix(line, "}") {
-		// 	log.Warn().Str("raw", line).Msg("Skipping non-JSON formatted line")
-		// 	continue
-		// }
-
-		// Efficient JSON parsing using streaming decoder
-		// decoder := json.NewDecoder(strings.NewReader(line))
-		// decoder.DisallowUnknownFields() // Prevent unexpected fields
-
 		logEntry := logPool.Get().(*S3OperationLog)
 		err := json.Unmarshal([]byte(line), logEntry)
 		if err != nil {
@@ -204,15 +194,6 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 			logPool.Put(logEntry) // Return to pool
 			continue
 		}
-		// if err := decoder.Decode(&logEntry); err != nil {
-		// 	log.Warn().Err(err).Str("raw", line).Msg("Skipping invalid JSON entry")
-		// 	continue
-		// }
-		// err := json.Unmarshal([]byte(line), &logEntry)
-		// if err != nil {
-		// 	log.Warn().Err(err).Str("raw", line).Msg("Skipping malformed or incomplete JSON entry")
-		// 	continue
-		// }
 
 		// Ignore anonymous requests if configured
 		if cfg.IgnoreAnonymousRequests && logEntry.User == "anonymous" {
