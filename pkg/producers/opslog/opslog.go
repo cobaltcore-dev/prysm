@@ -6,12 +6,14 @@ package opslog
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
+
+	json "github.com/goccy/go-json"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/nats-io/nats.go"
@@ -175,26 +177,42 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 	buf := make([]byte, 64*1024)   // 64KB buffer
 	scanner.Buffer(buf, 1024*1024) // 1MB max per line
 
+	var logPool = sync.Pool{
+		New: func() any { return new(S3OperationLog) },
+	}
+
 	for scanner.Scan() {
 		line := scanner.Text()
-
-		// Skip empty lines
-		if strings.TrimSpace(line) == "" {
+		if len(line) < 2 || line[0] != '{' || line[len(line)-1] != '}' {
 			continue
 		}
 
 		// Quick check: Ensure line starts with { and ends with }
-		if !strings.HasPrefix(line, "{") || !strings.HasSuffix(line, "}") {
-			log.Warn().Str("raw", line).Msg("Skipping non-JSON formatted line")
-			continue
-		}
+		// if !strings.HasPrefix(line, "{") || !strings.HasSuffix(line, "}") {
+		// 	log.Warn().Str("raw", line).Msg("Skipping non-JSON formatted line")
+		// 	continue
+		// }
 
-		var logEntry S3OperationLog
-		err := json.Unmarshal([]byte(line), &logEntry)
+		// Efficient JSON parsing using streaming decoder
+		// decoder := json.NewDecoder(strings.NewReader(line))
+		// decoder.DisallowUnknownFields() // Prevent unexpected fields
+
+		logEntry := logPool.Get().(*S3OperationLog)
+		err := json.Unmarshal([]byte(line), logEntry)
 		if err != nil {
-			log.Warn().Err(err).Str("raw", line).Msg("Skipping malformed or incomplete JSON entry")
+			log.Warn().Err(err).Str("raw", line).Msg("Skipping invalid JSON entry")
+			logPool.Put(logEntry) // Return to pool
 			continue
 		}
+		// if err := decoder.Decode(&logEntry); err != nil {
+		// 	log.Warn().Err(err).Str("raw", line).Msg("Skipping invalid JSON entry")
+		// 	continue
+		// }
+		// err := json.Unmarshal([]byte(line), &logEntry)
+		// if err != nil {
+		// 	log.Warn().Err(err).Str("raw", line).Msg("Skipping malformed or incomplete JSON entry")
+		// 	continue
+		// }
 
 		// Ignore anonymous requests if configured
 		if cfg.IgnoreAnonymousRequests && logEntry.User == "anonymous" {
@@ -206,7 +224,8 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 		logEntry.CleanupBucketName()
 
 		// Update metrics with the log entry
-		metrics.Update(logEntry)
+		metrics.Update(*logEntry)
+		logPool.Put(logEntry)
 
 		// Print to stdout if enabled
 		if cfg.LogToStdout {
