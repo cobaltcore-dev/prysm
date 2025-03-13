@@ -7,11 +7,12 @@ on:
   push:
     tags:
       - 'v*'
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+
 jobs:
-  # build and publish docker images
   docker:
     permissions:
       contents: read
@@ -21,20 +22,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - 
-        name: Login to Docker Registry
+
+      - name: Login to Docker Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      -
-        name: Docker meta
-        id: meta
+
+      # Metadata for Prysm (Main Image)
+      - name: Docker meta (Prysm)
+        id: meta_prysm
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
@@ -42,22 +46,58 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
-      - 
-        name: Build and push
-        id: push
+
+      # Build and push Prysm (Main Image)
+      - name: Build and push Prysm
+        id: push_prysm
         uses: docker/build-push-action@v5
         with:
+          context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta_prysm.outputs.tags }}
+          labels: ${{ steps.meta_prysm.outputs.labels }}
           build-args: |
             GIT_TAG=${{ github.ref_name }}
             GIT_COMMIT=${{ github.sha }}
-      - 
-        name: Generate artifact attestation
+
+      # Metadata for ops-log-k8s-mutating-wg (Webhook Image)
+      - name: Docker meta (Webhook)
+        id: meta_webhook
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webhook
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      # Build and push Webhook (ops-log-k8s-mutating-wg)
+      - name: Build and push Webhook
+        id: push_webhook
+        uses: docker/build-push-action@v5
+        with:
+          context: ops-log-k8s-mutating-wg
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta_webhook.outputs.tags }}
+          labels: ${{ steps.meta_webhook.outputs.labels }}
+          build-args: |
+            GIT_TAG=${{ github.ref_name }}
+            GIT_COMMIT=${{ github.sha }}
+
+      # Generate artifact attestation for Prysm
+      - name: Generate artifact attestation (Prysm)
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push_prysm.outputs.digest }}
+          push-to-registry: true
+
+      # Generate artifact attestation for Webhook
+      - name: Generate artifact attestation (Webhook)
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webhook
+          subject-digest: ${{ steps.push_webhook.outputs.digest }}
           push-to-registry: true
