@@ -61,7 +61,7 @@ jobs:
             GIT_TAG=${{ github.ref_name }}
             GIT_COMMIT=${{ github.sha }}
 
-      # Metadata for ops-log-k8s-mutating-wg (Webhook Image)
+      # Metadata for ops-log-k8s-mutating-wh (Webhook Image)
       - name: Docker meta (Webhook)
         id: meta_webhook
         uses: docker/metadata-action@v5
@@ -72,12 +72,12 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha
 
-      # Build and push Webhook (ops-log-k8s-mutating-wg)
+      # Build and push Webhook (ops-log-k8s-mutating-wh)
       - name: Build and push Webhook
         id: push_webhook
         uses: docker/build-push-action@v5
         with:
-          context: ops-log-k8s-mutating-wg
+          context: ops-log-k8s-mutating-wh
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta_webhook.outputs.tags }}
