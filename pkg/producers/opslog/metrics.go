@@ -6,30 +6,31 @@ package opslog
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
 )
 
 type Metrics struct {
-	TotalRequests         atomic.Uint64
-	BytesSent             atomic.Uint64
-	BytesReceived         atomic.Uint64
-	Errors                atomic.Uint64
-	LatencySum            atomic.Uint64
-	LatencyCount          atomic.Uint64
-	MaxLatency            atomic.Uint64
-	MinLatency            atomic.Uint64
-	RequestsByMethod      sync.Map // map[string]*atomic.Uint64
-	RequestsByOperation   sync.Map // map[string]*atomic.Uint64
-	RequestsByStatusCode  sync.Map // map[string]*atomic.Uint64
-	RequestsByUser        sync.Map // map[string]*atomic.Uint64
-	BytesSentByUser       sync.Map // map[string]*atomic.Uint64
-	BytesReceivedByUser   sync.Map // map[string]*atomic.Uint64
-	ErrorsByUser          sync.Map // map[string]*atomic.Uint64
-	LatencyMaxByUser      sync.Map // user -> atomic.Uint64 (stores latency in milliseconds)
-	LatencyMinByUser      sync.Map // user -> atomic.Uint64 (stores latency in milliseconds)
+	TotalRequests atomic.Uint64
+	BytesSent     atomic.Uint64
+	BytesReceived atomic.Uint64
+	Errors        atomic.Uint64
+	LatencySum    atomic.Uint64
+	LatencyCount  atomic.Uint64
+	MaxLatency    atomic.Uint64
+	MinLatency    atomic.Uint64
+
+	RequestsByMethod     sync.Map // map[string]*atomic.Uint64
+	RequestsByOperation  sync.Map // map[string]*atomic.Uint64
+	RequestsByStatusCode sync.Map // map[string]*atomic.Uint64
+	RequestsByUser       sync.Map // map[string]*atomic.Uint64
+	BytesSentByUser      sync.Map // map[string]*atomic.Uint64
+	BytesReceivedByUser  sync.Map // map[string]*atomic.Uint64
+	ErrorsByUser         sync.Map // map[string]*atomic.Uint64
+	LatencyMaxByUser     sync.Map // user -> atomic.Uint64 (stores latency in milliseconds)
+	LatencyMinByUser     sync.Map // user -> atomic.Uint64 (stores latency in milliseconds)
+
 	RequestsByBucket      sync.Map // map[string]*atomic.Uint64
 	BytesSentByBucket     sync.Map // map[string]*atomic.Uint64
 	BytesReceivedByBucket sync.Map // map[string]*atomic.Uint64
@@ -41,15 +42,12 @@ type Metrics struct {
 }
 
 func NewMetrics() *Metrics {
-	return &Metrics{
-		MaxLatency: atomic.Uint64{}, // Initially 0, updated dynamically
-		MinLatency: atomic.Uint64{}, // Initially 0, updated dynamically
-	}
+	return &Metrics{}
 }
 
 // Convert metrics to a JSON-friendly struct
 func (m *Metrics) ToJSON() ([]byte, error) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"total_requests":            m.TotalRequests.Load(),
 		"bytes_sent":                m.BytesSent.Load(),
 		"bytes_received":            m.BytesReceived.Load(),
@@ -77,14 +75,7 @@ func (m *Metrics) ToJSON() ([]byte, error) {
 		"errors_by_ip_and_bucket":   loadSyncMap(&m.ErrorsByIPAndBucket),
 	}
 
-	// Ensure JSON encoding is safe
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		fmt.Println("Error encoding metrics to JSON:", err) // Debugging output
-		return nil, err
-	}
-	fmt.Print(string(jsonData))
-	return jsonData, nil
+	return json.Marshal(data)
 }
 
 // Update increments metrics based on a new log entry
@@ -103,11 +94,11 @@ func (m *Metrics) Update(logEntry S3OperationLog) {
 	// }
 
 	// Key format: "user|bucket|method"
-	keyMethod := fmt.Sprintf("%s|%s|%s", logEntry.User, logEntry.Bucket, method)
+	keyMethod := logEntry.User + "|" + logEntry.Bucket + "|" + method
 	incrementSyncMap(&m.RequestsByMethod, keyMethod)
 
 	// Key format: "user|bucket|operation|method"
-	keyOperation := fmt.Sprintf("%s|%s|%s|%s", logEntry.User, logEntry.Bucket, logEntry.Operation, method)
+	keyOperation := logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.Operation + "|" + method
 	incrementSyncMap(&m.RequestsByOperation, keyOperation)
 
 	// Increment status code count
@@ -144,34 +135,18 @@ func (m *Metrics) Update(logEntry S3OperationLog) {
 		m.LatencySum.Add(latencyMs)
 		m.LatencyCount.Add(1)
 
-		// Track per-user max latency
-		val, _ := m.LatencyMaxByUser.LoadOrStore(logEntry.User, &atomic.Uint64{})
-		atomicMax := val.(*atomic.Uint64)
-		for {
-			currMax := atomicMax.Load()
-			if latencyMs > currMax {
-				atomicMax.Store(latencyMs)
-			} else {
-				break
-			}
-		}
+		// Max Latency
+		updateMaxAtomic(&m.MaxLatency, latencyMs)
+		updateMaxSyncMap(&m.LatencyMaxByUser, logEntry.User, latencyMs)
 
-		// Track per-user min latency
-		minVal, _ := m.LatencyMinByUser.LoadOrStore(logEntry.User, &atomic.Uint64{})
-		atomicMin := minVal.(*atomic.Uint64)
-		for {
-			currMin := atomicMin.Load()
-			if currMin == 0 || latencyMs < currMin {
-				atomicMin.Store(latencyMs)
-			} else {
-				break
-			}
-		}
+		// Min Latency
+		updateMinAtomic(&m.MinLatency, latencyMs)
+		updateMinSyncMap(&m.LatencyMinByUser, logEntry.User, latencyMs)
 	}
 
 	// Format keys
-	userBucketKey := fmt.Sprintf("%s|%s|%s", logEntry.User, logEntry.Bucket, logEntry.HTTPStatus)
-	ipBucketKey := fmt.Sprintf("%s|%s|%s", logEntry.RemoteAddr, logEntry.Bucket, logEntry.HTTPStatus)
+	userBucketKey := logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
+	ipBucketKey := logEntry.RemoteAddr + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
 
 	// Track errors by User + Bucket + HTTP Status
 	incrementSyncMap(&m.ErrorsByUserAndBucket, userBucketKey)
@@ -220,21 +195,79 @@ func (m *Metrics) ResetPerWindowMetrics() {
 	resetSyncMap(&m.LatencyMinByUser)
 }
 
+// Helper function: Update max atomic value
+func updateMaxAtomic(target *atomic.Uint64, value uint64) {
+	for {
+		curr := target.Load()
+		if value > curr {
+			target.Store(value)
+		} else {
+			break
+		}
+	}
+}
+
+// Helper function: Update max value in sync.Map
+func updateMaxSyncMap(m *sync.Map, key string, value uint64) {
+	val, _ := m.LoadOrStore(key, new(atomic.Uint64))
+	atomicVal := val.(*atomic.Uint64)
+	updateMaxAtomic(atomicVal, value)
+}
+
+// Helper function: Update min atomic value
+func updateMinAtomic(target *atomic.Uint64, value uint64) {
+	for {
+		curr := target.Load()
+		if curr == 0 || value < curr {
+			target.Store(value)
+		} else {
+			break
+		}
+	}
+}
+
+// Helper function: Update min value in sync.Map
+func updateMinSyncMap(m *sync.Map, key string, value uint64) {
+	val, _ := m.LoadOrStore(key, new(atomic.Uint64))
+	atomicVal := val.(*atomic.Uint64)
+	updateMinAtomic(atomicVal, value)
+}
+
 // Helper function: Increment sync.Map atomic value
 func incrementSyncMap(m *sync.Map, key string) {
-	val, _ := m.LoadOrStore(key, new(atomic.Uint64))
-	val.(*atomic.Uint64).Add(1)
+	if val, ok := m.Load(key); ok {
+		val.(*atomic.Uint64).Add(1)
+		return
+	}
+
+	// Create new counter and ensure atomic operation
+	newVal := new(atomic.Uint64)
+	newVal.Add(1)
+	actual, _ := m.LoadOrStore(key, newVal)
+	if actual != newVal { // Another goroutine stored a different value first
+		actual.(*atomic.Uint64).Add(1)
+	}
 }
 
 // Helper function: Increment sync.Map numeric values
 func incrementSyncMapValue(m *sync.Map, key string, value uint64) {
-	val, _ := m.LoadOrStore(key, new(atomic.Uint64))
-	val.(*atomic.Uint64).Add(value)
+	if val, ok := m.Load(key); ok {
+		val.(*atomic.Uint64).Add(value)
+		return
+	}
+
+	// Create new counter and ensure atomic operation
+	newVal := new(atomic.Uint64)
+	newVal.Add(value)
+	actual, _ := m.LoadOrStore(key, newVal)
+	if actual != newVal { // Another goroutine stored a different value first
+		actual.(*atomic.Uint64).Add(value)
+	}
 }
 
 // Helper function: Reset sync.Map
 func resetSyncMap(m *sync.Map) {
-	m.Range(func(key, value interface{}) bool {
+	m.Range(func(key, value any) bool {
 		m.Store(key, new(atomic.Uint64))
 		return true
 	})
@@ -244,7 +277,7 @@ func resetSyncMap(m *sync.Map) {
 func loadSyncMap(m *sync.Map) map[string]uint64 {
 	result := make(map[string]uint64)
 
-	m.Range(func(key, value interface{}) bool {
+	m.Range(func(key, value any) bool {
 		if v, ok := value.(*atomic.Uint64); ok {
 			result[key.(string)] = v.Load()
 		} else {

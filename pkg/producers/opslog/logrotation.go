@@ -105,7 +105,8 @@ func rotateLogFile(cfg OpsLogConfig, watcher *fsnotify.Watcher) error {
 func deleteOldLogs(cfg OpsLogConfig) {
 	// Define the directory and pattern for rotated logs
 	logDir := filepath.Dir(cfg.LogFilePath)
-	logPattern := filepath.Join(logDir, filepath.Base(cfg.LogFilePath)+".*")
+	logPattern := filepath.Join(logDir, "radosgw.log.*")
+	// logPattern := filepath.Join(logDir, filepath.Base(cfg.LogFilePath)+".*")
 
 	// Get the current time
 	now := time.Now()
