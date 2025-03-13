@@ -1,0 +1,21 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+  namespace: webhook
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: prysm-webhook-cert
+  namespace: webhook
+spec:
+  secretName: prysm-webhook-cert
+  dnsNames:
+    - prysm-webhook-service.webhook.svc
+  issuerRef:
+    name: selfsigned-issuer
+    kind: Issuer
