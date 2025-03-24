@@ -68,22 +68,19 @@ This ensures consistent, automated sidecar injection into selected rook-ceph-rgw
 
 ---
 
-## Configure Sidecar via Secret
+## Configure Sidecar via Secret or ConfigMap
 
-The webhook supports configuring the Prysm sidecar via a **Kubernetes Secret**. This allows each RADOSGW deployment to customize the sidecar's behavior independently.
+The webhook supports injecting **environment variables** into the Prysm sidecar using either a **Secret** or a **ConfigMap**.  This allows each RADOSGW deployment to customize the sidecar's behavior independently.
 
-### How it Works
+### Option 1: Use a Secret
 
-1. **Create a Secret** in the same namespace as your RADOSGW deployment.
-2. Annotate the RADOSGW deployment with:
+Add this annotation to your CephObjectStore or RADOSGW deployment:
 
 ```yaml
    annotations:
      prysm-sidecar/sidecar-env-secret: "prysm-sidecar-env"
 ```
-3.	The webhook will detect the annotation and inject the specified Secret as envFrom into the Prysm sidecar.
-
-### Example Secret
+The specified secret must exist in the same namespace and look like:
 
 ```yaml
 apiVersion: v1
@@ -106,6 +103,43 @@ stringData:
   TRACK_BYTES_RECEIVED_BY_IP: "true"
 ```
 
+### Option 2: Use a ConfigMap
+
+Alternatively, you can use a ConfigMap by setting this annotation:
+
+```yaml
+   annotations:
+     prysm-sidecar/sidecar-env-configmap: "prysm-sidecar-config"
+```
+Example ConfigMap:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prysm-sidecar-config
+  namespace: rook-ceph
+data:
+  LOG_FILE_PATH: "/var/log/ceph/ops-log.log"
+  MAX_LOG_FILE_SIZE: "10"
+  PROMETHEUS_PORT: "9090"
+  IGNORE_ANONYMOUS_REQUESTS: "true"
+  TRACK_REQUESTS_BY_METHOD: "true"
+  TRACK_REQUESTS_BY_STATUS: "true"
+  TRACK_ERRORS_BY_USER: "true"
+  TRACK_REQUESTS_BY_USER: "true"
+  TRACK_REQUESTS_BY_BUCKET: "true"
+  TRACK_BYTES_SENT_BY_IP: "true"
+  TRACK_BYTES_RECEIVED_BY_IP: "true"
+```
+### You Can Use Both
+
+If both annotations are set, the sidecar will receive **both** sources via envFrom, in the order:
+1.	Secret (if specified)
+2.	ConfigMap (if specified)
+
+This allows sensitive data to be stored in Secrets, while general config can go in a ConfigMap.
+
 ### Benefits
 
 - Each RADOSGW instance can have its own metrics configuration
@@ -113,8 +147,8 @@ stringData:
 - Avoids hardcoding environment variables into the webhook
 
 ---
-
-> Make sure the secret exists before the deployment is applied, otherwise the sidecar container may fail to start.
+### Important Notes
+> The referenced Secret or ConfigMap must exist before the deployment is created, or pod startup may fail.
 
 ---
 
