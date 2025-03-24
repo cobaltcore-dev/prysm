@@ -75,7 +75,7 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 	}
 
 	if cfg.Prometheus {
-		StartPrometheusServer(cfg.PrometheusPort)
+		StartPrometheusServer(cfg.PrometheusPort, &cfg.MetricsConfig)
 	}
 
 	// Initialize metrics
@@ -125,6 +125,14 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 	}
 	log.Info().Str("file", cfg.LogFilePath).Msg("Started watching file for changes")
 
+	if cfg.TruncateLogOnStart && cfg.LogFilePath != "" {
+		if err := rotateLogFile(cfg, watcher); err != nil {
+			log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error rotating log file")
+		} else {
+			log.Info().Str("file", cfg.LogFilePath).Msg("Log file rotated successfully")
+		}
+	}
+
 	// Periodically report metrics
 	for range ticker.C {
 		if cfg.Prometheus {
@@ -133,7 +141,7 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 
 		// Send the aggregated metrics to NATS and reset
 		if cfg.UseNats {
-			jsonData, err := metrics.ToJSON()
+			jsonData, err := metrics.ToJSON(&cfg.MetricsConfig)
 			if err != nil || len(jsonData) == 0 {
 				log.Error().Err(err).Msg("Skipping NATS publish: JSON encoding failed or empty!")
 				continue
@@ -205,7 +213,7 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 		logEntry.CleanupBucketName()
 
 		// Update metrics with the log entry
-		metrics.Update(*logEntry)
+		metrics.Update(*logEntry, &cfg.MetricsConfig)
 		logPool.Put(logEntry)
 
 		// Print to stdout if enabled
@@ -336,7 +344,8 @@ func handleConnection(cfg OpsLogConfig, conn net.Conn, nc *nats.Conn, metrics *M
 
 		// Conditional logging to stdout if enabled
 		if cfg.LogToStdout {
-			logEntryBytes, err := json.MarshalIndent(logEntry, "", "  ")
+			logEntryBytes, err := json.Marshal(logEntry)
+			// logEntryBytes, err := json.MarshalIndent(logEntry, "", "  ")
 			if err != nil {
 				log.Error().Err(err).Msg("Error marshalling log entry for stdout")
 				continue

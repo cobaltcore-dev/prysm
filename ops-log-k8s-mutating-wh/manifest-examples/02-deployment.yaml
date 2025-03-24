@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: prysmwebhook
-        image: ghcr.io/cobaltcore-dev/prysm-wh:v1.2.3
+        image: ghcr.io/cobaltcore-dev/prysm-webhook:sha-5eb62ab
         ports:
         - containerPort: 8443
         volumeMounts:
@@ -25,7 +25,7 @@ spec:
           readOnly: true
         env:
         - name: SIDECAR_IMAGE
-          value: "ghcr.io/cobaltcore-dev/prysm:v1.2.3"
+          value: "ghcr.io/cobaltcore-dev/prysm:sha-5eb62ab"
         imagePullPolicy: Always
       volumes:
       - name: certs

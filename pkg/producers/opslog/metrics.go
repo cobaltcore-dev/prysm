@@ -16,10 +16,8 @@ type Metrics struct {
 	BytesSent     atomic.Uint64
 	BytesReceived atomic.Uint64
 	Errors        atomic.Uint64
-	LatencySum    atomic.Uint64
-	LatencyCount  atomic.Uint64
-	MaxLatency    atomic.Uint64
-	MinLatency    atomic.Uint64
+
+	LatencyByMethod sync.Map // map["user|bucket|method"]
 
 	RequestsByMethod     sync.Map // map[string]*atomic.Uint64
 	RequestsByOperation  sync.Map // map[string]*atomic.Uint64
@@ -28,8 +26,6 @@ type Metrics struct {
 	BytesSentByUser      sync.Map // map[string]*atomic.Uint64
 	BytesReceivedByUser  sync.Map // map[string]*atomic.Uint64
 	ErrorsByUser         sync.Map // map[string]*atomic.Uint64
-	LatencyMaxByUser     sync.Map // user -> atomic.Uint64 (stores latency in milliseconds)
-	LatencyMinByUser     sync.Map // user -> atomic.Uint64 (stores latency in milliseconds)
 
 	RequestsByBucket      sync.Map // map[string]*atomic.Uint64
 	BytesSentByBucket     sync.Map // map[string]*atomic.Uint64
@@ -46,40 +42,83 @@ func NewMetrics() *Metrics {
 }
 
 // Convert metrics to a JSON-friendly struct
-func (m *Metrics) ToJSON() ([]byte, error) {
+func (m *Metrics) ToJSON(metricsConfig *MetricsConfig) ([]byte, error) {
 	data := map[string]any{
-		"total_requests":            m.TotalRequests.Load(),
-		"bytes_sent":                m.BytesSent.Load(),
-		"bytes_received":            m.BytesReceived.Load(),
-		"errors":                    m.Errors.Load(),
-		"latency_sum":               m.LatencySum.Load(),
-		"latency_count":             m.LatencyCount.Load(),
-		"max_latency":               m.MaxLatency.Load(),
-		"min_latency":               m.MinLatency.Load(),
-		"requests_by_method":        loadSyncMap(&m.RequestsByMethod),
-		"requests_by_op":            loadSyncMap(&m.RequestsByOperation),
-		"requests_by_status":        loadSyncMap(&m.RequestsByStatusCode),
-		"requests_by_user":          loadSyncMap(&m.RequestsByUser),
-		"bytes_sent_by_user":        loadSyncMap(&m.BytesSentByUser),
-		"bytes_received_by_user":    loadSyncMap(&m.BytesReceivedByUser),
-		"errors_by_user":            loadSyncMap(&m.ErrorsByUser),
-		"max_latency_by_user":       loadSyncMap(&m.LatencyMaxByUser),
-		"min_latency_by_user":       loadSyncMap(&m.LatencyMinByUser),
-		"requests_by_bucket":        loadSyncMap(&m.RequestsByBucket),
-		"bytes_sent_by_bucket":      loadSyncMap(&m.BytesSentByBucket),
-		"bytes_received_by_bucket":  loadSyncMap(&m.BytesReceivedByBucket),
-		"requests_by_ip":            loadSyncMap(&m.RequestsByIP),
-		"bytes_sent_by_ip":          loadSyncMap(&m.BytesSentByIP),
-		"bytes_received_by_ip":      loadSyncMap(&m.BytesReceivedByIP),
-		"errors_by_user_and_bucket": loadSyncMap(&m.ErrorsByUserAndBucket),
-		"errors_by_ip_and_bucket":   loadSyncMap(&m.ErrorsByIPAndBucket),
+		"total_requests": m.TotalRequests.Load(),
+		"bytes_sent":     m.BytesSent.Load(),
+		"bytes_received": m.BytesReceived.Load(),
+		"errors":         m.Errors.Load(),
+	}
+
+	if metricsConfig.TrackRequestsByMethod {
+		data["requests_by_method"] = loadSyncMap(&m.RequestsByMethod)
+	}
+
+	if metricsConfig.TrackRequestsByOperation {
+		data["requests_by_operation"] = loadSyncMap(&m.RequestsByOperation)
+	}
+
+	if metricsConfig.TrackRequestsByStatus {
+		data["requests_by_status"] = loadSyncMap(&m.RequestsByStatusCode)
+	}
+
+	if metricsConfig.TrackRequestsByBucket {
+		data["requests_by_bucket"] = loadSyncMap(&m.RequestsByBucket)
+	}
+
+	if metricsConfig.TrackRequestsByUser {
+		data["requests_by_user"] = loadSyncMap(&m.RequestsByUser)
+	}
+
+	if metricsConfig.TrackRequestsByIP {
+		data["requests_by_ip"] = loadSyncMap(&m.RequestsByIP)
+	}
+
+	// Conditional fields (bytes tracking)
+	if metricsConfig.TrackBytesSentByUser {
+		data["bytes_sent_by_user"] = loadSyncMap(&m.BytesSentByUser)
+	}
+
+	if metricsConfig.TrackBytesReceivedByUser {
+		data["bytes_received_by_user"] = loadSyncMap(&m.BytesReceivedByUser)
+	}
+
+	if metricsConfig.TrackBytesSentByBucket {
+		data["bytes_sent_by_bucket"] = loadSyncMap(&m.BytesSentByBucket)
+	}
+
+	if metricsConfig.TrackBytesReceivedByBucket {
+		data["bytes_received_by_bucket"] = loadSyncMap(&m.BytesReceivedByBucket)
+	}
+
+	if metricsConfig.TrackBytesSentByIP {
+		data["bytes_sent_by_ip"] = loadSyncMap(&m.BytesSentByIP)
+	}
+
+	if metricsConfig.TrackBytesReceivedByIP {
+		data["bytes_received_by_ip"] = loadSyncMap(&m.BytesReceivedByIP)
+	}
+
+	// Conditional fields (errors tracking)
+	if metricsConfig.TrackErrorsByUser {
+		data["errors_by_user"] = loadSyncMap(&m.ErrorsByUser)
+		data["errors_by_user_and_bucket"] = loadSyncMap(&m.ErrorsByUserAndBucket)
+	}
+
+	if metricsConfig.TrackErrorsByIP {
+		data["errors_by_ip_and_bucket"] = loadSyncMap(&m.ErrorsByIPAndBucket)
+	}
+
+	// Latency Tracking
+	if metricsConfig.TrackLatencyByMethod {
+		data["latency_by_method"] = loadSyncMap(&m.LatencyByMethod)
 	}
 
 	return json.Marshal(data)
 }
 
 // Update increments metrics based on a new log entry
-func (m *Metrics) Update(logEntry S3OperationLog) {
+func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) {
 	m.TotalRequests.Add(1)
 	m.BytesSent.Add(uint64(logEntry.BytesSent))
 	m.BytesReceived.Add(uint64(logEntry.BytesReceived))
@@ -87,72 +126,101 @@ func (m *Metrics) Update(logEntry S3OperationLog) {
 	// Extract HTTP method from logEntry.URI
 	method := ExtractHTTPMethod(logEntry.URI)
 
-	// Ensure method and operation are consistent
-	// if !isMethodValidForOperation(method, logEntry.Operation) {
-	// 	fmt.Printf("Warning: Invalid method-operation pair: %s - %s\n", method, logEntry.Operation)
-	// 	return // Ignore invalid pairs
-	// }
-
-	// Key format: "user|bucket|method"
-	keyMethod := logEntry.User + "|" + logEntry.Bucket + "|" + method
-	incrementSyncMap(&m.RequestsByMethod, keyMethod)
-
-	// Key format: "user|bucket|operation|method"
-	keyOperation := logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.Operation + "|" + method
-	incrementSyncMap(&m.RequestsByOperation, keyOperation)
-
-	// Increment status code count
-	incrementSyncMap(&m.RequestsByStatusCode, logEntry.HTTPStatus)
-
-	// Track by user
-	incrementSyncMap(&m.RequestsByUser, logEntry.User)
-	incrementSyncMapValue(&m.BytesSentByUser, logEntry.User, uint64(logEntry.BytesSent))
-	incrementSyncMapValue(&m.BytesReceivedByUser, logEntry.User, uint64(logEntry.BytesReceived))
-
-	// Track by bucket
-	incrementSyncMap(&m.RequestsByBucket, logEntry.Bucket)
-	incrementSyncMapValue(&m.BytesSentByBucket, logEntry.Bucket, uint64(logEntry.BytesSent))
-	incrementSyncMapValue(&m.BytesReceivedByBucket, logEntry.Bucket, uint64(logEntry.BytesReceived))
-
-	// Track by IP address
-	keyUserIP := logEntry.User + "|" + logEntry.RemoteAddr
-
-	incrementSyncMap(&m.RequestsByIP, keyUserIP)
-	incrementSyncMapValue(&m.BytesSentByIP, keyUserIP, uint64(logEntry.BytesSent))
-	incrementSyncMapValue(&m.BytesReceivedByIP, keyUserIP, uint64(logEntry.BytesReceived))
-
-	// Track errors per user
-	if logEntry.HTTPStatus[0] != '2' { // Non-2xx codes are errors
-		incrementSyncMap(&m.ErrorsByUser, logEntry.User)
-		m.Errors.Add(1)
+	if metricsConfig.TrackRequestsByMethod {
+		// Key format: "user|bucket|method"
+		keyMethod := logEntry.User + "|" + logEntry.Bucket + "|" + method
+		incrementSyncMap(&m.RequestsByMethod, keyMethod)
 	}
 
-	// Track latency per user
+	if metricsConfig.TrackRequestsByOperation {
+		// Key format: "user|bucket|operation|method"
+		keyOperation := logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.Operation + "|" + method
+		incrementSyncMap(&m.RequestsByOperation, keyOperation)
+	}
+
+	if metricsConfig.TrackRequestsByStatus {
+		// Increment status code count
+		incrementSyncMap(&m.RequestsByStatusCode, logEntry.HTTPStatus)
+	}
+
+	if metricsConfig.TrackRequestsByBucket {
+		// Track per bucket (Bucket | Method | HTTP Status)
+		keyBucket := logEntry.Bucket + "|" + method + "|" + logEntry.HTTPStatus
+		incrementSyncMap(&m.RequestsByBucket, keyBucket)
+	}
+
+	if metricsConfig.TrackRequestsByUser {
+		// Track per user (User | Bucket | Method | HTTP Status)
+		keyUser := logEntry.User + "|" + logEntry.Bucket + "|" + method + "|" + logEntry.HTTPStatus
+		incrementSyncMap(&m.RequestsByUser, keyUser)
+	}
+
+	if metricsConfig.TrackRequestsByIP {
+		// Track by IP address
+		keyUserIP := logEntry.User + "|" + logEntry.RemoteAddr
+		incrementSyncMap(&m.RequestsByIP, keyUserIP)
+	}
+
+	// //////////////
+
+	// Bytes Tracking
+	if metricsConfig.TrackBytesSentByUser {
+		incrementSyncMapValue(&m.BytesSentByUser, logEntry.User, uint64(logEntry.BytesSent))
+	}
+
+	if metricsConfig.TrackBytesReceivedByUser {
+		incrementSyncMapValue(&m.BytesReceivedByUser, logEntry.User, uint64(logEntry.BytesReceived))
+	}
+
+	if metricsConfig.TrackBytesSentByBucket {
+		incrementSyncMapValue(&m.BytesSentByBucket, logEntry.Bucket, uint64(logEntry.BytesSent))
+	}
+
+	if metricsConfig.TrackBytesReceivedByBucket {
+		incrementSyncMapValue(&m.BytesReceivedByBucket, logEntry.Bucket, uint64(logEntry.BytesReceived))
+	}
+
+	if metricsConfig.TrackBytesSentByIP {
+		keyUserIP := logEntry.User + "|" + logEntry.RemoteAddr
+		incrementSyncMapValue(&m.BytesSentByIP, keyUserIP, uint64(logEntry.BytesSent))
+	}
+
+	if metricsConfig.TrackBytesReceivedByIP {
+		keyUserIP := logEntry.User + "|" + logEntry.RemoteAddr
+		incrementSyncMapValue(&m.BytesReceivedByIP, keyUserIP, uint64(logEntry.BytesReceived))
+	}
+
+	// //////////////
+
+	// Error Tracking
+	if logEntry.HTTPStatus[0] != '2' { // Non-2xx codes are errors
+		if metricsConfig.TrackErrorsByUser {
+			incrementSyncMap(&m.ErrorsByUser, logEntry.User)
+		}
+		if metricsConfig.TrackErrorsByUser {
+			userBucketKey := logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
+			incrementSyncMap(&m.ErrorsByUserAndBucket, userBucketKey)
+		}
+		if metricsConfig.TrackErrorsByIP {
+			ipBucketKey := logEntry.RemoteAddr + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
+			incrementSyncMap(&m.ErrorsByIPAndBucket, ipBucketKey)
+		}
+		m.Errors.Add(1) // Always track total errors
+	}
+
+	// //////////////
+
+	// Latency Tracking
 	if logEntry.TotalTime > 0 {
 		latencyMs := uint64(logEntry.TotalTime)
 
-		// Track total latency for averaging
-		m.LatencySum.Add(latencyMs)
-		m.LatencyCount.Add(1)
-
-		// Max Latency
-		updateMaxAtomic(&m.MaxLatency, latencyMs)
-		updateMaxSyncMap(&m.LatencyMaxByUser, logEntry.User, latencyMs)
-
-		// Min Latency
-		updateMinAtomic(&m.MinLatency, latencyMs)
-		updateMinSyncMap(&m.LatencyMinByUser, logEntry.User, latencyMs)
+		if metricsConfig.TrackLatencyByMethod {
+			// Key format: "user|bucket|method"
+			latencyKey := logEntry.User + "|" + logEntry.Bucket + "|" + method
+			incrementSyncMapValue(&m.LatencyByMethod, latencyKey, latencyMs)
+		}
 	}
 
-	// Format keys
-	userBucketKey := logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
-	ipBucketKey := logEntry.RemoteAddr + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
-
-	// Track errors by User + Bucket + HTTP Status
-	incrementSyncMap(&m.ErrorsByUserAndBucket, userBucketKey)
-
-	// Track errors by IP + Bucket + HTTP Status
-	incrementSyncMap(&m.ErrorsByIPAndBucket, ipBucketKey)
 }
 
 // Reset function
@@ -161,11 +229,8 @@ func (m *Metrics) Reset() {
 	m.BytesSent.Store(0)
 	m.BytesReceived.Store(0)
 	m.Errors.Store(0)
-	m.LatencySum.Store(0)
-	m.LatencyCount.Store(0)
-	m.MaxLatency.Store(0)
-	m.MinLatency.Store(0)
 
+	resetSyncMap(&m.LatencyByMethod)
 	resetSyncMap(&m.RequestsByMethod)
 	resetSyncMap(&m.RequestsByOperation)
 	resetSyncMap(&m.RequestsByStatusCode)
@@ -173,8 +238,6 @@ func (m *Metrics) Reset() {
 	resetSyncMap(&m.BytesSentByUser)
 	resetSyncMap(&m.BytesReceivedByUser)
 	resetSyncMap(&m.ErrorsByUser)
-	resetSyncMap(&m.LatencyMaxByUser)
-	resetSyncMap(&m.LatencyMinByUser)
 	resetSyncMap(&m.RequestsByBucket)
 	resetSyncMap(&m.BytesSentByBucket)
 	resetSyncMap(&m.BytesReceivedByBucket)
@@ -186,13 +249,7 @@ func (m *Metrics) Reset() {
 }
 
 func (m *Metrics) ResetPerWindowMetrics() {
-	m.LatencySum.Store(0)
-	m.LatencyCount.Store(0)
-	m.MaxLatency.Store(0)
-	m.MinLatency.Store(0)
-
-	resetSyncMap(&m.LatencyMaxByUser)
-	resetSyncMap(&m.LatencyMinByUser)
+	resetSyncMap(&m.LatencyByMethod)
 }
 
 // Helper function: Update max atomic value
@@ -267,8 +324,8 @@ func incrementSyncMapValue(m *sync.Map, key string, value uint64) {
 
 // Helper function: Reset sync.Map
 func resetSyncMap(m *sync.Map) {
-	m.Range(func(key, value any) bool {
-		m.Store(key, new(atomic.Uint64))
+	m.Range(func(key, _ any) bool {
+		m.Delete(key) // Fully removes keys
 		return true
 	})
 }
@@ -292,7 +349,13 @@ func loadSyncMap(m *sync.Map) map[string]uint64 {
 // ExtractHTTPMethod extracts the HTTP method (GET, POST, PUT, DELETE) from the "uri" field
 func ExtractHTTPMethod(uri string) string {
 	// `strings.Fields()` splits by spaces, ensuring the first part is the method
+	if len(uri) == 0 {
+		return "UNKNOWN"
+	}
 	parts := strings.Fields(uri)
+	if len(parts) == 0 {
+		return "UNKNOWN"
+	}
 	if len(parts) > 0 {
 		method := parts[0]
 		switch method {
