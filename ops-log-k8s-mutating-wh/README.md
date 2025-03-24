@@ -26,7 +26,7 @@ To be **eligible for mutation**, a deployment **must have the following labels**
 | `app.kubernetes.io/managed-by: rook-ceph-operator` | Ensures the deployment is managed by Rook. |
 | `prysm-sidecar: "yes"` | Enables Prysm sidecar injection _(must be set in `CephObjectStore.spec.gateway.labels`)_. |
 
-⚠ **Important:** The `prysm-sidecar: "yes"` label must be **defined in the Rook CephObjectStore configuration** under `spec.gateway.labels`. Example:
+>**Important:** The `prysm-sidecar: "yes"` label must be **defined in the Rook CephObjectStore configuration** under `spec.gateway.labels`. Example:
 
 ```yaml
 apiVersion: ceph.rook.io/v1
@@ -65,6 +65,56 @@ If this label is not set, the webhook will not modify the deployment.
 5.	The modified deployment is then approved and applied to the cluster.
 
 This ensures consistent, automated sidecar injection into selected rook-ceph-rgw instances, allowing **real-time monitoring of RGW operations**.
+
+---
+
+## Configure Sidecar via Secret
+
+The webhook supports configuring the Prysm sidecar via a **Kubernetes Secret**. This allows each RADOSGW deployment to customize the sidecar's behavior independently.
+
+### How it Works
+
+1. **Create a Secret** in the same namespace as your RADOSGW deployment.
+2. Annotate the RADOSGW deployment with:
+
+```yaml
+   annotations:
+     prysm-sidecar/sidecar-env-secret: "prysm-sidecar-env"
+```
+3.	The webhook will detect the annotation and inject the specified Secret as envFrom into the Prysm sidecar.
+
+### Example Secret
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prysm-sidecar-env
+  namespace: rook-ceph
+type: Opaque
+stringData:
+  LOG_FILE_PATH: "/var/log/ceph/ops-log.log"
+  MAX_LOG_FILE_SIZE: "10"
+  PROMETHEUS_PORT: "9090"
+  IGNORE_ANONYMOUS_REQUESTS: "true"
+  TRACK_REQUESTS_BY_METHOD: "true"
+  TRACK_REQUESTS_BY_STATUS: "true"
+  TRACK_ERRORS_BY_USER: "true"
+  TRACK_REQUESTS_BY_USER: "true"
+  TRACK_REQUESTS_BY_BUCKET: "true"
+  TRACK_BYTES_SENT_BY_IP: "true"
+  TRACK_BYTES_RECEIVED_BY_IP: "true"
+```
+
+### Benefits
+
+- Each RADOSGW instance can have its own metrics configuration
+- Keeps configuration clean and modular
+- Avoids hardcoding environment variables into the webhook
+
+---
+
+> Make sure the secret exists before the deployment is applied, otherwise the sidecar container may fail to start.
 
 ---
 

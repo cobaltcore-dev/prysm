@@ -85,6 +85,22 @@ func mutateDeployment(req *admissionv1.AdmissionRequest) *admissionv1.AdmissionR
 
 	klog.Infof("Mutating deployment: %s", deployment.Name)
 
+	// Check for annotation with env secret name
+	annotations := deployment.Spec.Template.Annotations
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+
+	if secretName, ok := annotations["prysm-sidecar/sidecar-env-secret"]; ok && secretName != "" {
+		klog.Infof("Injecting envFrom using secret: %s", secretName)
+		sidecarContainer.EnvFrom = append(sidecarContainer.EnvFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+				Optional:             pointerTo(true),
+			},
+		})
+	}
+
 	// Find if the sidecar already exists
 	sidecarIndex := -1
 	for i, container := range deployment.Spec.Template.Spec.Containers {
@@ -165,4 +181,8 @@ func mutateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(responseBytes)
+}
+
+func pointerTo[T any](v T) *T {
+	return &v
 }
