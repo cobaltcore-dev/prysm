@@ -101,6 +101,16 @@ func mutateDeployment(req *admissionv1.AdmissionRequest) *admissionv1.AdmissionR
 		})
 	}
 
+	if configMapName, ok := annotations["prysm-sidecar/sidecar-env-configmap"]; ok && configMapName != "" {
+		klog.Infof("Injecting envFrom using configMap: %s", configMapName)
+		sidecarContainer.EnvFrom = append(sidecarContainer.EnvFrom, corev1.EnvFromSource{
+			ConfigMapRef: &corev1.ConfigMapEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
+				Optional:             pointerTo(true),
+			},
+		})
+	}
+
 	// Find if the sidecar already exists
 	sidecarIndex := -1
 	for i, container := range deployment.Spec.Template.Spec.Containers {
