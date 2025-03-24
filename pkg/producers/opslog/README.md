@@ -36,7 +36,7 @@ prysm local-producer ops-log [flags]
 - `--prometheus` - Enable Prometheus metrics.
 - `--prometheus-port 8080` - Port for Prometheus metrics.
 - `--ignore-anonymous-requests` - Ignore anonymous requests in metrics.
-- `--rotate-log-on-start` - Rotate log on start to avoid re-processing existing data.
+- `--truncate-log-on-start` - Rotate log on start to avoid re-processing existing data.
 
 ### Environment Variables
 
@@ -52,7 +52,7 @@ prysm local-producer ops-log [flags]
 | `MAX_LOG_FILE_SIZE`          | Maximum log file size before rotation (in MB).  |
 | `PROMETHEUS_PORT`            | Port for Prometheus metrics.                    |
 | `IGNORE_ANONYMOUS_REQUESTS`  | Ignore anonymous requests in metrics.           |
-| `ROTATE_LOG_ON_START`        | Whether to rotate the log file on startup.      |
+| `TRUNCATE_LOG_ON_START`        | Whether to rotate the log file on startup.      |
 
 
 #### Metric Toggle Environment Variables:
