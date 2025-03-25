@@ -58,11 +58,13 @@ var sidecarContainer = corev1.Container{
 // Check if Deployment belongs to RADOSGW (based on labels)
 func isRadosgwDeployment(deployment *appsv1.Deployment) bool {
 	labels := deployment.Labels
+	if labels == nil {
+		return false
+	}
 	return labels["app"] == "rook-ceph-rgw" &&
 		labels["app.kubernetes.io/component"] == "cephobjectstores.ceph.rook.io" &&
 		labels["app.kubernetes.io/created-by"] == "rook-ceph-operator" &&
-		labels["app.kubernetes.io/managed-by"] == "rook-ceph-operator" &&
-		labels["prysm-sidecar"] == "yes"
+		labels["app.kubernetes.io/managed-by"] == "rook-ceph-operator"
 }
 
 // Mutate deployments to add a sidecar (only for RADOSGW)
@@ -85,31 +87,9 @@ func mutateDeployment(req *admissionv1.AdmissionRequest) *admissionv1.AdmissionR
 
 	klog.Infof("Mutating deployment: %s", deployment.Name)
 
-	// Check for annotation with env secret name
-	annotations := deployment.Spec.Template.Annotations
-	if annotations == nil {
-		annotations = map[string]string{}
-	}
-
-	if secretName, ok := annotations["prysm-sidecar/sidecar-env-secret"]; ok && secretName != "" {
-		klog.Infof("Injecting envFrom using secret: %s", secretName)
-		sidecarContainer.EnvFrom = append(sidecarContainer.EnvFrom, corev1.EnvFromSource{
-			SecretRef: &corev1.SecretEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				Optional:             pointerTo(true),
-			},
-		})
-	}
-
-	if configMapName, ok := annotations["prysm-sidecar/sidecar-env-configmap"]; ok && configMapName != "" {
-		klog.Infof("Injecting envFrom using configMap: %s", configMapName)
-		sidecarContainer.EnvFrom = append(sidecarContainer.EnvFrom, corev1.EnvFromSource{
-			ConfigMapRef: &corev1.ConfigMapEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
-				Optional:             pointerTo(true),
-			},
-		})
-	}
+	// Determine sidecar policy
+	sidecarPolicy := deployment.Labels["prysm-sidecar"]
+	klog.Infof("Evaluating sidecar policy: %s for deployment %s", sidecarPolicy, deployment.Name)
 
 	// Find if the sidecar already exists
 	sidecarIndex := -1
@@ -122,28 +102,64 @@ func mutateDeployment(req *admissionv1.AdmissionRequest) *admissionv1.AdmissionR
 
 	var patches []map[string]any
 
-	if sidecarIndex >= 0 {
-		// Replace existing sidecar
-		klog.Infof("Replacing existing sidecar container in deployment: %s", deployment.Name)
-		patches = append(patches, map[string]any{
-			"op":    "replace",
-			"path":  fmt.Sprintf("/spec/template/spec/containers/%d", sidecarIndex),
-			"value": sidecarContainer,
-		})
-	} else {
-		// Add the sidecar if it does not exist
-		klog.Infof("Adding new sidecar container in deployment: %s", deployment.Name)
-		patches = append(patches, map[string]any{
-			"op":    "add",
-			"path":  "/spec/template/spec/containers/-",
-			"value": sidecarContainer,
-		})
-	}
+	// Decide patching logic based on policy
+	switch sidecarPolicy {
+	case "yes":
+		// Handle annotations (Secret / ConfigMap)
+		annotations := deployment.Spec.Template.Annotations
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		sidecarContainer.EnvFrom = nil // Clear old ones before injecting fresh ones
 
-	// Ensure the required volumes are added
-	volumeMap := make(map[string]corev1.Volume)
-	for _, v := range deployment.Spec.Template.Spec.Volumes {
-		volumeMap[v.Name] = v
+		if secretName, ok := annotations["prysm-sidecar/sidecar-env-secret"]; ok && secretName != "" {
+			klog.Infof("Injecting envFrom using secret: %s", secretName)
+			sidecarContainer.EnvFrom = append(sidecarContainer.EnvFrom, corev1.EnvFromSource{
+				SecretRef: &corev1.SecretEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+					Optional:             pointerTo(true),
+				},
+			})
+		}
+		if configMapName, ok := annotations["prysm-sidecar/sidecar-env-configmap"]; ok && configMapName != "" {
+			klog.Infof("Injecting envFrom using configMap: %s", configMapName)
+			sidecarContainer.EnvFrom = append(sidecarContainer.EnvFrom, corev1.EnvFromSource{
+				ConfigMapRef: &corev1.ConfigMapEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: configMapName},
+					Optional:             pointerTo(true),
+				},
+			})
+		}
+
+		if sidecarIndex >= 0 {
+			// Replace existing sidecar
+			klog.Infof("Replacing existing sidecar container in deployment: %s", deployment.Name)
+			patches = append(patches, map[string]any{
+				"op":    "replace",
+				"path":  fmt.Sprintf("/spec/template/spec/containers/%d", sidecarIndex),
+				"value": sidecarContainer,
+			})
+		} else {
+			// Add the sidecar if it does not exist
+			klog.Infof("Adding new sidecar container in deployment: %s", deployment.Name)
+			patches = append(patches, map[string]any{
+				"op":    "add",
+				"path":  "/spec/template/spec/containers/-",
+				"value": sidecarContainer,
+			})
+		}
+
+	case "no", "":
+		// Remove sidecar if it exists
+		if sidecarIndex >= 0 {
+			klog.Infof("Removing sidecar from deployment: %s", deployment.Name)
+			patches = append(patches, map[string]any{
+				"op":   "remove",
+				"path": fmt.Sprintf("/spec/template/spec/containers/%d", sidecarIndex),
+			})
+		} else {
+			klog.Infof("No sidecar to remove in deployment: %s", deployment.Name)
+		}
 	}
 
 	// Marshal JSON patch
