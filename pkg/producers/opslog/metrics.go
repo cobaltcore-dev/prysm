@@ -27,14 +27,16 @@ type Metrics struct {
 	BytesReceivedByUser  sync.Map // map[string]*atomic.Uint64
 	ErrorsByUser         sync.Map // map[string]*atomic.Uint64
 
-	RequestsByBucket      sync.Map // map[string]*atomic.Uint64
-	BytesSentByBucket     sync.Map // map[string]*atomic.Uint64
-	BytesReceivedByBucket sync.Map // map[string]*atomic.Uint64
-	RequestsByIP          sync.Map // map[string]*atomic.Uint64
-	BytesSentByIP         sync.Map // map[string]*atomic.Uint64
-	BytesReceivedByIP     sync.Map // map[string]*atomic.Uint64
-	ErrorsByUserAndBucket sync.Map // map["user|bucket|http_status"]*atomic.Uint64
-	ErrorsByIPAndBucket   sync.Map // map["ip|bucket|http_status"]*atomic.Uint64
+	RequestsByBucket               sync.Map // map[string]*atomic.Uint64
+	BytesSentByBucket              sync.Map // map[string]*atomic.Uint64
+	BytesReceivedByBucket          sync.Map // map[string]*atomic.Uint64
+	RequestsByIP                   sync.Map // map[string]*atomic.Uint64
+	RequestsByIPBucketMethodTenant sync.Map // map["ip|bucket|method|tenant"]*atomic.Uint64
+	BytesSentByIP                  sync.Map // map[string]*atomic.Uint64
+	BytesReceivedByIP              sync.Map // map[string]*atomic.Uint64
+	ErrorsByUserAndBucket          sync.Map // map["user|bucket|http_status"]*atomic.Uint64
+	ErrorsByIPAndBucket            sync.Map // map["ip|bucket|http_status"]*atomic.Uint64
+
 }
 
 func NewMetrics() *Metrics {
@@ -72,6 +74,10 @@ func (m *Metrics) ToJSON(metricsConfig *MetricsConfig) ([]byte, error) {
 
 	if metricsConfig.TrackRequestsByIP {
 		data["requests_by_ip"] = loadSyncMap(&m.RequestsByIP)
+	}
+
+	if metricsConfig.TrackRequestsByIPBucketMethodTenant {
+		data["requests_by_ip_bucket_method_tenant"] = loadSyncMap(&m.RequestsByIPBucketMethodTenant)
 	}
 
 	// Conditional fields (bytes tracking)
@@ -161,6 +167,12 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 		incrementSyncMap(&m.RequestsByIP, keyUserIP)
 	}
 
+	if metricsConfig.TrackRequestsByIPBucketMethodTenant {
+		// Track by IP address, Bucker, method and tenant
+		key := logEntry.RemoteAddr + "|" + logEntry.Bucket + "|" + method + "|" + logEntry.User
+		incrementSyncMap(&m.RequestsByIPBucketMethodTenant, key)
+	}
+
 	// //////////////
 
 	// Bytes Tracking
@@ -189,7 +201,6 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 		keyUserIP := logEntry.User + "|" + logEntry.RemoteAddr
 		incrementSyncMapValue(&m.BytesReceivedByIP, keyUserIP, uint64(logEntry.BytesReceived))
 	}
-
 	// //////////////
 
 	// Error Tracking
@@ -220,7 +231,6 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 			incrementSyncMapValue(&m.LatencyByMethod, latencyKey, latencyMs)
 		}
 	}
-
 }
 
 // Reset function
@@ -242,6 +252,7 @@ func (m *Metrics) Reset() {
 	resetSyncMap(&m.BytesSentByBucket)
 	resetSyncMap(&m.BytesReceivedByBucket)
 	resetSyncMap(&m.RequestsByIP)
+	resetSyncMap(&m.RequestsByIPBucketMethodTenant)
 	resetSyncMap(&m.BytesSentByIP)
 	resetSyncMap(&m.BytesReceivedByIP)
 	resetSyncMap(&m.ErrorsByUserAndBucket)
@@ -380,3 +391,103 @@ func ExtractHTTPMethod(uri string) string {
 // 	}
 // 	return false
 // }
+
+// Clone creates a deep copy of the Metrics
+func (m *Metrics) Clone() *Metrics {
+	clone := NewMetrics()
+
+	clone.TotalRequests.Store(m.TotalRequests.Load())
+	clone.BytesSent.Store(m.BytesSent.Load())
+	clone.BytesReceived.Store(m.BytesReceived.Load())
+	clone.Errors.Store(m.Errors.Load())
+
+	copySyncMap(&m.LatencyByMethod, &clone.LatencyByMethod)
+	copySyncMap(&m.RequestsByMethod, &clone.RequestsByMethod)
+	copySyncMap(&m.RequestsByOperation, &clone.RequestsByOperation)
+	copySyncMap(&m.RequestsByStatusCode, &clone.RequestsByStatusCode)
+	copySyncMap(&m.RequestsByUser, &clone.RequestsByUser)
+	copySyncMap(&m.BytesSentByUser, &clone.BytesSentByUser)
+	copySyncMap(&m.BytesReceivedByUser, &clone.BytesReceivedByUser)
+	copySyncMap(&m.ErrorsByUser, &clone.ErrorsByUser)
+	copySyncMap(&m.RequestsByBucket, &clone.RequestsByBucket)
+	copySyncMap(&m.BytesSentByBucket, &clone.BytesSentByBucket)
+	copySyncMap(&m.BytesReceivedByBucket, &clone.BytesReceivedByBucket)
+	copySyncMap(&m.RequestsByIP, &clone.RequestsByIP)
+	copySyncMap(&m.RequestsByIPBucketMethodTenant, &clone.RequestsByIPBucketMethodTenant)
+	copySyncMap(&m.BytesSentByIP, &clone.BytesSentByIP)
+	copySyncMap(&m.BytesReceivedByIP, &clone.BytesReceivedByIP)
+	copySyncMap(&m.ErrorsByUserAndBucket, &clone.ErrorsByUserAndBucket)
+	copySyncMap(&m.ErrorsByIPAndBucket, &clone.ErrorsByIPAndBucket)
+
+	return clone
+}
+
+// copySyncMap copies keys and atomic values from one sync.Map to another
+func copySyncMap(src, dst *sync.Map) {
+	src.Range(func(key, val any) bool {
+		if orig, ok := val.(*atomic.Uint64); ok {
+			var copied atomic.Uint64
+			copied.Store(orig.Load())
+			dst.Store(key, &copied)
+		}
+		return true
+	})
+}
+
+// SubtractMetrics calculates the delta between two metrics objects: total - previous
+func SubtractMetrics(total, previous *Metrics) *Metrics {
+	delta := NewMetrics()
+
+	// Handle top-level counters
+	delta.TotalRequests.Store(diff(total.TotalRequests.Load(), previous.TotalRequests.Load()))
+	delta.BytesSent.Store(diff(total.BytesSent.Load(), previous.BytesSent.Load()))
+	delta.BytesReceived.Store(diff(total.BytesReceived.Load(), previous.BytesReceived.Load()))
+	delta.Errors.Store(diff(total.Errors.Load(), previous.Errors.Load()))
+
+	// Handle sync.Maps
+	subtractSyncMap(&total.RequestsByUser, &previous.RequestsByUser, &delta.RequestsByUser)
+	subtractSyncMap(&total.RequestsByMethod, &previous.RequestsByMethod, &delta.RequestsByMethod)
+	subtractSyncMap(&total.RequestsByOperation, &previous.RequestsByOperation, &delta.RequestsByOperation)
+	subtractSyncMap(&total.RequestsByStatusCode, &previous.RequestsByStatusCode, &delta.RequestsByStatusCode)
+	subtractSyncMap(&total.BytesSentByUser, &previous.BytesSentByUser, &delta.BytesSentByUser)
+	subtractSyncMap(&total.BytesReceivedByUser, &previous.BytesReceivedByUser, &delta.BytesReceivedByUser)
+	subtractSyncMap(&total.ErrorsByUser, &previous.ErrorsByUser, &delta.ErrorsByUser)
+	subtractSyncMap(&total.RequestsByBucket, &previous.RequestsByBucket, &delta.RequestsByBucket)
+	subtractSyncMap(&total.BytesSentByBucket, &previous.BytesSentByBucket, &delta.BytesSentByBucket)
+	subtractSyncMap(&total.BytesReceivedByBucket, &previous.BytesReceivedByBucket, &delta.BytesReceivedByBucket)
+	subtractSyncMap(&total.RequestsByIP, &previous.RequestsByIP, &delta.RequestsByIP)
+	subtractSyncMap(&delta.RequestsByIPBucketMethodTenant, &total.RequestsByIPBucketMethodTenant, &previous.RequestsByIPBucketMethodTenant)
+	subtractSyncMap(&total.BytesSentByIP, &previous.BytesSentByIP, &delta.BytesSentByIP)
+	subtractSyncMap(&total.BytesReceivedByIP, &previous.BytesReceivedByIP, &delta.BytesReceivedByIP)
+	subtractSyncMap(&total.ErrorsByUserAndBucket, &previous.ErrorsByUserAndBucket, &delta.ErrorsByUserAndBucket)
+	subtractSyncMap(&total.ErrorsByIPAndBucket, &previous.ErrorsByIPAndBucket, &delta.ErrorsByIPAndBucket)
+
+	return delta
+}
+
+// subtractSyncMap calculates the difference and stores it in target
+func subtractSyncMap(current, previous, target *sync.Map) {
+	current.Range(func(key, curVal any) bool {
+		cur := curVal.(*atomic.Uint64).Load()
+
+		var prev uint64
+		if prevVal, ok := previous.Load(key); ok {
+			prev = prevVal.(*atomic.Uint64).Load()
+		}
+
+		delta := cur - prev
+		if delta > 0 {
+			var v atomic.Uint64
+			v.Store(delta)
+			target.Store(key, &v)
+		}
+		return true
+	})
+}
+
+func diff(a, b uint64) uint64 {
+	if a > b {
+		return a - b
+	}
+	return 0
+}
