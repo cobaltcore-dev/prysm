@@ -90,6 +90,7 @@ prysm local-producer ops-log [flags]
 | `radosgw_http_errors_by_user`         | Counter   | `pod`, `user`, `tenant`, `bucket`, `http_status`     | HTTP errors grouped by user, tenant, bucket, and status code.     |
 | `radosgw_http_errors_by_ip`           | Counter   | `pod`, `bucket`, `ip`, `http_status`                 | HTTP errors grouped by IP, bucket, and status code.               |
 | `radosgw_requests_by_ip`              | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total number of requests grouped by IP and user.                  |
+| `radosgw_requests_by_ip_bucket_method_tenant`              | Gauge     | `pod`, `bucket`, `tenant`, `ip`, `method`                        | Total number of requests grouped by IP, bucket and method.                  |
 | `radosgw_bytes_sent_by_ip`            | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes sent grouped by IP and user.                          |
 | `radosgw_bytes_received_by_ip`        | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes received grouped by IP and user.                      |
 | `radosgw_requests_duration`           | Histogram | `user`, `tenant`, `bucket`, `method`                 | Histogram of request latencies (in seconds).                      |
