@@ -28,22 +28,23 @@ var (
 	opsIgnoreAnonymousRequests bool
 
 	// MetricsConfig-related flags
-	opsTrackRequestsByIP        bool
-	opsTrackBytesSentByIP       bool
-	opsTrackBytesReceivedByIP   bool
-	opsTrackErrorsByIP          bool
-	opsTrackErrorsByUser        bool
-	opsTrackRequestsByMethod    bool
-	opsTrackRequestsByOperation bool
-	opsTrackRequestsByStatus    bool
-	opsTrackRequestsByBucket    bool
-	opsTrackRequestsByUser      bool
-	opsTrackRequestsByTenant    bool
-	opsTrackErrorsByBucket      bool
-	opsTrackErrorsByStatus      bool
-	opsTrackLatencyByUser       bool
-	opsTrackLatencyByBucket     bool
-	opsTrackLatencyByTenant     bool
+	opsTrackRequestsByIP                   bool
+	opsTrackBytesSentByIP                  bool
+	opsTrackBytesReceivedByIP              bool
+	opsTrackErrorsByIP                     bool
+	opsTrackErrorsByUser                   bool
+	opsTrackRequestsByIPBucketMethodTenant bool
+	opsTrackRequestsByMethod               bool
+	opsTrackRequestsByOperation            bool
+	opsTrackRequestsByStatus               bool
+	opsTrackRequestsByBucket               bool
+	opsTrackRequestsByUser                 bool
+	opsTrackRequestsByTenant               bool
+	opsTrackErrorsByBucket                 bool
+	opsTrackErrorsByStatus                 bool
+	opsTrackLatencyByUser                  bool
+	opsTrackLatencyByBucket                bool
+	opsTrackLatencyByTenant                bool
 )
 
 var opsLogCmd = &cobra.Command{
@@ -80,22 +81,23 @@ Following this configuration change, the RadosGW will log operations to the file
 			PrometheusPort:          opsPromPort,
 			IgnoreAnonymousRequests: opsIgnoreAnonymousRequests,
 			MetricsConfig: opslog.MetricsConfig{
-				TrackRequestsByIP:        opsTrackRequestsByIP,
-				TrackBytesSentByIP:       opsTrackBytesSentByIP,
-				TrackBytesReceivedByIP:   opsTrackBytesReceivedByIP,
-				TrackErrorsByIP:          opsTrackErrorsByIP,
-				TrackErrorsByUser:        opsTrackErrorsByUser,
-				TrackRequestsByMethod:    opsTrackRequestsByMethod,
-				TrackRequestsByOperation: opsTrackRequestsByOperation,
-				TrackRequestsByStatus:    opsTrackRequestsByStatus,
-				TrackRequestsByBucket:    opsTrackRequestsByBucket,
-				TrackRequestsByUser:      opsTrackRequestsByUser,
-				TrackRequestsByTenant:    opsTrackRequestsByTenant,
-				TrackErrorsByBucket:      opsTrackErrorsByBucket,
-				TrackErrorsByStatus:      opsTrackErrorsByStatus,
-				TrackLatencyByUser:       opsTrackLatencyByUser,
-				TrackLatencyByBucket:     opsTrackLatencyByBucket,
-				TrackLatencyByTenant:     opsTrackLatencyByTenant,
+				TrackRequestsByIP:                   opsTrackRequestsByIP,
+				TrackBytesSentByIP:                  opsTrackBytesSentByIP,
+				TrackBytesReceivedByIP:              opsTrackBytesReceivedByIP,
+				TrackErrorsByIP:                     opsTrackErrorsByIP,
+				TrackErrorsByUser:                   opsTrackErrorsByUser,
+				TrackRequestsByIPBucketMethodTenant: opsTrackRequestsByIPBucketMethodTenant,
+				TrackRequestsByMethod:               opsTrackRequestsByMethod,
+				TrackRequestsByOperation:            opsTrackRequestsByOperation,
+				TrackRequestsByStatus:               opsTrackRequestsByStatus,
+				TrackRequestsByBucket:               opsTrackRequestsByBucket,
+				TrackRequestsByUser:                 opsTrackRequestsByUser,
+				TrackRequestsByTenant:               opsTrackRequestsByTenant,
+				TrackErrorsByBucket:                 opsTrackErrorsByBucket,
+				TrackErrorsByStatus:                 opsTrackErrorsByStatus,
+				TrackLatencyByUser:                  opsTrackLatencyByUser,
+				TrackLatencyByBucket:                opsTrackLatencyByBucket,
+				TrackLatencyByTenant:                opsTrackLatencyByTenant,
 			},
 		}
 
@@ -142,6 +144,7 @@ Following this configuration change, the RadosGW will log operations to the file
 		event.Bool("track_requests_by_status", config.MetricsConfig.TrackRequestsByStatus)
 		event.Bool("track_requests_by_bucket", config.MetricsConfig.TrackRequestsByBucket)
 		event.Bool("track_requests_by_user", config.MetricsConfig.TrackRequestsByUser)
+		event.Bool("track_requests_by_ip_bucket_method_tenant", config.MetricsConfig.TrackRequestsByIPBucketMethodTenant)
 		event.Bool("track_requests_by_tenant", config.MetricsConfig.TrackRequestsByTenant)
 		event.Bool("track_errors_by_bucket", config.MetricsConfig.TrackErrorsByBucket)
 		event.Bool("track_errors_by_status", config.MetricsConfig.TrackErrorsByStatus)
@@ -186,6 +189,7 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.MetricsConfig.TrackRequestsByStatus = getEnvBool("TRACK_REQUESTS_BY_STATUS", cfg.MetricsConfig.TrackRequestsByStatus)
 	cfg.MetricsConfig.TrackRequestsByBucket = getEnvBool("TRACK_REQUESTS_BY_BUCKET", cfg.MetricsConfig.TrackRequestsByBucket)
 	cfg.MetricsConfig.TrackRequestsByUser = getEnvBool("TRACK_REQUESTS_BY_USER", cfg.MetricsConfig.TrackRequestsByUser)
+	cfg.MetricsConfig.TrackRequestsByIPBucketMethodTenant = getEnvBool("TRACK_REQUESTS_BY_IP_BUCKET_METHOD_TENANT", cfg.MetricsConfig.TrackRequestsByIPBucketMethodTenant)
 	cfg.MetricsConfig.TrackRequestsByTenant = getEnvBool("TRACK_REQUESTS_BY_TENANT", cfg.MetricsConfig.TrackRequestsByTenant)
 	cfg.MetricsConfig.TrackErrorsByBucket = getEnvBool("TRACK_ERRORS_BY_BUCKET", cfg.MetricsConfig.TrackErrorsByBucket)
 	cfg.MetricsConfig.TrackErrorsByStatus = getEnvBool("TRACK_ERRORS_BY_STATUS", cfg.MetricsConfig.TrackErrorsByStatus)
@@ -221,6 +225,7 @@ func init() {
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByStatus, "track-requests-by-status", false, "Track requests by HTTP status code")
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByBucket, "track-requests-by-bucket", false, "Track requests by bucket")
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByUser, "track-requests-by-user", false, "Track requests by user")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIPBucketMethodTenant, "track-requests-by-ip-bucket-method-tenant", false, "Track requests by IP, bucket, HTTP method and tenant")
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByTenant, "track-requests-by-tenant", false, "Track requests by tenant")
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByBucket, "track-errors-by-bucket", false, "Track errors per bucket")
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByStatus, "track-errors-by-status", false, "Track errors per HTTP status")

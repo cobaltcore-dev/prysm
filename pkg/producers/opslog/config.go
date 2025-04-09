@@ -24,13 +24,14 @@ type OpsLogConfig struct {
 
 type MetricsConfig struct {
 	// Request Tracking
-	TrackRequestsByIP        bool // High cardinality, should be optional
-	TrackRequestsByUser      bool
-	TrackRequestsByBucket    bool
-	TrackRequestsByMethod    bool
-	TrackRequestsByOperation bool
-	TrackRequestsByStatus    bool
-	TrackRequestsByTenant    bool // Potentially useful for multi-tenant insights
+	TrackRequestsByIP                   bool // High cardinality, should be optional
+	TrackRequestsByIPBucketMethodTenant bool // High cardinality, should be optional
+	TrackRequestsByUser                 bool
+	TrackRequestsByBucket               bool
+	TrackRequestsByMethod               bool
+	TrackRequestsByOperation            bool
+	TrackRequestsByStatus               bool
+	TrackRequestsByTenant               bool // Potentially useful for multi-tenant insights
 
 	// Data Usage Tracking
 	TrackBytesSentByIP         bool // High cardinality, should be optional

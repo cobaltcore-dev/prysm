@@ -16,6 +16,8 @@ import (
 )
 
 var (
+	previousMetrics *Metrics = nil
+
 	// Total requests grouped by user and bucket
 	totalRequestsCounter = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -85,6 +87,14 @@ var (
 			Help: "Total number of requests per IP and user",
 		},
 		[]string{"pod", "user", "tenant", "ip"},
+	)
+
+	requestsByIPBucketMethodTenantGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "radosgw_requests_by_ip_bucket_method_tenant",
+			Help: "Total requests grouped by IP, bucket, method, and tenant",
+		},
+		[]string{"pod", "ip", "bucket", "method", "tenant"},
 	)
 
 	bytesSentByIPGauge = prometheus.NewGaugeVec(
@@ -165,6 +175,9 @@ func initPrometheusSettings(metricsConfig *MetricsConfig) {
 	if metricsConfig.TrackRequestsByIP {
 		prometheus.MustRegister(requestsByIPGauge)
 	}
+	if metricsConfig.TrackRequestsByIPBucketMethodTenant {
+		prometheus.MustRegister(requestsByIPBucketMethodTenantGauge)
+	}
 	if metricsConfig.TrackBytesSentByIP {
 		prometheus.MustRegister(bytesSentByIPGauge)
 	}
@@ -185,12 +198,24 @@ func initPrometheusSettings(metricsConfig *MetricsConfig) {
 }
 
 // PublishToPrometheus updates Prometheus metrics from aggregated data
-func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
+func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 	metricsConfig := cfg.MetricsConfig
+
+	// On first call, just store the snapshot and return
+	if previousMetrics == nil {
+		previousMetrics = totalMetrics.Clone()
+		return
+	}
+
+	// Compute diff (delta) between total and previous
+	diffMetrics := SubtractMetrics(totalMetrics, previousMetrics)
+
+	// Store the current total as the new previous
+	previousMetrics = totalMetrics.Clone()
 
 	if metricsConfig.TrackRequestsByUser {
 		// Total requests grouped by user, bucket, method, and status
-		metrics.RequestsByUser.Range(func(key, requestCount any) bool {
+		diffMetrics.RequestsByUser.Range(func(key, requestCount any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 4 { // Expecting user | bucket | method | http_status
 				log.Warn().Msgf("Invalid key format in RequestsByUser: %v", key)
@@ -246,7 +271,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackRequestsByTenant {
-		metrics.RequestsByUser.Range(func(key, requestCount any) bool {
+		diffMetrics.RequestsByUser.Range(func(key, requestCount any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 4 {
 				log.Warn().Msgf("Invalid key format in RequestsByUser: %v", key)
@@ -271,7 +296,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackRequestsByBucket {
-		metrics.RequestsByBucket.Range(func(key, requestCount any) bool {
+		diffMetrics.RequestsByBucket.Range(func(key, requestCount any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 3 {
 				log.Warn().Msgf("Invalid key format in RequestsByBucket: %v", key)
@@ -317,7 +342,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 
 	if metricsConfig.TrackRequestsByMethod {
 		// Requests per HTTP Method (GET, PUT, DELETE) grouped by User & Bucket
-		metrics.RequestsByMethod.Range(func(key, count any) bool {
+		diffMetrics.RequestsByMethod.Range(func(key, count any) bool {
 			// Key format: "user|bucket|method"
 			parts := strings.Split(key.(string), "|")
 			user, bucket, method := parts[0], parts[1], parts[2]
@@ -338,7 +363,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 
 	if metricsConfig.TrackRequestsByOperation {
 		// Requests per Operation (Grouped by User & Bucket)
-		metrics.RequestsByOperation.Range(func(key, count any) bool {
+		diffMetrics.RequestsByOperation.Range(func(key, count any) bool {
 			// Key format: "user|bucket|operation|method"
 			parts := strings.Split(key.(string), "|")
 			user, bucket, operation, method := parts[0], parts[1], parts[2], parts[3]
@@ -360,7 +385,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 
 	if metricsConfig.TrackRequestsByStatus {
 		// Requests per Status Code (Grouped by User & Bucket)
-		metrics.RequestsByStatusCode.Range(func(status, count any) bool {
+		diffMetrics.RequestsByStatusCode.Range(func(status, count any) bool {
 			statusStr := status.(string)
 			requestCount := float64(count.(*atomic.Uint64).Load())
 
@@ -377,7 +402,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackBytesSentByBucket {
-		metrics.BytesSentByBucket.Range(func(bucket, bytes any) bool {
+		diffMetrics.BytesSentByBucket.Range(func(bucket, bytes any) bool {
 			bucketStr := bucket.(string)
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
@@ -392,7 +417,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackBytesSentByUser {
-		metrics.BytesSentByUser.Range(func(user, bytes any) bool {
+		diffMetrics.BytesSentByUser.Range(func(user, bytes any) bool {
 			userStr, tenantStr := extractUserAndTenant(user.(string))
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
@@ -407,7 +432,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackBytesReceivedByUser {
-		metrics.BytesReceivedByUser.Range(func(user, bytes any) bool {
+		diffMetrics.BytesReceivedByUser.Range(func(user, bytes any) bool {
 			userStr, tenantStr := extractUserAndTenant(user.(string))
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
@@ -422,7 +447,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackBytesReceivedByBucket {
-		metrics.BytesReceivedByBucket.Range(func(bucket, bytes any) bool {
+		diffMetrics.BytesReceivedByBucket.Range(func(bucket, bytes any) bool {
 			bucketStr := bucket.(string)
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
@@ -438,7 +463,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 
 	if metricsConfig.TrackErrorsByUser {
 		// Iterate over users and publish their specific error counts
-		metrics.ErrorsByUser.Range(func(user, count any) bool {
+		diffMetrics.ErrorsByUser.Range(func(user, count any) bool {
 			userStr, tenantStr := extractUserAndTenant(user.(string))
 			if atomicPtr, ok := count.(*atomic.Uint64); ok {
 				errorCount := atomicPtr.Load()
@@ -458,7 +483,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 
 	if metricsConfig.TrackRequestsByIP {
 		// Publish requests per IP & User
-		metrics.RequestsByIP.Range(func(key, count any) bool {
+		totalMetrics.RequestsByIP.Range(func(key, count any) bool {
 			keyStr := key.(string)
 			parts := strings.Split(keyStr, "|")
 			user, ip := parts[0], parts[1]
@@ -477,9 +502,32 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 		})
 	}
 
+	if metricsConfig.TrackRequestsByIPBucketMethodTenant {
+		totalMetrics.RequestsByIPBucketMethodTenant.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 4 {
+				log.Warn().Msgf("Invalid key format in RequestsByIPBucketMethodTenant: %v", key)
+				return true
+			}
+
+			ip, bucket, method, tenant := parts[0], parts[1], parts[2], parts[3]
+
+			if atomicPtr, ok := count.(*atomic.Uint64); ok {
+				requestsByIPBucketMethodTenantGauge.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"ip":     ip,
+					"bucket": bucket,
+					"method": method,
+					"tenant": tenant,
+				}).Set(float64(atomicPtr.Load()))
+			}
+			return true
+		})
+	}
+
 	if metricsConfig.TrackBytesSentByIP {
 		// Publish bytes sent per IP & User
-		metrics.BytesSentByIP.Range(func(key, bytesSent any) bool {
+		totalMetrics.BytesSentByIP.Range(func(key, bytesSent any) bool {
 			keyStr := key.(string)
 			parts := strings.Split(keyStr, "|")
 			user, ip := parts[0], parts[1]
@@ -500,7 +548,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 
 	if metricsConfig.TrackBytesReceivedByIP {
 		// Publish bytes received per IP & User
-		metrics.BytesReceivedByIP.Range(func(key, bytesReceived any) bool {
+		totalMetrics.BytesReceivedByIP.Range(func(key, bytesReceived any) bool {
 			keyStr := key.(string)
 			parts := strings.Split(keyStr, "|")
 			user, ip := parts[0], parts[1]
@@ -521,7 +569,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 
 	if metricsConfig.TrackErrorsByUser {
 		// Publish HTTP errors per User & Bucket
-		metrics.ErrorsByUserAndBucket.Range(func(key, count any) bool {
+		diffMetrics.ErrorsByUserAndBucket.Range(func(key, count any) bool {
 			keyStr := key.(string)
 			parts := strings.Split(keyStr, "|")
 			user, bucket, status := parts[0], parts[1], parts[2]
@@ -547,7 +595,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackErrorsByBucket {
-		metrics.ErrorsByUserAndBucket.Range(func(key, count any) bool {
+		diffMetrics.ErrorsByUserAndBucket.Range(func(key, count any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 3 {
 				log.Warn().Msgf("Invalid key format in ErrorsByUserAndBucket: %v", key)
@@ -569,7 +617,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackErrorsByStatus {
-		metrics.RequestsByStatusCode.Range(func(status, count any) bool {
+		diffMetrics.RequestsByStatusCode.Range(func(status, count any) bool {
 			requestCount := float64(count.(*atomic.Uint64).Load())
 
 			errorsCounter.With(prometheus.Labels{
@@ -586,7 +634,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 
 	if metricsConfig.TrackErrorsByIP {
 		// Publish HTTP errors per IP & Bucket
-		metrics.ErrorsByIPAndBucket.Range(func(key, count any) bool {
+		diffMetrics.ErrorsByIPAndBucket.Range(func(key, count any) bool {
 			keyStr := key.(string)
 			parts := strings.Split(keyStr, "|")
 			ip, bucket, status := parts[0], parts[1], parts[2]
@@ -610,7 +658,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	// Update request duration histogram (latency metrics)
-	metrics.LatencyByMethod.Range(func(key, totalLatency any) bool {
+	diffMetrics.LatencyByMethod.Range(func(key, totalLatency any) bool {
 		parts := strings.Split(key.(string), "|")
 		if len(parts) != 3 {
 			log.Warn().Msgf("Invalid key format in LatencyByMethod: %v", key)
@@ -620,7 +668,7 @@ func PublishToPrometheus(metrics *Metrics, cfg OpsLogConfig) {
 		userStr, tenantStr := extractUserAndTenant(user)
 
 		// Fetch request count for this method
-		countVal, exists := metrics.RequestsByMethod.Load(key)
+		countVal, exists := diffMetrics.RequestsByMethod.Load(key)
 		if !exists {
 			return true // Skip if no requests exist for this method
 		}
