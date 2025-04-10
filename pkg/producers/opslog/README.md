@@ -72,6 +72,7 @@ prysm local-producer ops-log [flags]
 | `TRACK_REQUESTS_BY_BUCKET`            | Track requests per bucket. |
 | `TRACK_REQUESTS_BY_USER`              | Track requests per user. |
 | `TRACK_REQUESTS_BY_TENANT`            | Track requests per tenant. |
+| `TRACK_REQUESTS_BY_IP_BUCKET_METHOD_TENANT`            | Track requests per IP, bucket, HTTP method and tenant. |
 | `TRACK_LATENCY_BY_USER`               | Track latency per user. |
 | `TRACK_LATENCY_BY_BUCKET`             | Track latency per bucket. |
 | `TRACK_LATENCY_BY_TENANT`             | Track latency per tenant. |
@@ -90,7 +91,7 @@ prysm local-producer ops-log [flags]
 | `radosgw_http_errors_by_user`         | Counter   | `pod`, `user`, `tenant`, `bucket`, `http_status`     | HTTP errors grouped by user, tenant, bucket, and status code.     |
 | `radosgw_http_errors_by_ip`           | Counter   | `pod`, `bucket`, `ip`, `http_status`                 | HTTP errors grouped by IP, bucket, and status code.               |
 | `radosgw_requests_by_ip`              | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total number of requests grouped by IP and user.                  |
-| `radosgw_requests_by_ip_bucket_method_tenant`              | Gauge     | `pod`, `bucket`, `tenant`, `ip`, `method`                        | Total number of requests grouped by IP, bucket and method.                  |
+| `radosgw_requests_by_ip_bucket_method_tenant`              | Gauge     | `pod`, `ip`, `bucket`, `method`, `tenant`                        | Total number of requests grouped by IP, bucket and method.                  |
 | `radosgw_bytes_sent_by_ip`            | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes sent grouped by IP and user.                          |
 | `radosgw_bytes_received_by_ip`        | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes received grouped by IP and user.                      |
 | `radosgw_requests_duration`           | Histogram | `user`, `tenant`, `bucket`, `method`                 | Histogram of request latencies (in seconds).                      |
