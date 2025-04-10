@@ -44,6 +44,7 @@ var (
 	opsTrackErrorsByStatus                 bool
 	opsTrackLatencyByUser                  bool
 	opsTrackLatencyByBucket                bool
+	opsTrackLatencyByMethod                bool
 	opsTrackLatencyByTenant                bool
 )
 
@@ -97,6 +98,7 @@ Following this configuration change, the RadosGW will log operations to the file
 				TrackErrorsByStatus:                 opsTrackErrorsByStatus,
 				TrackLatencyByUser:                  opsTrackLatencyByUser,
 				TrackLatencyByBucket:                opsTrackLatencyByBucket,
+				TrackLatencyByMethod:                opsTrackLatencyByMethod,
 				TrackLatencyByTenant:                opsTrackLatencyByTenant,
 			},
 		}
@@ -150,6 +152,7 @@ Following this configuration change, the RadosGW will log operations to the file
 		event.Bool("track_errors_by_status", config.MetricsConfig.TrackErrorsByStatus)
 		event.Bool("track_latency_by_user", config.MetricsConfig.TrackLatencyByUser)
 		event.Bool("track_latency_by_bucket", config.MetricsConfig.TrackLatencyByBucket)
+		event.Bool("track_latency_by_method", config.MetricsConfig.TrackLatencyByMethod)
 		event.Bool("track_latency_by_tenant", config.MetricsConfig.TrackLatencyByTenant)
 
 		event.Msg("OpsLog configuration initialized")
@@ -196,6 +199,7 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.MetricsConfig.TrackLatencyByUser = getEnvBool("TRACK_LATENCY_BY_USER", cfg.MetricsConfig.TrackLatencyByUser)
 	cfg.MetricsConfig.TrackLatencyByBucket = getEnvBool("TRACK_LATENCY_BY_BUCKET", cfg.MetricsConfig.TrackLatencyByBucket)
 	cfg.MetricsConfig.TrackLatencyByTenant = getEnvBool("TRACK_LATENCY_BY_TENANT", cfg.MetricsConfig.TrackLatencyByTenant)
+	cfg.MetricsConfig.TrackLatencyByMethod = getEnvBool("TRACK_LATENCY_BY_METHOD", cfg.MetricsConfig.TrackLatencyByMethod)
 
 	return cfg
 }
@@ -229,6 +233,7 @@ func init() {
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByTenant, "track-requests-by-tenant", false, "Track requests by tenant")
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByBucket, "track-errors-by-bucket", false, "Track errors per bucket")
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByStatus, "track-errors-by-status", false, "Track errors per HTTP status")
+	opsLogCmd.Flags().BoolVar(&opsTrackLatencyByMethod, "track-latency-by-method", false, "Track latency per method")
 	opsLogCmd.Flags().BoolVar(&opsTrackLatencyByUser, "track-latency-by-user", false, "Track latency per user")
 	opsLogCmd.Flags().BoolVar(&opsTrackLatencyByBucket, "track-latency-by-bucket", false, "Track latency per bucket")
 	opsLogCmd.Flags().BoolVar(&opsTrackLatencyByTenant, "track-latency-by-tenant", false, "Track latency per tenant")

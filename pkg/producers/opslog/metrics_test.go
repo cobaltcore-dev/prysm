@@ -67,6 +67,31 @@ func TestCloneMetrics(t *testing.T) {
 	assert.Equal(t, uint64(5), v1After.(*atomic.Uint64).Load(), "Clone should remain unchanged")
 }
 
+func TestSubtractMetrics_ZeroDelta(t *testing.T) {
+	total := NewMetrics()
+	prev := NewMetrics()
+
+	total.RequestsByUser.Store("x", newUint64(5))
+	prev.RequestsByUser.Store("x", newUint64(5))
+
+	delta := SubtractMetrics(total, prev)
+	_, ok := delta.RequestsByUser.Load("x")
+	assert.False(t, ok)
+}
+
+func TestSubtractMetrics_MissingInPrev(t *testing.T) {
+	total := NewMetrics()
+	prev := NewMetrics()
+
+	total.RequestsByUser.Store("new|key", newUint64(7))
+
+	delta := SubtractMetrics(total, prev)
+
+	v, ok := delta.RequestsByUser.Load("new|key")
+	assert.True(t, ok)
+	assert.Equal(t, uint64(7), v.(*atomic.Uint64).Load())
+}
+
 func newUint64(val uint64) *atomic.Uint64 {
 	var u atomic.Uint64
 	u.Store(val)

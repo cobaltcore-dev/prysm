@@ -225,7 +225,11 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 	if logEntry.TotalTime > 0 {
 		latencyMs := uint64(logEntry.TotalTime)
 
-		if metricsConfig.TrackLatencyByMethod {
+		if metricsConfig.TrackLatencyByMethod ||
+			metricsConfig.TrackLatencyByBucket ||
+			metricsConfig.TrackLatencyByTenant ||
+			metricsConfig.TrackLatencyByUser ||
+			metricsConfig.TrackLatencyByBucketAndMethod {
 			// Key format: "user|bucket|method"
 			latencyKey := logEntry.User + "|" + logEntry.Bucket + "|" + method
 			incrementSyncMapValue(&m.LatencyByMethod, latencyKey, latencyMs)
@@ -456,11 +460,12 @@ func SubtractMetrics(total, previous *Metrics) *Metrics {
 	subtractSyncMap(&total.BytesSentByBucket, &previous.BytesSentByBucket, &delta.BytesSentByBucket)
 	subtractSyncMap(&total.BytesReceivedByBucket, &previous.BytesReceivedByBucket, &delta.BytesReceivedByBucket)
 	subtractSyncMap(&total.RequestsByIP, &previous.RequestsByIP, &delta.RequestsByIP)
-	subtractSyncMap(&delta.RequestsByIPBucketMethodTenant, &total.RequestsByIPBucketMethodTenant, &previous.RequestsByIPBucketMethodTenant)
+	subtractSyncMap(&total.RequestsByIPBucketMethodTenant, &previous.RequestsByIPBucketMethodTenant, &delta.RequestsByIPBucketMethodTenant)
 	subtractSyncMap(&total.BytesSentByIP, &previous.BytesSentByIP, &delta.BytesSentByIP)
 	subtractSyncMap(&total.BytesReceivedByIP, &previous.BytesReceivedByIP, &delta.BytesReceivedByIP)
 	subtractSyncMap(&total.ErrorsByUserAndBucket, &previous.ErrorsByUserAndBucket, &delta.ErrorsByUserAndBucket)
 	subtractSyncMap(&total.ErrorsByIPAndBucket, &previous.ErrorsByIPAndBucket, &delta.ErrorsByIPAndBucket)
+	subtractSyncMap(&total.LatencyByMethod, &previous.LatencyByMethod, &delta.LatencyByMethod)
 
 	return delta
 }
