@@ -57,25 +57,32 @@ prysm local-producer ops-log [flags]
 
 #### Metric Toggle Environment Variables:
 
-| Variable                                | Description |
-|-----------------------------------------|-------------|
-| `TRACK_REQUESTS_BY_IP`                 | Track requests per IP. |
-| `TRACK_BYTES_SENT_BY_IP`              | Track bytes sent per IP. |
-| `TRACK_BYTES_RECEIVED_BY_IP`          | Track bytes received per IP. |
-| `TRACK_ERRORS_BY_IP`                  | Track HTTP errors per IP. |
-| `TRACK_ERRORS_BY_USER`                | Track HTTP errors per user. |
-| `TRACK_ERRORS_BY_BUCKET`              | Track errors per bucket. |
-| `TRACK_ERRORS_BY_STATUS`              | Track errors by HTTP status code. |
-| `TRACK_REQUESTS_BY_METHOD`            | Track requests per HTTP method. |
-| `TRACK_REQUESTS_BY_OPERATION`         | Track requests per operation. |
-| `TRACK_REQUESTS_BY_STATUS`            | Track requests by HTTP status. |
-| `TRACK_REQUESTS_BY_BUCKET`            | Track requests per bucket. |
-| `TRACK_REQUESTS_BY_USER`              | Track requests per user. |
-| `TRACK_REQUESTS_BY_TENANT`            | Track requests per tenant. |
-| `TRACK_REQUESTS_BY_IP_BUCKET_METHOD_TENANT`            | Track requests per IP, bucket, HTTP method and tenant. |
-| `TRACK_LATENCY_BY_USER`               | Track latency per user. |
-| `TRACK_LATENCY_BY_BUCKET`             | Track latency per bucket. |
-| `TRACK_LATENCY_BY_TENANT`             | Track latency per tenant. |
+| Variable                                      | Description                                                    |
+|-----------------------------------------------|----------------------------------------------------------------|
+| `TRACK_REQUESTS_BY_IP`                        | Track requests per IP.                                         |
+| `TRACK_BYTES_SENT_BY_IP`                     | Track bytes sent per IP.                                       |
+| `TRACK_BYTES_RECEIVED_BY_IP`                 | Track bytes received per IP.                                   |
+| `TRACK_BYTES_SENT_BY_USER`                   | Track bytes sent per user.                                     |
+| `TRACK_BYTES_RECEIVED_BY_USER`               | Track bytes received per user.                                 |
+| `TRACK_BYTES_SENT_BY_BUCKET`                 | Track bytes sent per bucket.                                   |
+| `TRACK_BYTES_RECEIVED_BY_BUCKET`             | Track bytes received per bucket.                               |
+| `TRACK_ERRORS_BY_IP`                         | Track HTTP errors per IP.                                      |
+| `TRACK_ERRORS_BY_USER`                       | Track HTTP errors per user.                                    |
+| `TRACK_ERRORS_BY_BUCKET`                     | Track errors per bucket.                                       |
+| `TRACK_ERRORS_BY_STATUS`                     | Track errors by HTTP status code.                              |
+| `TRACK_REQUESTS_BY_METHOD`                   | Track requests per HTTP method.                                |
+| `TRACK_REQUESTS_BY_OPERATION`                | Track requests per operation.                                  |
+| `TRACK_REQUESTS_BY_STATUS`                   | Track requests by HTTP status.                                 |
+| `TRACK_REQUESTS_BY_BUCKET`                   | Track requests per bucket.                                     |
+| `TRACK_REQUESTS_BY_USER`                     | Track requests per user.                                       |
+| `TRACK_REQUESTS_BY_TENANT`                   | Track requests per tenant.                                     |
+| `TRACK_REQUESTS_BY_IP_BUCKET_METHOD_TENANT`  | Track requests per IP, bucket, HTTP method and tenant.         |
+| `TRACK_LATENCY_BY_USER`                      | Track latency per user.                                        |
+| `TRACK_LATENCY_BY_BUCKET`                    | Track latency per bucket.                                      |
+| `TRACK_LATENCY_BY_TENANT`                    | Track latency per tenant.                                      |
+| `TRACK_LATENCY_BY_METHOD`                    | Track latency per HTTP method.                                 |
+| `TRACK_LATENCY_BY_BUCKET_AND_METHOD`         | Track latency by bucket and method combination.                |
+
 
 ## Metrics Collected
 
