@@ -46,6 +46,10 @@ var (
 	opsTrackLatencyByBucket                bool
 	opsTrackLatencyByMethod                bool
 	opsTrackLatencyByTenant                bool
+	opsTrackBytesSentByUser                bool
+	opsTrackBytesReceivedByUser            bool
+	opsTrackBytesSentByBucket              bool
+	opsTrackBytesReceivedByBucket          bool
 )
 
 var opsLogCmd = &cobra.Command{
@@ -85,6 +89,10 @@ Following this configuration change, the RadosGW will log operations to the file
 				TrackRequestsByIP:                   opsTrackRequestsByIP,
 				TrackBytesSentByIP:                  opsTrackBytesSentByIP,
 				TrackBytesReceivedByIP:              opsTrackBytesReceivedByIP,
+				TrackBytesSentByUser:                opsTrackBytesSentByUser,
+				TrackBytesReceivedByUser:            opsTrackBytesReceivedByUser,
+				TrackBytesSentByBucket:              opsTrackBytesSentByBucket,
+				TrackBytesReceivedByBucket:          opsTrackBytesReceivedByBucket,
 				TrackErrorsByIP:                     opsTrackErrorsByIP,
 				TrackErrorsByUser:                   opsTrackErrorsByUser,
 				TrackRequestsByIPBucketMethodTenant: opsTrackRequestsByIPBucketMethodTenant,
@@ -139,6 +147,10 @@ Following this configuration change, the RadosGW will log operations to the file
 		event.Bool("track_requests_by_ip", config.MetricsConfig.TrackRequestsByIP)
 		event.Bool("track_bytes_sent_by_ip", config.MetricsConfig.TrackBytesSentByIP)
 		event.Bool("track_bytes_received_by_ip", config.MetricsConfig.TrackBytesReceivedByIP)
+		event.Bool("track_bytes_sent_by_user", config.MetricsConfig.TrackBytesSentByUser)
+		event.Bool("track_bytes_received_by_user", config.MetricsConfig.TrackBytesReceivedByUser)
+		event.Bool("track_bytes_sent_by_bucket", config.MetricsConfig.TrackBytesSentByBucket)
+		event.Bool("track_bytes_received_by_bucket", config.MetricsConfig.TrackBytesReceivedByBucket)
 		event.Bool("track_errors_by_ip", config.MetricsConfig.TrackErrorsByIP)
 		event.Bool("track_errors_by_user", config.MetricsConfig.TrackErrorsByUser)
 		event.Bool("track_requests_by_method", config.MetricsConfig.TrackRequestsByMethod)
@@ -185,6 +197,10 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.MetricsConfig.TrackRequestsByIP = getEnvBool("TRACK_REQUESTS_BY_IP", cfg.MetricsConfig.TrackRequestsByIP)
 	cfg.MetricsConfig.TrackBytesSentByIP = getEnvBool("TRACK_BYTES_SENT_BY_IP", cfg.MetricsConfig.TrackBytesSentByIP)
 	cfg.MetricsConfig.TrackBytesReceivedByIP = getEnvBool("TRACK_BYTES_RECEIVED_BY_IP", cfg.MetricsConfig.TrackBytesReceivedByIP)
+	cfg.MetricsConfig.TrackBytesSentByUser = getEnvBool("TRACK_BYTES_SENT_BY_USER", cfg.MetricsConfig.TrackBytesSentByUser)
+	cfg.MetricsConfig.TrackBytesReceivedByUser = getEnvBool("TRACK_BYTES_RECEIVED_BY_USER", cfg.MetricsConfig.TrackBytesReceivedByUser)
+	cfg.MetricsConfig.TrackBytesSentByBucket = getEnvBool("TRACK_BYTES_SENT_BY_BUCKET", cfg.MetricsConfig.TrackBytesSentByBucket)
+	cfg.MetricsConfig.TrackBytesReceivedByBucket = getEnvBool("TRACK_BYTES_RECEIVED_BY_BUCKET", cfg.MetricsConfig.TrackBytesReceivedByBucket)
 	cfg.MetricsConfig.TrackErrorsByIP = getEnvBool("TRACK_ERRORS_BY_IP", cfg.MetricsConfig.TrackErrorsByIP)
 	cfg.MetricsConfig.TrackErrorsByUser = getEnvBool("TRACK_ERRORS_BY_USER", cfg.MetricsConfig.TrackErrorsByUser)
 	cfg.MetricsConfig.TrackRequestsByMethod = getEnvBool("TRACK_REQUESTS_BY_METHOD", cfg.MetricsConfig.TrackRequestsByMethod)
@@ -222,6 +238,10 @@ func init() {
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIP, "track-requests-by-ip", false, "Track requests by IP")
 	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentByIP, "track-bytes-sent-by-ip", false, "Track bytes sent by IP")
 	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedByIP, "track-bytes-received-by-ip", false, "Track bytes received by IP")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentByUser, "track-bytes-sent-by-user", false, "Track bytes sent per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedByUser, "track-bytes-received-by-user", false, "Track bytes received per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentByBucket, "track-bytes-sent-by-bucket", false, "Track bytes sent per bucket")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedByBucket, "track-bytes-received-by-bucket", false, "Track bytes received per bucket")
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByIP, "track-errors-by-ip", false, "Track errors by IP")
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByUser, "track-errors-by-user", false, "Track errors per user")
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByMethod, "track-requests-by-method", false, "Track requests by HTTP method")
