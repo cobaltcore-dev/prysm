@@ -7,6 +7,7 @@ package opslog
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -61,17 +62,14 @@ func extractUserAndTenant(user string) (string, string) {
 
 func StartFileOpsLogger(cfg OpsLogConfig) {
 	var nc *nats.Conn
-	var err error
 
 	// Configure and connect to NATS if enabled
 	if cfg.UseNats {
-		nc, err = nats.Connect(cfg.NatsURL)
-		if err != nil {
-			log.Error().Err(err).Str("nats_url", cfg.NatsURL).Msg("Error connecting to NATS server")
+		nc = connectToNATS(cfg)
+		if nc == nil {
 			return
 		}
 		defer nc.Close()
-		log.Info().Str("nats_url", cfg.NatsURL).Msg("Connected to NATS server")
 	}
 
 	if cfg.Prometheus {
@@ -80,21 +78,73 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 
 	// Initialize metrics
 	metrics := NewMetrics()
-	ticker := time.NewTicker(1 * time.Minute) // Aggregation interval
+	ticker := time.NewTicker(10 * time.Second) // Aggregation interval
 	defer ticker.Stop()
 
-	// Track last file modification time to avoid re-processing old logs
-	var lastModTime time.Time
-
-	// Create a new file system watcher
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Error().Err(err).Msg("Error creating file watcher")
+	watcher := createLogWatcher(cfg)
+	if watcher == nil {
 		return
 	}
 	defer watcher.Close()
 
-	// Start goroutine to watch file changes
+	startLogWatchLoop(cfg, nc, watcher, metrics)
+
+	if cfg.TruncateLogOnStart && cfg.LogFilePath != "" {
+		if err := rotateLogFile(cfg, watcher); err != nil {
+			log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error rotating log file")
+		} else {
+			log.Info().Str("file", cfg.LogFilePath).Msg("Log file rotated successfully")
+		}
+	}
+
+	for range ticker.C {
+		if cfg.Prometheus {
+			PublishToPrometheus(metrics, cfg)
+		}
+
+		if cfg.UseNats {
+			publishMetricsToNATS(cfg, nc, metrics)
+		}
+
+		metrics.ResetPerWindowMetrics()
+	}
+
+	// Keep the program running
+	select {}
+}
+
+func connectToNATS(cfg OpsLogConfig) *nats.Conn {
+	nc, err := nats.Connect(cfg.NatsURL)
+	if err != nil {
+		log.Error().Err(err).Str("nats_url", cfg.NatsURL).Msg("Error connecting to NATS server")
+		return nil
+	}
+	log.Info().Str("nats_url", cfg.NatsURL).Msg("Connected to NATS server")
+	return nc
+}
+
+func createLogWatcher(cfg OpsLogConfig) *fsnotify.Watcher {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Error().Err(err).Msg("Error creating file watcher")
+		return nil
+	}
+
+	err = watcher.Add(cfg.LogFilePath)
+	if err != nil {
+		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error adding file to watcher")
+		watcher.Close()
+		return nil
+	}
+
+	log.Info().Str("file", cfg.LogFilePath).Msg("Started watching file for changes")
+	return watcher
+}
+
+func startLogWatchLoop(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watcher, metrics *Metrics) {
+	// var lastModTime time.Time
+	var lastOffset int64 = 0
+
 	go func() {
 		for {
 			select {
@@ -103,9 +153,16 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 					log.Warn().Msg("Watcher events channel closed")
 					return
 				}
+
 				if event.Op&fsnotify.Write == fsnotify.Write {
-					time.Sleep(100 * time.Millisecond) // Allow time for full writes (a small delay before processing writes to avoid partial reads)
-					processLogEntries(cfg, nc, watcher, metrics, &lastModTime)
+					time.Sleep(100 * time.Millisecond)
+
+					offset, err := processLogEntries(cfg, nc, watcher, metrics, lastOffset)
+					if err != nil {
+						log.Error().Err(err).Msg("Failed to process log entries")
+						continue
+					}
+					lastOffset = offset
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -116,90 +173,78 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 			}
 		}
 	}()
-
-	// Add the log file to be watched
-	err = watcher.Add(cfg.LogFilePath)
-	if err != nil {
-		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error adding file to watcher")
-		return
-	}
-	log.Info().Str("file", cfg.LogFilePath).Msg("Started watching file for changes")
-
-	if cfg.TruncateLogOnStart && cfg.LogFilePath != "" {
-		if err := rotateLogFile(cfg, watcher); err != nil {
-			log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error rotating log file")
-		} else {
-			log.Info().Str("file", cfg.LogFilePath).Msg("Log file rotated successfully")
-		}
-	}
-
-	// Periodically report metrics
-	for range ticker.C {
-		if cfg.Prometheus {
-			PublishToPrometheus(metrics, cfg)
-		}
-
-		// Send the aggregated metrics to NATS and reset
-		if cfg.UseNats {
-			jsonData, err := metrics.ToJSON(&cfg.MetricsConfig)
-			if err != nil || len(jsonData) == 0 {
-				log.Error().Err(err).Msg("Skipping NATS publish: JSON encoding failed or empty!")
-				continue
-			}
-			err = PublishToNATS(nc, jsonData, fmt.Sprintf("%s.metrics", cfg.NatsMetricsSubject))
-			if err != nil {
-				log.Error().Err(err).Msg("Error sending metrics to NATS")
-			} else {
-				log.Info().Msg("Metrics sent to NATS successfully")
-			}
-		}
-		metrics.ResetPerWindowMetrics()
-	}
-
-	// Keep the program running
-	select {}
 }
 
-func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watcher, metrics *Metrics, lastModTime *time.Time) {
-	fileInfo, err := os.Stat(cfg.LogFilePath)
+func publishMetricsToNATS(cfg OpsLogConfig, nc *nats.Conn, metrics *Metrics) {
+	jsonData, err := metrics.ToJSON(&cfg.MetricsConfig)
+	if err != nil || len(jsonData) == 0 {
+		log.Error().Err(err).Msg("Skipping NATS publish: JSON encoding failed or empty!")
+		return
+	}
+	err = PublishToNATS(nc, jsonData, fmt.Sprintf("%s.metrics", cfg.NatsMetricsSubject))
 	if err != nil {
-		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error getting log file info")
-		return
+		log.Error().Err(err).Msg("Error sending metrics to NATS")
+	} else {
+		log.Info().Msg("Metrics sent to NATS successfully")
 	}
+}
 
-	// Check if the file was actually modified since the last read
-	if fileInfo.ModTime().Equal(*lastModTime) {
-		// log.Trace().Str("file", cfg.LogFilePath).Msg("Skipping log processing - no new data")
-		return
-	}
-	*lastModTime = fileInfo.ModTime() // Update last modification time
-
+func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watcher, metrics *Metrics, lastOffset int64) (int64, error) {
 	file, err := os.Open(cfg.LogFilePath)
 	if err != nil {
-		log.Error().Err(err).Str("file", cfg.LogFilePath).Msg("Error opening log file")
-		return
+		return lastOffset, fmt.Errorf("error opening log file: %w", err)
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
-	buf := make([]byte, 64*1024)   // 64KB buffer
-	scanner.Buffer(buf, 1024*1024) // 1MB max per line
+	fileInfo, err := os.Stat(cfg.LogFilePath)
+	if err != nil {
+		return lastOffset, fmt.Errorf("error stat'ing log file: %w", err)
+	}
+	currentSize := fileInfo.Size()
 
-	var logPool = sync.Pool{
+	if lastOffset > currentSize {
+		log.Warn().
+			Int64("lastOffset", lastOffset).
+			Int64("currentSize", currentSize).
+			Msg("Detected log file truncation. Resetting offset to 0.")
+		lastOffset = 0
+	}
+
+	// Seek to last known position
+	_, err = file.Seek(lastOffset, io.SeekStart)
+	if err != nil {
+		return lastOffset, fmt.Errorf("failed to seek log file: %w", err)
+	}
+
+	// reader := bufio.NewReader(file)
+	reader := bufio.NewReaderSize(file, 64*1024)
+	var newOffset = lastOffset
+
+	logPool := sync.Pool{
 		New: func() any { return new(S3OperationLog) },
 	}
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if len(line) < 2 || line[0] != '{' || line[len(line)-1] != '}' {
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return newOffset, fmt.Errorf("error reading log file: %w", err)
+		}
+
+		// Update offset
+		newOffset += int64(len(line))
+
+		str := strings.TrimSpace(string(line))
+		if len(str) < 2 || str[0] != '{' || str[len(str)-1] != '}' {
 			continue
 		}
 
 		logEntry := logPool.Get().(*S3OperationLog)
-		err := json.Unmarshal([]byte(line), logEntry)
-		if err != nil {
-			log.Warn().Err(err).Str("raw", line).Msg("Skipping invalid JSON entry")
-			logPool.Put(logEntry) // Return to pool
+		if err := json.Unmarshal([]byte(line), logEntry); err != nil {
+			log.Warn().Err(err).Str("raw", str).Msg("Skipping invalid JSON entry")
+			logPool.Put(logEntry)
 			continue
 		}
 
@@ -218,31 +263,22 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 
 		// Print to stdout if enabled
 		if cfg.LogToStdout {
-			logEntryBytes, err := json.MarshalIndent(logEntry, "", "  ")
-			if err != nil {
-				log.Error().Err(err).Msg("Error marshalling log entry for stdout")
-				continue
+			if b, err := json.MarshalIndent(logEntry, "", "  "); err == nil {
+				fmt.Println(string(b))
 			}
-			fmt.Println(string(logEntryBytes)) // Print log entry to stdout
 		}
 
 		// Publish raw log entry to NATS
 		if cfg.UseNats {
-			err = PublishToNATS(nc, logEntry, cfg.NatsSubject)
-			if err != nil {
+			if err := PublishToNATS(nc, logEntry, cfg.NatsSubject); err != nil {
 				log.Error().Err(err).Msg("Error publishing log entry to NATS")
-			} else {
-				log.Debug().Str("user", logEntry.User).Msg("Published log entry to NATS")
 			}
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		log.Error().Err(err).Msg("Error scanning log file")
-	}
-
 	// Rotate log file if needed
 	rotateLogIfNeeded(cfg, watcher)
+	return newOffset, nil
 }
 
 func StartSocketOpsLogger(cfg OpsLogConfig) {
