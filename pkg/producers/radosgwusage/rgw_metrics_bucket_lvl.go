@@ -16,26 +16,17 @@ import (
 )
 
 type UserBucketMetrics struct {
-	BucketID      string
-	User          string
-	Tenant        string
-	Zonegroup     string
-	TotalReadOPs  uint64 // Cumulative read operations for a specific bucket. Critical for understanding bucket usage.
-	TotalWriteOPs uint64 // Cumulative write operations. Helps track data being uploaded to a bucket.
-	TotalOPs      uint64 // Sum of total reads and writes. Useful to gauge overall activity for a bucket.
-	Throughput    uint64 // Derived from total read/write data transferred and time. Important for tracking bandwidth.
-	ObjectCount   uint64 // Number of objects in a bucket. Important for understanding the storage object count.
-	BucketSize    uint64 // Total size consumed by the bucket, including all objects. Important for capacity tracking.
-	CreationTime  string // Knowing when a bucket was created can be useful for tracking lifecycle and access management.
-	// ReplicationStatus // If replication is enabled, track the sync status for disaster recovery purposes.
-	// LifecycleRules // Track lifecycle policies applied to the bucket (e.g., auto-deletion of old objects).
-	BytesSentTotal     uint64            // Total Data Downloaded
-	BytesReceivedTotal uint64            // Total Data Uploaded
-	NumShards          *uint64           // Shards
-	APIUsage           map[string]uint64 // Tracks API operations per category for the bucket
-	QuotaEnabled       bool
-	QuotaMaxSize       *int64
-	QuotaMaxObjects    *int64
+	BucketID        string
+	User            string
+	Tenant          string
+	Zonegroup       string
+	ObjectCount     uint64  // Number of objects in a bucket. Important for understanding the storage object count.
+	BucketSize      uint64  // Total size consumed by the bucket, including all objects. Important for capacity tracking.
+	CreationTime    string  // Knowing when a bucket was created can be useful for tracking lifecycle and access management.
+	NumShards       *uint64 // Shards
+	QuotaEnabled    bool
+	QuotaMaxSize    *int64
+	QuotaMaxObjects *int64
 }
 
 func (m *UserBucketMetrics) GetUserIdentification() string {
@@ -110,7 +101,6 @@ func processBucketMetrics(key string, bucketData, userUsageData, bucketMetrics n
 		Tenant:       bucket.Tenant,
 		CreationTime: bucket.Mtime, // Using Mtime as a substitute for creation time.
 		Zonegroup:    bucket.Zonegroup,
-		APIUsage:     make(map[string]uint64),
 	}
 
 	// (Populate other static fields as needed.)
@@ -132,21 +122,6 @@ func processBucketMetrics(key string, bucketData, userUsageData, bucketMetrics n
 		log.Warn().Str("usage_key", key).Err(err).Msg("Failed to unmarshal usage data")
 		return
 	}
-
-	for _, category := range usage.Categories {
-		metrics.TotalOPs += category.Ops
-		metrics.BytesSentTotal += category.BytesSent
-		metrics.BytesReceivedTotal += category.BytesReceived
-		if isReadCategory(category.Category) {
-			metrics.TotalReadOPs += category.Ops
-		} else if isWriteCategory(category.Category) {
-			metrics.TotalWriteOPs += category.Ops
-		}
-		metrics.APIUsage[category.Category] += category.Ops
-	}
-
-	// Calculate derived metrics.
-	metrics.Throughput = metrics.BytesSentTotal + metrics.BytesReceivedTotal
 
 	// Set quota information.
 	metrics.QuotaEnabled = false

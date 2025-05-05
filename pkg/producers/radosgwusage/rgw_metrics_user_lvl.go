@@ -16,27 +16,18 @@ import (
 )
 
 type UserLevelMetrics struct {
-	User                 string
-	Tenant               string
-	DisplayName          string
-	Email                string
-	DefaultStorageClass  string
-	Zonegroup            string
-	BucketsTotal         uint64            // Tracks the total number of buckets for each user. Useful for capacity planning and monitoring. | Usage | = count of buckets
-	ObjectsTotal         uint64            // Tracks the total number of objects for each user. Important for understanding storage usage. | User | = stats.num_objects
-	DataSizeTotal        uint64            // Tracks the total size of data stored by each user. Key metric for tracking data consumption. | User | = stats.size_utilized
-	TotalOPs             uint64            // Sum of total read and write operations per client. Important for tracking overall client activity. | Usage | = sum of all summary.categories.ops values
-	TotalReadOPs         uint64            // Tracks the total read operations per user. Useful for understanding individual client read activity. | Usage | = sum of summary.categories.ops where category is one of the read categories
-	TotalWriteOPs        uint64            // Tracks the total write operations per user. Useful for tracking client uploads. | Usage | = sum of summary.categories.ops where category is one of the write categories
-	BytesSentTotal       uint64            // Tracks the total bytes sent by each user. Useful for monitoring bandwidth usage by client. | Usage | = sum of summary.categories.bytes_sent
-	BytesReceivedTotal   uint64            // Tracks the total bytes received by each user. Complements bytes sent for monitoring total data transfer. | Usage | = sum of summary.categories.bytes_received
-	ErrorRatePerUser     float64           // Tracking the number of failed requests for each client could help troubleshoot and improve client experience or identify problematic behaviors. | Usage | = (sum of summary.categories.ops - sum of summary.categories.successful_ops) / sum of summary.categories.ops
-	UserSuccessOpsTotal  uint64            // Tracks the total successful operations performed by each user. Useful for reliability tracking. | Usage | = sum of summary.categories.successful_ops
-	ThroughputBytesTotal uint64            // Derived from total data read and written per client over time. Key for bandwidth analysis per client. | Usage | = (sum of summary.categories.bytes_sent + sum of summary.categories.bytes_received)
-	APIUsage             map[string]uint64 // Tracks API operations per category (e.g., "get_obj", "put_obj")
-	UserQuotaEnabled     bool
-	UserQuotaMaxSize     *int64
-	UserQuotaMaxObjects  *int64
+	User                string
+	Tenant              string
+	DisplayName         string
+	Email               string
+	DefaultStorageClass string
+	Zonegroup           string
+	BucketsTotal        uint64 // Tracks the total number of buckets for each user. Useful for capacity planning and monitoring. | Usage | = count of buckets
+	ObjectsTotal        uint64 // Tracks the total number of objects for each user. Important for understanding storage usage. | User | = stats.num_objects
+	DataSizeTotal       uint64 // Tracks the total size of data stored by each user. Key metric for tracking data consumption. | User | = stats.size_utilized
+	UserQuotaEnabled    bool
+	UserQuotaMaxSize    *int64
+	UserQuotaMaxObjects *int64
 }
 
 func (m *UserLevelMetrics) GetUserIdentification() string {
@@ -160,30 +151,9 @@ func processUserMetrics(key string, userData, userUsageData, userMetrics nats.Ke
 			log.Warn().Str("key", usageKey).Err(err).Msg("Failed to unmarshal usage data")
 			continue
 		}
-
-		for _, cat := range usage.Categories {
-			metrics.TotalOPs += cat.Ops
-			metrics.UserSuccessOpsTotal += cat.SuccessfulOps
-			metrics.BytesSentTotal += cat.BytesSent
-			metrics.BytesReceivedTotal += cat.BytesReceived
-			if isReadCategory(cat.Category) {
-				metrics.TotalReadOPs += cat.Ops
-			} else if isWriteCategory(cat.Category) {
-				metrics.TotalWriteOPs += cat.Ops
-			}
-			if metrics.APIUsage == nil {
-				metrics.APIUsage = make(map[string]uint64)
-			}
-			metrics.APIUsage[cat.Category] += cat.Ops
-		}
 	}
 
 	// Calculate derived metrics.
-	metrics.ThroughputBytesTotal = metrics.BytesSentTotal + metrics.BytesReceivedTotal
-	if metrics.TotalOPs > 0 {
-		errorOps := metrics.TotalOPs - metrics.UserSuccessOpsTotal
-		metrics.ErrorRatePerUser = (float64(errorOps) / float64(metrics.TotalOPs)) * 100
-	}
 
 	// Set quota information.
 	if user.UserQuota.Enabled != nil && *user.UserQuota.Enabled {
@@ -206,18 +176,4 @@ func processUserMetrics(key string, userData, userUsageData, userMetrics nats.Ke
 	} else {
 		log.Debug().Str("user_id", user.GetUserIdentification()).Str("key", metricsKey).Msg("User metrics stored in KV successfully")
 	}
-}
-
-func isReadCategory(category string) bool {
-	readCategories := []string{
-		"get_obj", "list_bucket", "get_bucket_policy",
-	}
-	return contains(readCategories, category)
-}
-
-func isWriteCategory(category string) bool {
-	writeCategories := []string{
-		"put_obj", "delete_obj", "create_bucket",
-	}
-	return contains(writeCategories, category)
 }
