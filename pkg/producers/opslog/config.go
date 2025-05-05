@@ -5,21 +5,22 @@
 package opslog
 
 type OpsLogConfig struct {
-	LogFilePath             string
-	TruncateLogOnStart      bool
-	SocketPath              string
-	NatsURL                 string
-	NatsSubject             string
-	NatsMetricsSubject      string
-	UseNats                 bool
-	LogToStdout             bool
-	LogRetentionDays        int   // Number of days to keep old log files
-	MaxLogFileSize          int64 // Maximum log file size in bytes before rotation
-	Prometheus              bool
-	PrometheusPort          int
-	PodName                 string
-	IgnoreAnonymousRequests bool
-	MetricsConfig           MetricsConfig
+	LogFilePath               string
+	TruncateLogOnStart        bool
+	SocketPath                string
+	NatsURL                   string
+	NatsSubject               string
+	NatsMetricsSubject        string
+	UseNats                   bool
+	LogToStdout               bool
+	LogRetentionDays          int   // Number of days to keep old log files
+	MaxLogFileSize            int64 // Maximum log file size in bytes before rotation
+	Prometheus                bool
+	PrometheusPort            int
+	PodName                   string
+	IgnoreAnonymousRequests   bool
+	PrometheusIntervalSeconds int
+	MetricsConfig             MetricsConfig
 }
 
 type MetricsConfig struct {
