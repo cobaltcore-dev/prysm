@@ -249,7 +249,6 @@ func startMetricCollectionLoop(cfg RadosGWUsageConfig, exportNatsConn *nats.Conn
 			syncUsage(userUsageData, cfg, prysmStatus)
 			updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics)
 			updateBucketMetricsInKV(bucketData, userUsageData, bucketMetrics)
-			updateClusterMetricsInKV(userMetrics, bucketMetrics, clusterMetrics)
 			if cfg.Prometheus {
 				populateMetricsFromKV(userMetrics, bucketMetrics, clusterMetrics, cfg)
 			}

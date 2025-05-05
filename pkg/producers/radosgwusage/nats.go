@@ -61,7 +61,7 @@ func ensureStream(js nats.JetStreamContext, streamName string) error {
 
 // publishEvent(nc, "sync_users", "in_progress", nil, map[string]string{"sync_mode": "full"})
 func publishEvent(nc *nats.Conn, eventType string, status string, ids []string, metadata map[string]string) error {
-	eventData := map[string]interface{}{
+	eventData := map[string]any{
 		"event":    eventType,
 		"status":   status,
 		"ids":      ids,
@@ -76,7 +76,7 @@ func publishEvent(nc *nats.Conn, eventType string, status string, ids []string, 
 
 func listenForEvents(nc *nats.Conn) {
 	sub, err := nc.Subscribe("notifications", func(msg *nats.Msg) {
-		var event map[string]interface{}
+		var event map[string]any
 		if err := json.Unmarshal(msg.Data, &event); err != nil {
 			log.Error().Err(err).Msg("Failed to parse event")
 			return
@@ -119,7 +119,7 @@ func listenForEvents(nc *nats.Conn) {
 
 func retryFailedEvents(nc *nats.Conn) {
 	sub, err := nc.Subscribe("notifications", func(msg *nats.Msg) {
-		var event map[string]interface{}
+		var event map[string]any
 		if err := json.Unmarshal(msg.Data, &event); err != nil {
 			log.Error().Err(err).Msg("Failed to parse event")
 			return

@@ -26,6 +26,7 @@ var (
 	opsPromEnabled             bool
 	opsPromPort                int
 	opsIgnoreAnonymousRequests bool
+	opsPromIntervalSeconds     int
 
 	// MetricsConfig-related flags
 	opsTrackRequestsByIP                   bool
@@ -73,18 +74,19 @@ Then restart all RadosGW daemons:
 Following this configuration change, the RadosGW will log operations to the file /var/log/ceph/ceph-rgw-ops.json.log.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		config := opslog.OpsLogConfig{
-			LogFilePath:             opsLogFilePath,
-			TruncateLogOnStart:      opsTruncateLogOnStart,
-			SocketPath:              opsSocketPath,
-			NatsURL:                 opsNatsURL,
-			NatsSubject:             opsNatsSubject,
-			NatsMetricsSubject:      opsNatsMetricsSubject,
-			LogToStdout:             opsLogToStdout,
-			LogRetentionDays:        opsLogRetentionDays,
-			MaxLogFileSize:          opsMaxLogFileSize,
-			Prometheus:              opsPromEnabled,
-			PrometheusPort:          opsPromPort,
-			IgnoreAnonymousRequests: opsIgnoreAnonymousRequests,
+			LogFilePath:               opsLogFilePath,
+			TruncateLogOnStart:        opsTruncateLogOnStart,
+			SocketPath:                opsSocketPath,
+			NatsURL:                   opsNatsURL,
+			NatsSubject:               opsNatsSubject,
+			NatsMetricsSubject:        opsNatsMetricsSubject,
+			LogToStdout:               opsLogToStdout,
+			LogRetentionDays:          opsLogRetentionDays,
+			MaxLogFileSize:            opsMaxLogFileSize,
+			Prometheus:                opsPromEnabled,
+			PrometheusPort:            opsPromPort,
+			IgnoreAnonymousRequests:   opsIgnoreAnonymousRequests,
+			PrometheusIntervalSeconds: opsPromIntervalSeconds,
 			MetricsConfig: opslog.MetricsConfig{
 				TrackRequestsByIP:                   opsTrackRequestsByIP,
 				TrackBytesSentByIP:                  opsTrackBytesSentByIP,
@@ -192,6 +194,7 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.PrometheusPort = getEnvInt("PROMETHEUS_PORT", cfg.PrometheusPort)
 	cfg.PodName = getEnv("POD_NAME", cfg.PodName)
 	cfg.IgnoreAnonymousRequests = getEnvBool("IGNORE_ANONYMOUS_REQUESTS", cfg.IgnoreAnonymousRequests)
+	cfg.PrometheusIntervalSeconds = getEnvInt("PROMETHEUS_INTERVAL", cfg.PrometheusIntervalSeconds)
 
 	// MetricsConfig environment variables
 	cfg.MetricsConfig.TrackRequestsByIP = getEnvBool("TRACK_REQUESTS_BY_IP", cfg.MetricsConfig.TrackRequestsByIP)
@@ -233,6 +236,7 @@ func init() {
 	opsLogCmd.Flags().BoolVar(&opsPromEnabled, "prometheus", false, "Enable Prometheus metrics")
 	opsLogCmd.Flags().IntVar(&opsPromPort, "prometheus-port", 8080, "Prometheus metrics port")
 	opsLogCmd.Flags().BoolVar(&opsIgnoreAnonymousRequests, "ignore-anonymous-requests", true, "Ignore anonymous requests")
+	opsLogCmd.Flags().IntVar(&opsPromIntervalSeconds, "prometheus-interval", 60, "Prometheus metrics update interval in seconds")
 
 	// Metrics Tracking Flags (All Disabled by Default)
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIP, "track-requests-by-ip", false, "Track requests by IP")

@@ -78,7 +78,8 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 
 	// Initialize metrics
 	metrics := NewMetrics()
-	ticker := time.NewTicker(10 * time.Second) // Aggregation interval
+	interval := time.Duration(cfg.PrometheusIntervalSeconds) * time.Second
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	watcher := createLogWatcher(cfg)

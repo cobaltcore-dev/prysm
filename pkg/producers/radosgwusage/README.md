@@ -58,40 +58,7 @@ Configuration can also be set through environment variables:
 ## Metrics Collected
 
 The RadosGW Usage Exporter collects and exposes the following metrics:
-### Operation Metrics
 
-- `radosgw_usage_ops_total`: Total number of operations across all buckets and users.
-- `radosgw_usage_successful_ops_total`: Total number of successful operations across all buckets and
-  users.
-- `radosgw_user_ops_total`: Total operations performed by each user.
-- `radosgw_user_read_ops_total`: Total read operations performed by each user.
-- `radosgw_user_write_ops_total`: Total write operations performed by each user.
-- `radosgw_user_success_ops_total`: Total number of successful operations per user.
-- `radosgw_bucket_ops_total`: Total operations performed in each bucket.
-- `radosgw_user_ops_per_sec`: Current number of operations (reads/writes) per second for each user.
-- `radosgw_bucket_ops_per_sec`: Current number of operations per second for each bucket.
-- `radosgw_bucket_read_ops_total`: Total read operations in each bucket.
-- `radosgw_bucket_write_ops_total`: Total write operations in each bucket.
-- `radosgw_bucket_success_ops_total`: Total successful operations for each bucket.
-
-### Byte Metrics
-
-- `radosgw_usage_sent_bytes_total`: Total bytes sent by RadosGW.
-- `radosgw_usage_received_bytes_total`: Total bytes received by RadosGW.
-- `radosgw_user_bytes_sent_total`: Total bytes sent by each user (cumulative).
-- `radosgw_user_bytes_received_total`: Total bytes received by each user (cumulative).
-- `radosgw_user_bytes_sent_per_sec`: Bytes sent by each user per second (rate).
-- `radosgw_user_bytes_received_per_sec`: Bytes received by each user per second (rate).
-- `radosgw_user_throughput_bytes_total`: Total throughput for each user in bytes (read and write
-  combined).
-- `radosgw_user_throughput_bytes_per_sec`: Current throughput in bytes per second for each user
-  (read and write combined).
-- `radosgw_bucket_bytes_sent_total`: Total bytes sent from each bucket.
-- `radosgw_bucket_bytes_received_total`: Total bytes received by each bucket.
-- `radosgw_bucket_bytes_sent_per_sec`: Current bytes sent per second from each bucket.
-- `radosgw_bucket_bytes_received_per_sec`: Current bytes received per second by each bucket.
-- `radosgw_bucket_throughput_bytes_per_sec`: Current throughput in bytes per second for each bucket (read and write combined).
-- `radosgw_bucket_throughput_bytes_total`: Total throughput for each bucket in bytes (read and write combined).
 
 ### Bucket Usage Metrics
 
@@ -113,31 +80,6 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 
 - `radosgw_usage_bucket_shards`: Number of shards in the bucket.
 - `radosgw_user_metadata`: User metadata (e.g., display name, email, storage class).
-
-### Cluster-Level Metrics
-
-- `radosgw_cluster_ops_total`: Total operations performed in the cluster.
-- `radosgw_cluster_reads_per_sec`: Total read operations per second for the entire cluster.
-- `radosgw_cluster_writes_per_sec`: Total write operations per second for the entire cluster.
-- `radosgw_cluster_ops_per_sec`: Current number of operations per second for the cluster.
-- `radosgw_cluster_bytes_sent_total`: Total bytes sent in the cluster.
-- `radosgw_cluster_bytes_received_total`: Total bytes received in the cluster.
-- `radosgw_cluster_bytes_sent_per_sec`: Total bytes sent per second for the entire cluster.
-- `radosgw_cluster_bytes_received_per_sec`: Total bytes received per second for the entire cluster.
-- `radosgw_cluster_throughput_bytes_total`: Total throughput of the cluster in bytes (read and write combined).
-- `radosgw_cluster_throughput_bytes_per_sec`: Total throughput in bytes per second for the entire cluster.
-- `radosgw_cluster_error_rate`: Error rate (percentage) for the entire cluster.
-- `radosgw_cluster_capacity_usage_bytes`: Total capacity used across the entire cluster in bytes.
-- `radosgw_cluster_success_ops_total`: Total successful operations across the entire cluster.
-
-### API Usage Metrics
-
-- `radosgw_api_usage_per_user`: API usage per user and per category.
-- `radosgw_api_usage_per_user_per_sec`: API usage per second per user and category.
-- `radosgw_api_usage_per_user_total_per_sec`: Total API usage per second for each user.
-- `radosgw_bucket_api_usage_total`: Total number of API operations by category for each bucket.
-- `radosgw_bucket_api_usage_per_sec`: Current API usage rate (ops per second) for each bucket and category.
-- `radosgw_bucket_api_usage_total_per_sec`: Total API usage per second for each bucket.
 
 ### Miscellaneous Metrics
 
