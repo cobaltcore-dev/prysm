@@ -17,7 +17,15 @@ type Metrics struct {
 	BytesReceived atomic.Uint64
 	Errors        atomic.Uint64
 
-	LatencyByMethod sync.Map // map["user|bucket|method"]
+	// LatencyByMethod sync.Map // map["user|bucket|method"]
+
+	// LatencyObs records a single request‐latency observation into the
+	// `requestsDurationHistogram`, which is registered once at startup.
+	// Because the histogram lives for the entire process life and is never
+	// re‐initialized or cleared, its buckets continuously accumulate across
+	// scrape intervals—ensuring a true cumulative histogram that Prometheus
+	// can derive accurate rates and quantiles from.
+	LatencyObs func(user string, tenant string, bucket string, method string, seconds float64)
 
 	RequestsByMethod     sync.Map // map[string]*atomic.Uint64
 	RequestsByOperation  sync.Map // map[string]*atomic.Uint64
@@ -39,8 +47,17 @@ type Metrics struct {
 
 }
 
-func NewMetrics() *Metrics {
-	return &Metrics{}
+func NewMetrics(obs ...func(user string, tenant string, bucket string, method string, seconds float64)) *Metrics {
+	var cb func(user, tenant, bucket, method string, seconds float64)
+	if len(obs) > 0 {
+		cb = obs[0]
+	} else {
+		// default no‐op so nobody ever has a nil-pointer
+		cb = func(_, _, _, _ string, _ float64) {}
+	}
+	return &Metrics{
+		LatencyObs: cb,
+	}
 }
 
 // Convert metrics to a JSON-friendly struct
@@ -113,11 +130,6 @@ func (m *Metrics) ToJSON(metricsConfig *MetricsConfig) ([]byte, error) {
 
 	if metricsConfig.TrackErrorsByIP {
 		data["errors_by_ip_and_bucket"] = loadSyncMap(&m.ErrorsByIPAndBucket)
-	}
-
-	// Latency Tracking
-	if metricsConfig.TrackLatencyByMethod {
-		data["latency_by_method"] = loadSyncMap(&m.LatencyByMethod)
 	}
 
 	return json.Marshal(data)
@@ -223,16 +235,15 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 
 	// Latency Tracking
 	if logEntry.TotalTime > 0 {
-		latencyMs := uint64(logEntry.TotalTime)
-
 		if metricsConfig.TrackLatencyByMethod ||
 			metricsConfig.TrackLatencyByBucket ||
 			metricsConfig.TrackLatencyByTenant ||
 			metricsConfig.TrackLatencyByUser ||
 			metricsConfig.TrackLatencyByBucketAndMethod {
-			// Key format: "user|bucket|method"
-			latencyKey := logEntry.User + "|" + logEntry.Bucket + "|" + method
-			incrementSyncMapValue(&m.LatencyByMethod, latencyKey, latencyMs)
+
+			latencySec := float64(logEntry.TotalTime) / 1000.0
+			userStr, tenantStr := extractUserAndTenant(logEntry.User)
+			m.LatencyObs(userStr, tenantStr, logEntry.Bucket, method, latencySec)
 		}
 	}
 }
@@ -244,7 +255,6 @@ func (m *Metrics) Reset() {
 	m.BytesReceived.Store(0)
 	m.Errors.Store(0)
 
-	resetSyncMap(&m.LatencyByMethod)
 	resetSyncMap(&m.RequestsByMethod)
 	resetSyncMap(&m.RequestsByOperation)
 	resetSyncMap(&m.RequestsByStatusCode)
@@ -261,10 +271,6 @@ func (m *Metrics) Reset() {
 	resetSyncMap(&m.BytesReceivedByIP)
 	resetSyncMap(&m.ErrorsByUserAndBucket)
 	resetSyncMap(&m.ErrorsByIPAndBucket)
-}
-
-func (m *Metrics) ResetPerWindowMetrics() {
-	resetSyncMap(&m.LatencyByMethod)
 }
 
 // Helper function: Update max atomic value
@@ -398,14 +404,13 @@ func ExtractHTTPMethod(uri string) string {
 
 // Clone creates a deep copy of the Metrics
 func (m *Metrics) Clone() *Metrics {
-	clone := NewMetrics()
+	clone := NewMetrics(m.LatencyObs)
 
 	clone.TotalRequests.Store(m.TotalRequests.Load())
 	clone.BytesSent.Store(m.BytesSent.Load())
 	clone.BytesReceived.Store(m.BytesReceived.Load())
 	clone.Errors.Store(m.Errors.Load())
 
-	copySyncMap(&m.LatencyByMethod, &clone.LatencyByMethod)
 	copySyncMap(&m.RequestsByMethod, &clone.RequestsByMethod)
 	copySyncMap(&m.RequestsByOperation, &clone.RequestsByOperation)
 	copySyncMap(&m.RequestsByStatusCode, &clone.RequestsByStatusCode)
@@ -440,7 +445,7 @@ func copySyncMap(src, dst *sync.Map) {
 
 // SubtractMetrics calculates the delta between two metrics objects: total - previous
 func SubtractMetrics(total, previous *Metrics) *Metrics {
-	delta := NewMetrics()
+	delta := NewMetrics(total.LatencyObs)
 
 	// Handle top-level counters
 	delta.TotalRequests.Store(diff(total.TotalRequests.Load(), previous.TotalRequests.Load()))
@@ -465,7 +470,6 @@ func SubtractMetrics(total, previous *Metrics) *Metrics {
 	subtractSyncMap(&total.BytesReceivedByIP, &previous.BytesReceivedByIP, &delta.BytesReceivedByIP)
 	subtractSyncMap(&total.ErrorsByUserAndBucket, &previous.ErrorsByUserAndBucket, &delta.ErrorsByUserAndBucket)
 	subtractSyncMap(&total.ErrorsByIPAndBucket, &previous.ErrorsByIPAndBucket, &delta.ErrorsByIPAndBucket)
-	subtractSyncMap(&total.LatencyByMethod, &previous.LatencyByMethod, &delta.LatencyByMethod)
 
 	return delta
 }

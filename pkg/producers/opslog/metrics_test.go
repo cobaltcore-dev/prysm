@@ -92,6 +92,37 @@ func TestSubtractMetrics_MissingInPrev(t *testing.T) {
 	assert.Equal(t, uint64(7), v.(*atomic.Uint64).Load())
 }
 
+func TestLatencyObsPropagation(t *testing.T) {
+	called := false
+	cb := func(u, tnt, bucket, method string, sec float64) {
+		assert.Equal(t, "u1", u)
+		assert.Equal(t, "t1", tnt)
+		assert.Equal(t, "b1", bucket)
+		assert.Equal(t, "M", method)
+		assert.InDelta(t, 0.123, sec, 1e-6)
+		called = true
+	}
+
+	m := NewMetrics(cb)
+	// direct call
+	m.LatencyObs("u1", "t1", "b1", "M", 0.123)
+	assert.True(t, called)
+
+	// clone carries it forward
+	clone := m.Clone()
+	called = false
+	clone.LatencyObs("u1", "t1", "b1", "M", 0.123)
+	assert.True(t, called)
+
+	// subtract carries it forward
+	total := NewMetrics(cb)
+	prev := NewMetrics(cb)
+	delta := SubtractMetrics(total, prev)
+	called = false
+	delta.LatencyObs("u1", "t1", "b1", "M", 0.123)
+	assert.True(t, called)
+}
+
 func newUint64(val uint64) *atomic.Uint64 {
 	var u atomic.Uint64
 	u.Store(val)
