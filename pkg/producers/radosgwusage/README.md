@@ -60,17 +60,16 @@ Configuration can also be set through environment variables:
 The RadosGW Usage Exporter collects and exposes the following metrics:
 
 
-### Bucket Usage Metrics
+### Bucket / User Usage Metrics
 
-- `radosgw_usage_bucket_bytes`: Bucket used bytes.
-- `radosgw_usage_bucket_utilized_bytes`: Bucket utilized bytes.
-- `radosgw_usage_bucket_objects`: Number of objects in the bucket.
+- `radosgw_user_buckets_total`: Total number of buckets for each user.
+- `radosgw_user_objects_total`: Total number of objects for each user.
+- `radosgw_user_data_size_bytes`: Total size of data for each user in bytes
 
 ### Quota Metrics
 
 - `radosgw_usage_bucket_quota_enabled`: Indicates if quota is enabled for the bucket.
 - `radosgw_usage_bucket_quota_size`: Maximum allowed bucket size.
-- `radosgw_usage_bucket_quota_size_bytes`: Maximum allowed bucket size in bytes.
 - `radosgw_usage_bucket_quota_size_objects`: Maximum allowed number of objects in the bucket.
 - `radosgw_usage_user_quota_enabled`: Indicates if user quota is enabled.
 - `radosgw_usage_user_quota_size`: Maximum allowed size for the user.
@@ -81,9 +80,6 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 - `radosgw_usage_bucket_shards`: Number of shards in the bucket.
 - `radosgw_user_metadata`: User metadata (e.g., display name, email, storage class).
 
-### Miscellaneous Metrics
-
-- `radosgw_usage_scrape_duration_seconds`: Amount of time each scrape takes.
 
 ## Example Workflow
 

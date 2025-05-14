@@ -74,10 +74,42 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 
 	if cfg.Prometheus {
 		StartPrometheusServer(cfg.PrometheusPort, &cfg.MetricsConfig)
+
+		if cfg.MetricsConfig.TrackLatencyByMethod || cfg.MetricsConfig.TrackLatencyByUser ||
+			cfg.MetricsConfig.TrackLatencyByBucket || cfg.MetricsConfig.TrackLatencyByTenant ||
+			cfg.MetricsConfig.TrackLatencyByBucketAndMethod {
+			latencyObs = func(user, tenant, bucket, method string, seconds float64) {
+				// raw per-method
+				if cfg.MetricsConfig.TrackLatencyByBucketAndMethod {
+					requestsDurationHistogram.WithLabelValues(user, tenant, bucket, method).
+						Observe(seconds)
+				}
+				// per-method aggregated across users
+				if cfg.MetricsConfig.TrackLatencyByMethod {
+					requestsDurationHistogram.WithLabelValues("all", "all", bucket, method).
+						Observe(seconds)
+				}
+				// per-bucket
+				if cfg.MetricsConfig.TrackLatencyByBucket {
+					requestsDurationHistogram.WithLabelValues("all", "all", bucket, "all").
+						Observe(seconds)
+				}
+				// per-tenant
+				if cfg.MetricsConfig.TrackLatencyByTenant {
+					requestsDurationHistogram.WithLabelValues("all", tenant, "all", "all").
+						Observe(seconds)
+				}
+				// per-user
+				if cfg.MetricsConfig.TrackLatencyByUser {
+					requestsDurationHistogram.WithLabelValues(user, tenant, "all", "all").
+						Observe(seconds)
+				}
+			}
+		}
 	}
 
 	// Initialize metrics
-	metrics := NewMetrics()
+	metrics := NewMetrics(latencyObs)
 	interval := time.Duration(cfg.PrometheusIntervalSeconds) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -106,8 +138,6 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 		if cfg.UseNats {
 			publishMetricsToNATS(cfg, nc, metrics)
 		}
-
-		metrics.ResetPerWindowMetrics()
 	}
 
 	// Keep the program running
@@ -297,7 +327,7 @@ func StartSocketOpsLogger(cfg OpsLogConfig) {
 		log.Info().Str("nats_url", cfg.NatsURL).Msg("Connected to NATS server")
 	}
 
-	metrics := NewMetrics()
+	metrics := NewMetrics(latencyObs)
 	ticker := time.NewTicker(1 * time.Minute) // Set up a ticker to trigger every 1 minute
 	defer ticker.Stop()
 
@@ -348,7 +378,7 @@ func StartSocketOpsLogger(cfg OpsLogConfig) {
 		}
 
 		// Reset metrics for the next interval
-		metrics = NewMetrics()
+		metrics = NewMetrics(latencyObs)
 	}
 }
 

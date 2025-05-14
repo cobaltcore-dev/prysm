@@ -140,6 +140,8 @@ var (
 		[]string{"user", "tenant", "bucket", "method"},
 		// []string{"pod", "user", "tenant", "bucket", "method"},
 	)
+
+	latencyObs func(user, tenant, bucket, method string, seconds float64)
 )
 
 func initPrometheusSettings(metricsConfig *MetricsConfig) {
@@ -692,100 +694,6 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 					"http_status": status,
 				}).Add(float64(errorCount))
 			}
-			return true
-		})
-	}
-
-	// Update request duration histogram (latency metrics)
-	if metricsConfig.TrackLatencyByMethod || metricsConfig.TrackLatencyByUser ||
-		metricsConfig.TrackLatencyByBucket || metricsConfig.TrackLatencyByTenant ||
-		metricsConfig.TrackLatencyByBucketAndMethod {
-
-		diffMetrics.LatencyByMethod.Range(func(key, totalLatency any) bool {
-			parts := strings.Split(key.(string), "|")
-			if len(parts) != 3 {
-				log.Warn().Msgf("Invalid key format in LatencyByMethod: %v", key)
-				return true
-			}
-			user, bucket, method := parts[0], parts[1], parts[2]
-			userStr, tenantStr := extractUserAndTenant(user)
-
-			// Fetch request count for this method
-			countVal, exists := diffMetrics.RequestsByMethod.Load(key)
-			if !exists {
-				countVal, exists = currentMetrics.RequestsByMethod.Load(key)
-				if !exists {
-					log.Warn().Msgf("Missing request count for latency key: %v", key)
-					return true
-				}
-			}
-			count := float64(countVal.(*atomic.Uint64).Load())
-			if count == 0 {
-				log.Warn().Msgf("Zero request count for latency key: %v", key)
-				return true
-			}
-
-			// Compute avg latency (convert ms → sec)
-			avgLatencySec := float64(totalLatency.(*atomic.Uint64).Load()) / count / 1000.0
-
-			if metricsConfig.TrackLatencyByBucketAndMethod {
-				// Fine-grained latency tracking per bucket & method
-				requestsDurationHistogram.With(prometheus.Labels{
-					// "pod":    cfg.PodName,
-					"user":   userStr,
-					"tenant": tenantStr,
-					"bucket": bucket,
-					"method": method,
-				}).Observe(avgLatencySec)
-			}
-
-			if metricsConfig.TrackLatencyByMethod {
-				// Aggregated latency for all users (reduces cardinality)
-				requestsDurationHistogram.With(prometheus.Labels{
-					// "pod":    cfg.PodName,
-					"user":   "all",
-					"tenant": "all",
-					"bucket": bucket,
-					"method": method,
-				}).Observe(avgLatencySec)
-			}
-
-			if metricsConfig.TrackLatencyByBucket {
-				requestsDurationHistogram.With(prometheus.Labels{
-					"user":   "all",
-					"tenant": "all",
-					"bucket": bucket,
-					"method": "all",
-				}).Observe(avgLatencySec)
-			}
-
-			if metricsConfig.TrackLatencyByTenant {
-				requestsDurationHistogram.With(prometheus.Labels{
-					"user":   "all",
-					"tenant": tenantStr,
-					"bucket": "all",
-					"method": "all",
-				}).Observe(avgLatencySec)
-			}
-
-			if metricsConfig.TrackLatencyByUser {
-				requestsDurationHistogram.With(prometheus.Labels{
-					"user":   userStr,
-					"tenant": tenantStr,
-					"bucket": "all",
-					"method": "all",
-				}).Observe(avgLatencySec)
-			}
-
-			// // Aggregate latency for all methods
-			// requestsDurationHistogram.With(prometheus.Labels{
-			// 	"pod":    cfg.PodName,
-			// 	"user":   userStr,
-			// 	"tenant": tenantStr,
-			// 	"bucket": bucket,
-			// 	"method": "all",
-			// }).Observe(avgLatencySec)
-
 			return true
 		})
 	}
