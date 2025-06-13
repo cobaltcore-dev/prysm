@@ -162,8 +162,8 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 	}
 
 	if metricsConfig.TrackRequestsByBucket {
-		// Track per bucket (Bucket | Method | HTTP Status)
-		keyBucket := logEntry.Bucket + "|" + method + "|" + logEntry.HTTPStatus
+		// Track per bucket (User | Bucket | Method | HTTP Status)
+		keyBucket := logEntry.User + "|" + logEntry.Bucket + "|" + method + "|" + logEntry.HTTPStatus
 		incrementSyncMap(&m.RequestsByBucket, keyBucket)
 	}
 
@@ -197,11 +197,15 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 	}
 
 	if metricsConfig.TrackBytesSentByBucket {
-		incrementSyncMapValue(&m.BytesSentByBucket, logEntry.Bucket, uint64(logEntry.BytesSent))
+		// Include user for tenant separation: "user|bucket"
+		keyBucket := logEntry.User + "|" + logEntry.Bucket
+		incrementSyncMapValue(&m.BytesSentByBucket, keyBucket, uint64(logEntry.BytesSent))
 	}
 
 	if metricsConfig.TrackBytesReceivedByBucket {
-		incrementSyncMapValue(&m.BytesReceivedByBucket, logEntry.Bucket, uint64(logEntry.BytesReceived))
+		// Include user for tenant separation: "user|bucket"
+		keyBucket := logEntry.User + "|" + logEntry.Bucket
+		incrementSyncMapValue(&m.BytesReceivedByBucket, keyBucket, uint64(logEntry.BytesReceived))
 	}
 
 	if metricsConfig.TrackBytesSentByIP {
@@ -225,7 +229,7 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 			incrementSyncMap(&m.ErrorsByUserAndBucket, userBucketKey)
 		}
 		if metricsConfig.TrackErrorsByIP {
-			ipBucketKey := logEntry.RemoteAddr + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
+			ipBucketKey := logEntry.RemoteAddr + "|" + logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
 			incrementSyncMap(&m.ErrorsByIPAndBucket, ipBucketKey)
 		}
 		m.Errors.Add(1) // Always track total errors

@@ -127,7 +127,7 @@ var (
 			Name: "radosgw_http_errors_by_ip",
 			Help: "Total HTTP errors by IP and bucket",
 		},
-		[]string{"pod", "bucket", "ip", "http_status"},
+		[]string{"pod", "ip", "bucket", "tenant", "http_status"},
 	)
 
 	// Histogram for request duration
@@ -319,12 +319,13 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 	if metricsConfig.TrackRequestsByBucket {
 		diffMetrics.RequestsByBucket.Range(func(key, requestCount any) bool {
 			parts := strings.Split(key.(string), "|")
-			if len(parts) != 3 {
+			if len(parts) != 4 {
 				log.Warn().Msgf("Invalid key format in RequestsByBucket: %v", key)
 				return true
 			}
 
-			bucket, method, httpStatus := parts[0], parts[1], parts[2]
+			user, bucket, method, httpStatus := parts[0], parts[1], parts[2], parts[3]
+			userStr, tenantStr := extractUserAndTenant(user)
 			rqCount := float64(requestCount.(*atomic.Uint64).Load())
 			if rqCount <= 0 {
 				return true
@@ -337,8 +338,8 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 			// Full request count per bucket, grouped by method & status
 			add(prometheus.Labels{
 				"pod":         cfg.PodName,
-				"user":        "all",
-				"tenant":      "all",
+				"user":        userStr,
+				"tenant":      tenantStr,
 				"bucket":      bucket,
 				"method":      method,
 				"http_status": httpStatus,
@@ -347,19 +348,29 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 			// Aggregate version per bucket (all methods, but status-specific)
 			add(prometheus.Labels{
 				"pod":         cfg.PodName,
-				"user":        "all",
-				"tenant":      "all",
+				"user":        userStr,
+				"tenant":      tenantStr,
 				"bucket":      bucket,
 				"method":      "all",
 				"http_status": httpStatus,
 			})
 
-			// Fully aggregated request count (all methods, all statuses)
+			// Fully aggregated request count per bucket (all methods, all statuses)
+			add(prometheus.Labels{
+				"pod":         cfg.PodName,
+				"user":        userStr,
+				"tenant":      tenantStr,
+				"bucket":      bucket,
+				"method":      "all",
+				"http_status": "all",
+			})
+
+			// Tenant-level aggregation (all buckets, all methods, all statuses)
 			add(prometheus.Labels{
 				"pod":         cfg.PodName,
 				"user":        "all",
-				"tenant":      "all",
-				"bucket":      bucket,
+				"tenant":      tenantStr,
+				"bucket":      "all",
 				"method":      "all",
 				"http_status": "all",
 			})
@@ -430,16 +441,33 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackBytesSentByBucket {
-		diffMetrics.BytesSentByBucket.Range(func(bucket, bytes any) bool {
-			bucketStr := bucket.(string)
+		diffMetrics.BytesSentByBucket.Range(func(key, bytes any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in BytesSentByBucket: %v", key)
+				return true
+			}
+
+			user, bucket := parts[0], parts[1]
+			userStr, tenantStr := extractUserAndTenant(user)
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
+			// Per-bucket bytes sent (with proper tenant separation)
+			bytesSentCounter.With(prometheus.Labels{
+				"pod":    cfg.PodName,
+				"user":   userStr,
+				"tenant": tenantStr,
+				"bucket": bucket,
+			}).Add(totalBytes)
+
+			// Tenant-level aggregation (all buckets)
 			bytesSentCounter.With(prometheus.Labels{
 				"pod":    cfg.PodName,
 				"user":   "all",
-				"tenant": "all",
-				"bucket": bucketStr,
+				"tenant": tenantStr,
+				"bucket": "all",
 			}).Add(totalBytes)
+
 			return true
 		})
 	}
@@ -475,16 +503,33 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 	}
 
 	if metricsConfig.TrackBytesReceivedByBucket {
-		diffMetrics.BytesReceivedByBucket.Range(func(bucket, bytes any) bool {
-			bucketStr := bucket.(string)
+		diffMetrics.BytesReceivedByBucket.Range(func(key, bytes any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in BytesReceivedByBucket: %v", key)
+				return true
+			}
+
+			user, bucket := parts[0], parts[1]
+			userStr, tenantStr := extractUserAndTenant(user)
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
+			// Per-bucket bytes received (with proper tenant separation)
+			bytesReceivedCounter.With(prometheus.Labels{
+				"pod":    cfg.PodName,
+				"user":   userStr,
+				"tenant": tenantStr,
+				"bucket": bucket,
+			}).Add(totalBytes)
+
+			// Tenant-level aggregation (all buckets)
 			bytesReceivedCounter.With(prometheus.Labels{
 				"pod":    cfg.PodName,
 				"user":   "all",
-				"tenant": "all",
-				"bucket": bucketStr,
+				"tenant": tenantStr,
+				"bucket": "all",
 			}).Add(totalBytes)
+
 			return true
 		})
 	}
@@ -630,20 +675,31 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 				log.Warn().Msgf("Invalid key format in ErrorsByUserAndBucket: %v", key)
 				return true
 			}
-			_, bucket, status := parts[0], parts[1], parts[2]
+			user, bucket, status := parts[0], parts[1], parts[2]
 
 			// Exclude HTTP status codes in the 2xx range
 			if strings.HasPrefix(status, "2") {
 				return true
 			}
 
+			userStr, tenantStr := extractUserAndTenant(user)
 			errorCount := float64(count.(*atomic.Uint64).Load())
 
+			// Per-bucket errors (with proper tenant separation)
+			errorsCounter.With(prometheus.Labels{
+				"pod":         cfg.PodName,
+				"user":        userStr,
+				"tenant":      tenantStr,
+				"bucket":      bucket,
+				"http_status": status,
+			}).Add(errorCount)
+
+			// Tenant-level aggregation (all buckets)
 			errorsCounter.With(prometheus.Labels{
 				"pod":         cfg.PodName,
 				"user":        "all",
-				"tenant":      "all",
-				"bucket":      bucket,
+				"tenant":      tenantStr,
+				"bucket":      "all",
 				"http_status": status,
 			}).Add(errorCount)
 
@@ -678,12 +734,18 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 		diffMetrics.ErrorsByIPAndBucket.Range(func(key, count any) bool {
 			keyStr := key.(string)
 			parts := strings.Split(keyStr, "|")
-			ip, bucket, status := parts[0], parts[1], parts[2]
+			if len(parts) != 4 {
+				log.Warn().Msgf("Invalid key format in ErrorsByIPAndBucket: %v", key)
+				return true
+			}
+			ip, user, bucket, status := parts[0], parts[1], parts[2], parts[3]
 
 			// Exclude HTTP status codes in the 2xx range
 			if strings.HasPrefix(status, "2") {
 				return true
 			}
+
+			_, tenantStr := extractUserAndTenant(user)
 
 			if atomicPtr, ok := count.(*atomic.Uint64); ok {
 				errorCount := atomicPtr.Load()
@@ -691,6 +753,7 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 					"pod":         cfg.PodName,
 					"ip":          ip,
 					"bucket":      bucket,
+					"tenant":      tenantStr,
 					"http_status": status,
 				}).Add(float64(errorCount))
 			}

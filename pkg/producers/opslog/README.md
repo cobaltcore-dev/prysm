@@ -14,6 +14,7 @@ The **Local Producer - S3 Operations Log** is a tool designed to process and mon
 - **Anonymous Request Filtering**: Option to ignore anonymous requests to focus on authenticated users.
 - **Granular Metrics Control**: Fine-grained toggles to enable/disable specific metric categories.
 - **Auto Log Rotation on Startup**: Option to rotate log on start to avoid reprocessing.
+- **Multi-Tenant Support**: Proper tenant separation ensures metrics from different tenants are isolated, even for buckets with identical names.
 
 ## Usage
 
@@ -64,16 +65,16 @@ prysm local-producer ops-log [flags]
 | `TRACK_BYTES_RECEIVED_BY_IP`                 | Track bytes received per IP.                                   |
 | `TRACK_BYTES_SENT_BY_USER`                   | Track bytes sent per user.                                     |
 | `TRACK_BYTES_RECEIVED_BY_USER`               | Track bytes received per user.                                 |
-| `TRACK_BYTES_SENT_BY_BUCKET`                 | Track bytes sent per bucket.                                   |
-| `TRACK_BYTES_RECEIVED_BY_BUCKET`             | Track bytes received per bucket.                               |
-| `TRACK_ERRORS_BY_IP`                         | Track HTTP errors per IP.                                      |
+| `TRACK_BYTES_SENT_BY_BUCKET`                 | Track bytes sent per bucket (with tenant separation).          |
+| `TRACK_BYTES_RECEIVED_BY_BUCKET`             | Track bytes received per bucket (with tenant separation).      |
+| `TRACK_ERRORS_BY_IP`                         | Track HTTP errors per IP (with tenant and user context).       |
 | `TRACK_ERRORS_BY_USER`                       | Track HTTP errors per user.                                    |
-| `TRACK_ERRORS_BY_BUCKET`                     | Track errors per bucket.                                       |
+| `TRACK_ERRORS_BY_BUCKET`                     | Track errors per bucket (with tenant separation).              |
 | `TRACK_ERRORS_BY_STATUS`                     | Track errors by HTTP status code.                              |
 | `TRACK_REQUESTS_BY_METHOD`                   | Track requests per HTTP method.                                |
 | `TRACK_REQUESTS_BY_OPERATION`                | Track requests per operation.                                  |
 | `TRACK_REQUESTS_BY_STATUS`                   | Track requests by HTTP status.                                 |
-| `TRACK_REQUESTS_BY_BUCKET`                   | Track requests per bucket.                                     |
+| `TRACK_REQUESTS_BY_BUCKET`                   | Track requests per bucket (with tenant separation).            |
 | `TRACK_REQUESTS_BY_USER`                     | Track requests per user.                                       |
 | `TRACK_REQUESTS_BY_TENANT`                   | Track requests per tenant.                                     |
 | `TRACK_REQUESTS_BY_IP_BUCKET_METHOD_TENANT`  | Track requests per IP, bucket, HTTP method and tenant.         |
@@ -88,28 +89,42 @@ prysm local-producer ops-log [flags]
 
 | Metric Name                           | Type      | Labels                                               | Description                                                        |
 |---------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
-| `radosgw_total_requests`              | Counter   | `pod`, `user`, `tenant`, `bucket`, `method`, `http_status` | Total number of requests processed.                              |
+| `radosgw_total_requests`              | Counter   | `pod`, `user`, `tenant`, `bucket`, `method`, `http_status` | Total number of requests processed with full dimensionality.     |
 | `radosgw_requests_by_method`          | Counter   | `pod`, `user`, `tenant`, `bucket`, `method`          | Number of requests grouped by HTTP method (GET, PUT, DELETE, etc.). |
 | `radosgw_requests_by_operation`       | Counter   | `pod`, `user`, `tenant`, `bucket`, `operation`, `method` | Number of requests grouped by operation and HTTP method.          |
 | `radosgw_requests_by_status`          | Counter   | `pod`, `user`, `tenant`, `bucket`, `status`          | Number of requests grouped by HTTP status code (200, 404, etc.).  |
-| `radosgw_bytes_sent`                  | Counter   | `pod`, `user`, `tenant`, `bucket`                    | Total number of bytes sent.                                       |
-| `radosgw_bytes_received`              | Counter   | `pod`, `user`, `tenant`, `bucket`                    | Total number of bytes received.                                   |
+| `radosgw_bytes_sent`                  | Counter   | `pod`, `user`, `tenant`, `bucket`                    | Total number of bytes sent with proper tenant separation.         |
+| `radosgw_bytes_received`              | Counter   | `pod`, `user`, `tenant`, `bucket`                    | Total number of bytes received with proper tenant separation.     |
 | `radosgw_errors_total`                | Counter   | `pod`, `user`, `tenant`, `bucket`, `http_status`     | Total number of error responses by user, bucket, and status code. |
 | `radosgw_http_errors_by_user`         | Counter   | `pod`, `user`, `tenant`, `bucket`, `http_status`     | HTTP errors grouped by user, tenant, bucket, and status code.     |
-| `radosgw_http_errors_by_ip`           | Counter   | `pod`, `bucket`, `ip`, `http_status`                 | HTTP errors grouped by IP, bucket, and status code.               |
+| `radosgw_http_errors_by_ip`           | Counter   | `pod`, `ip`, `bucket`, `tenant`, `http_status`       | HTTP errors grouped by IP, bucket, tenant, and status code.       |
 | `radosgw_requests_by_ip`              | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total number of requests grouped by IP and user.                  |
-| `radosgw_requests_by_ip_bucket_method_tenant`              | Gauge     | `pod`, `ip`, `bucket`, `method`, `tenant`                        | Total number of requests grouped by IP, bucket and method.                  |
+| `radosgw_requests_by_ip_bucket_method_tenant` | Gauge | `pod`, `ip`, `bucket`, `method`, `tenant`            | Total number of requests grouped by IP, bucket and method.        |
 | `radosgw_bytes_sent_by_ip`            | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes sent grouped by IP and user.                          |
 | `radosgw_bytes_received_by_ip`        | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes received grouped by IP and user.                      |
 | `radosgw_requests_duration`           | Histogram | `user`, `tenant`, `bucket`, `method`                 | Histogram of request latencies (in seconds).                      |
 
 > Histograms do **not** include the `pod` label to reduce cardinality.
 
+### Multi-Tenant Support
+
+All bucket-level metrics now properly separate tenants to avoid data collision:
+- **Bucket metrics** include tenant information to distinguish between buckets with identical names across different tenants
+- **IP-based error tracking** includes tenant context for proper attribution
+- **Aggregation levels** provide both tenant-specific and tenant-aggregated views for flexible monitoring
+
+### Metric Aggregation Levels
+
+Many metrics provide multiple aggregation levels for flexible monitoring:
+- **Full granularity**: Complete dimensional breakdown (user, tenant, bucket, method, status)
+- **Bucket-level**: Aggregated by bucket with tenant separation
+- **Tenant-level**: Aggregated across all buckets within a tenant
+- **Global**: Fully aggregated across all dimensions
 
 ## Workflow
 
 1. **Log Processing**: Reads and parses incoming log entries from the Ceph RGW log file.
-2. **Metrics Aggregation**: Updates counters and gauges based on extracted information.
+2. **Metrics Aggregation**: Updates counters and gauges based on extracted information with proper tenant separation.
 3. **Publishing to NATS**: Raw log events and aggregated metrics are sent to specified NATS subjects.
 4. **Prometheus Metrics**: Exposes metrics via an HTTP server for Prometheus scraping.
 5. **File Rotation Handling**: Monitors log file size and age, triggering rotation when needed.
@@ -130,6 +145,8 @@ prysm local-producer ops-log \
 - Ensure that the Ceph RGW log format is JSON-based to be compatible with this tool.
 - If using NATS, ensure the server is running and accessible from the producer.
 - Prometheus should be configured to scrape the exposed metrics endpoint.
+- **Multi-tenant environments**: The tool automatically extracts tenant information from user identifiers and ensures proper separation of metrics across tenants.
+- **Bucket name collision handling**: Buckets with identical names from different tenants are properly isolated in all metrics.
 - Sidecar injection is supported via a mutating webhook (see related documentation for Kubernetes usage).
 
 > This README will be updated as new features and improvements are introduced. Contributions and feedback are welcome!
