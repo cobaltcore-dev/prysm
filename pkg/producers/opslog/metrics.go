@@ -27,17 +27,17 @@ type Metrics struct {
 	// can derive accurate rates and quantiles from.
 	LatencyObs func(user string, tenant string, bucket string, method string, seconds float64)
 
-	RequestsByMethod     sync.Map // map[string]*atomic.Uint64
-	RequestsByOperation  sync.Map // map[string]*atomic.Uint64
-	RequestsByStatusCode sync.Map // map[string]*atomic.Uint64
-	RequestsByUser       sync.Map // map[string]*atomic.Uint64
-	BytesSentByUser      sync.Map // map[string]*atomic.Uint64
-	BytesReceivedByUser  sync.Map // map[string]*atomic.Uint64
-	ErrorsByUser         sync.Map // map[string]*atomic.Uint64
+	RequestsByMethod      sync.Map // map[string]*atomic.Uint64
+	RequestsByOperation   sync.Map // map[string]*atomic.Uint64
+	RequestsPerStatusCode sync.Map // map[string]*atomic.Uint64
+	RequestsByUser        sync.Map // map[string]*atomic.Uint64
+	BytesSentPerUser      sync.Map // map[string]*atomic.Uint64
+	BytesReceivedByUser   sync.Map // map[string]*atomic.Uint64
+	ErrorsByUser          sync.Map // map[string]*atomic.Uint64
 
 	RequestsByBucket               sync.Map // map[string]*atomic.Uint64
-	BytesSentByBucket              sync.Map // map[string]*atomic.Uint64
-	BytesReceivedByBucket          sync.Map // map[string]*atomic.Uint64
+	BytesSentPerBucket             sync.Map // map[string]*atomic.Uint64
+	BytesReceivedPerBucket         sync.Map // map[string]*atomic.Uint64
 	RequestsByIP                   sync.Map // map[string]*atomic.Uint64
 	RequestsByIPBucketMethodTenant sync.Map // map["ip|bucket|method|tenant"]*atomic.Uint64
 	BytesSentByIP                  sync.Map // map[string]*atomic.Uint64
@@ -69,27 +69,27 @@ func (m *Metrics) ToJSON(metricsConfig *MetricsConfig) ([]byte, error) {
 		"errors":         m.Errors.Load(),
 	}
 
-	if metricsConfig.TrackRequestsByMethod {
+	if metricsConfig.TrackRequestsByMethodDetailed {
 		data["requests_by_method"] = loadSyncMap(&m.RequestsByMethod)
 	}
 
-	if metricsConfig.TrackRequestsByOperation {
+	if metricsConfig.TrackRequestsByOperationDetailed {
 		data["requests_by_operation"] = loadSyncMap(&m.RequestsByOperation)
 	}
 
-	if metricsConfig.TrackRequestsByStatus {
-		data["requests_by_status"] = loadSyncMap(&m.RequestsByStatusCode)
+	if metricsConfig.TrackRequestsByStatusDetailed {
+		data["requests_per_status"] = loadSyncMap(&m.RequestsPerStatusCode)
 	}
 
-	if metricsConfig.TrackRequestsByBucket {
+	if metricsConfig.TrackRequestsPerBucket {
 		data["requests_by_bucket"] = loadSyncMap(&m.RequestsByBucket)
 	}
 
-	if metricsConfig.TrackRequestsByUser {
+	if metricsConfig.TrackRequestsPerUser {
 		data["requests_by_user"] = loadSyncMap(&m.RequestsByUser)
 	}
 
-	if metricsConfig.TrackRequestsByIP {
+	if metricsConfig.TrackRequestsByIPDetailed {
 		data["requests_by_ip"] = loadSyncMap(&m.RequestsByIP)
 	}
 
@@ -98,32 +98,32 @@ func (m *Metrics) ToJSON(metricsConfig *MetricsConfig) ([]byte, error) {
 	}
 
 	// Conditional fields (bytes tracking)
-	if metricsConfig.TrackBytesSentByUser {
-		data["bytes_sent_by_user"] = loadSyncMap(&m.BytesSentByUser)
+	if metricsConfig.TrackBytesSentPerUser {
+		data["bytes_sent_per_user"] = loadSyncMap(&m.BytesSentPerUser)
 	}
 
-	if metricsConfig.TrackBytesReceivedByUser {
+	if metricsConfig.TrackBytesReceivedPerUser {
 		data["bytes_received_by_user"] = loadSyncMap(&m.BytesReceivedByUser)
 	}
 
-	if metricsConfig.TrackBytesSentByBucket {
-		data["bytes_sent_by_bucket"] = loadSyncMap(&m.BytesSentByBucket)
+	if metricsConfig.TrackBytesSentPerBucket {
+		data["bytes_sent_per_bucket"] = loadSyncMap(&m.BytesSentPerBucket)
 	}
 
-	if metricsConfig.TrackBytesReceivedByBucket {
-		data["bytes_received_by_bucket"] = loadSyncMap(&m.BytesReceivedByBucket)
+	if metricsConfig.TrackBytesReceivedPerBucket {
+		data["bytes_received_per_bucket"] = loadSyncMap(&m.BytesReceivedPerBucket)
 	}
 
-	if metricsConfig.TrackBytesSentByIP {
+	if metricsConfig.TrackBytesSentByIPDetailed {
 		data["bytes_sent_by_ip"] = loadSyncMap(&m.BytesSentByIP)
 	}
 
-	if metricsConfig.TrackBytesReceivedByIP {
+	if metricsConfig.TrackBytesReceivedByIPDetailed {
 		data["bytes_received_by_ip"] = loadSyncMap(&m.BytesReceivedByIP)
 	}
 
 	// Conditional fields (errors tracking)
-	if metricsConfig.TrackErrorsByUser {
+	if metricsConfig.TrackErrorsPerUser {
 		data["errors_by_user"] = loadSyncMap(&m.ErrorsByUser)
 		data["errors_by_user_and_bucket"] = loadSyncMap(&m.ErrorsByUserAndBucket)
 	}
@@ -144,36 +144,36 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 	// Extract HTTP method from logEntry.URI
 	method := ExtractHTTPMethod(logEntry.URI)
 
-	if metricsConfig.TrackRequestsByMethod {
+	if metricsConfig.TrackRequestsByMethodDetailed {
 		// Key format: "user|bucket|method"
 		keyMethod := logEntry.User + "|" + logEntry.Bucket + "|" + method
 		incrementSyncMap(&m.RequestsByMethod, keyMethod)
 	}
 
-	if metricsConfig.TrackRequestsByOperation {
+	if metricsConfig.TrackRequestsByOperationDetailed {
 		// Key format: "user|bucket|operation|method"
 		keyOperation := logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.Operation + "|" + method
 		incrementSyncMap(&m.RequestsByOperation, keyOperation)
 	}
 
-	if metricsConfig.TrackRequestsByStatus {
+	if metricsConfig.TrackRequestsByStatusDetailed {
 		// Increment status code count
-		incrementSyncMap(&m.RequestsByStatusCode, logEntry.HTTPStatus)
+		incrementSyncMap(&m.RequestsPerStatusCode, logEntry.HTTPStatus)
 	}
 
-	if metricsConfig.TrackRequestsByBucket {
+	if metricsConfig.TrackRequestsPerBucket {
 		// Track per bucket (User | Bucket | Method | HTTP Status)
 		keyBucket := logEntry.User + "|" + logEntry.Bucket + "|" + method + "|" + logEntry.HTTPStatus
 		incrementSyncMap(&m.RequestsByBucket, keyBucket)
 	}
 
-	if metricsConfig.TrackRequestsByUser {
+	if metricsConfig.TrackRequestsPerUser {
 		// Track per user (User | Bucket | Method | HTTP Status)
 		keyUser := logEntry.User + "|" + logEntry.Bucket + "|" + method + "|" + logEntry.HTTPStatus
 		incrementSyncMap(&m.RequestsByUser, keyUser)
 	}
 
-	if metricsConfig.TrackRequestsByIP {
+	if metricsConfig.TrackRequestsByIPDetailed {
 		// Track by IP address
 		keyUserIP := logEntry.User + "|" + logEntry.RemoteAddr
 		incrementSyncMap(&m.RequestsByIP, keyUserIP)
@@ -188,32 +188,32 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 	// //////////////
 
 	// Bytes Tracking
-	if metricsConfig.TrackBytesSentByUser {
-		incrementSyncMapValue(&m.BytesSentByUser, logEntry.User, uint64(logEntry.BytesSent))
+	if metricsConfig.TrackBytesSentPerUser {
+		incrementSyncMapValue(&m.BytesSentPerUser, logEntry.User, uint64(logEntry.BytesSent))
 	}
 
-	if metricsConfig.TrackBytesReceivedByUser {
+	if metricsConfig.TrackBytesReceivedPerUser {
 		incrementSyncMapValue(&m.BytesReceivedByUser, logEntry.User, uint64(logEntry.BytesReceived))
 	}
 
-	if metricsConfig.TrackBytesSentByBucket {
+	if metricsConfig.TrackBytesSentPerBucket {
 		// Include user for tenant separation: "user|bucket"
 		keyBucket := logEntry.User + "|" + logEntry.Bucket
-		incrementSyncMapValue(&m.BytesSentByBucket, keyBucket, uint64(logEntry.BytesSent))
+		incrementSyncMapValue(&m.BytesSentPerBucket, keyBucket, uint64(logEntry.BytesSent))
 	}
 
-	if metricsConfig.TrackBytesReceivedByBucket {
+	if metricsConfig.TrackBytesReceivedPerBucket {
 		// Include user for tenant separation: "user|bucket"
 		keyBucket := logEntry.User + "|" + logEntry.Bucket
-		incrementSyncMapValue(&m.BytesReceivedByBucket, keyBucket, uint64(logEntry.BytesReceived))
+		incrementSyncMapValue(&m.BytesReceivedPerBucket, keyBucket, uint64(logEntry.BytesReceived))
 	}
 
-	if metricsConfig.TrackBytesSentByIP {
+	if metricsConfig.TrackBytesSentByIPDetailed {
 		keyUserIP := logEntry.User + "|" + logEntry.RemoteAddr
 		incrementSyncMapValue(&m.BytesSentByIP, keyUserIP, uint64(logEntry.BytesSent))
 	}
 
-	if metricsConfig.TrackBytesReceivedByIP {
+	if metricsConfig.TrackBytesReceivedByIPDetailed {
 		keyUserIP := logEntry.User + "|" + logEntry.RemoteAddr
 		incrementSyncMapValue(&m.BytesReceivedByIP, keyUserIP, uint64(logEntry.BytesReceived))
 	}
@@ -221,10 +221,10 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 
 	// Error Tracking
 	if logEntry.HTTPStatus[0] != '2' { // Non-2xx codes are errors
-		if metricsConfig.TrackErrorsByUser {
+		if metricsConfig.TrackErrorsPerUser {
 			incrementSyncMap(&m.ErrorsByUser, logEntry.User)
 		}
-		if metricsConfig.TrackErrorsByUser {
+		if metricsConfig.TrackErrorsPerUser {
 			userBucketKey := logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
 			incrementSyncMap(&m.ErrorsByUserAndBucket, userBucketKey)
 		}
@@ -239,11 +239,12 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 
 	// Latency Tracking
 	if logEntry.TotalTime > 0 {
-		if metricsConfig.TrackLatencyByMethod ||
-			metricsConfig.TrackLatencyByBucket ||
-			metricsConfig.TrackLatencyByTenant ||
-			metricsConfig.TrackLatencyByUser ||
-			metricsConfig.TrackLatencyByBucketAndMethod {
+		if metricsConfig.TrackLatencyDetailed ||
+			metricsConfig.TrackLatencyPerMethod ||
+			metricsConfig.TrackLatencyPerBucket ||
+			metricsConfig.TrackLatencyPerTenant ||
+			metricsConfig.TrackLatencyPerUser ||
+			metricsConfig.TrackLatencyPerBucketAndMethod {
 
 			latencySec := float64(logEntry.TotalTime) / 1000.0
 			userStr, tenantStr := extractUserAndTenant(logEntry.User)
@@ -261,14 +262,14 @@ func (m *Metrics) Reset() {
 
 	resetSyncMap(&m.RequestsByMethod)
 	resetSyncMap(&m.RequestsByOperation)
-	resetSyncMap(&m.RequestsByStatusCode)
+	resetSyncMap(&m.RequestsPerStatusCode)
 	resetSyncMap(&m.RequestsByUser)
-	resetSyncMap(&m.BytesSentByUser)
+	resetSyncMap(&m.BytesSentPerUser)
 	resetSyncMap(&m.BytesReceivedByUser)
 	resetSyncMap(&m.ErrorsByUser)
 	resetSyncMap(&m.RequestsByBucket)
-	resetSyncMap(&m.BytesSentByBucket)
-	resetSyncMap(&m.BytesReceivedByBucket)
+	resetSyncMap(&m.BytesSentPerBucket)
+	resetSyncMap(&m.BytesReceivedPerBucket)
 	resetSyncMap(&m.RequestsByIP)
 	resetSyncMap(&m.RequestsByIPBucketMethodTenant)
 	resetSyncMap(&m.BytesSentByIP)
@@ -417,14 +418,14 @@ func (m *Metrics) Clone() *Metrics {
 
 	copySyncMap(&m.RequestsByMethod, &clone.RequestsByMethod)
 	copySyncMap(&m.RequestsByOperation, &clone.RequestsByOperation)
-	copySyncMap(&m.RequestsByStatusCode, &clone.RequestsByStatusCode)
+	copySyncMap(&m.RequestsPerStatusCode, &clone.RequestsPerStatusCode)
 	copySyncMap(&m.RequestsByUser, &clone.RequestsByUser)
-	copySyncMap(&m.BytesSentByUser, &clone.BytesSentByUser)
+	copySyncMap(&m.BytesSentPerUser, &clone.BytesSentPerUser)
 	copySyncMap(&m.BytesReceivedByUser, &clone.BytesReceivedByUser)
 	copySyncMap(&m.ErrorsByUser, &clone.ErrorsByUser)
 	copySyncMap(&m.RequestsByBucket, &clone.RequestsByBucket)
-	copySyncMap(&m.BytesSentByBucket, &clone.BytesSentByBucket)
-	copySyncMap(&m.BytesReceivedByBucket, &clone.BytesReceivedByBucket)
+	copySyncMap(&m.BytesSentPerBucket, &clone.BytesSentPerBucket)
+	copySyncMap(&m.BytesReceivedPerBucket, &clone.BytesReceivedPerBucket)
 	copySyncMap(&m.RequestsByIP, &clone.RequestsByIP)
 	copySyncMap(&m.RequestsByIPBucketMethodTenant, &clone.RequestsByIPBucketMethodTenant)
 	copySyncMap(&m.BytesSentByIP, &clone.BytesSentByIP)
@@ -461,13 +462,13 @@ func SubtractMetrics(total, previous *Metrics) *Metrics {
 	subtractSyncMap(&total.RequestsByUser, &previous.RequestsByUser, &delta.RequestsByUser)
 	subtractSyncMap(&total.RequestsByMethod, &previous.RequestsByMethod, &delta.RequestsByMethod)
 	subtractSyncMap(&total.RequestsByOperation, &previous.RequestsByOperation, &delta.RequestsByOperation)
-	subtractSyncMap(&total.RequestsByStatusCode, &previous.RequestsByStatusCode, &delta.RequestsByStatusCode)
-	subtractSyncMap(&total.BytesSentByUser, &previous.BytesSentByUser, &delta.BytesSentByUser)
+	subtractSyncMap(&total.RequestsPerStatusCode, &previous.RequestsPerStatusCode, &delta.RequestsPerStatusCode)
+	subtractSyncMap(&total.BytesSentPerUser, &previous.BytesSentPerUser, &delta.BytesSentPerUser)
 	subtractSyncMap(&total.BytesReceivedByUser, &previous.BytesReceivedByUser, &delta.BytesReceivedByUser)
 	subtractSyncMap(&total.ErrorsByUser, &previous.ErrorsByUser, &delta.ErrorsByUser)
 	subtractSyncMap(&total.RequestsByBucket, &previous.RequestsByBucket, &delta.RequestsByBucket)
-	subtractSyncMap(&total.BytesSentByBucket, &previous.BytesSentByBucket, &delta.BytesSentByBucket)
-	subtractSyncMap(&total.BytesReceivedByBucket, &previous.BytesReceivedByBucket, &delta.BytesReceivedByBucket)
+	subtractSyncMap(&total.BytesSentPerBucket, &previous.BytesSentPerBucket, &delta.BytesSentPerBucket)
+	subtractSyncMap(&total.BytesReceivedPerBucket, &previous.BytesReceivedPerBucket, &delta.BytesReceivedPerBucket)
 	subtractSyncMap(&total.RequestsByIP, &previous.RequestsByIP, &delta.RequestsByIP)
 	subtractSyncMap(&total.RequestsByIPBucketMethodTenant, &previous.RequestsByIPBucketMethodTenant, &delta.RequestsByIPBucketMethodTenant)
 	subtractSyncMap(&total.BytesSentByIP, &previous.BytesSentByIP, &delta.BytesSentByIP)

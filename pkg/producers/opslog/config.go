@@ -23,35 +23,105 @@ type OpsLogConfig struct {
 	MetricsConfig             MetricsConfig
 }
 
+// MetricsConfig defines which metrics to collect and at what granularity
 type MetricsConfig struct {
-	// Request Tracking
-	TrackRequestsByIP                   bool // High cardinality, should be optional
-	TrackRequestsByIPBucketMethodTenant bool // High cardinality, should be optional
-	TrackRequestsByUser                 bool
-	TrackRequestsByBucket               bool
-	TrackRequestsByMethod               bool
-	TrackRequestsByOperation            bool
-	TrackRequestsByStatus               bool
-	TrackRequestsByTenant               bool // Potentially useful for multi-tenant insights
+	// === SHORTCUT CONFIGS ===
+	TrackEverything bool `yaml:"track_everything"` // Enables all metrics at all levels
 
-	// Data Usage Tracking
-	TrackBytesSentByIP         bool // High cardinality, should be optional
-	TrackBytesReceivedByIP     bool // High cardinality, should be optional
-	TrackBytesSentByUser       bool
-	TrackBytesReceivedByUser   bool
-	TrackBytesSentByBucket     bool
-	TrackBytesReceivedByBucket bool
+	// === REQUEST METRICS ===
+	// Total requests
+	TrackRequestsDetailed  bool `yaml:"track_requests_detailed"`   // Full detail: pod, user, tenant, bucket, method, http_status
+	TrackRequestsPerUser   bool `yaml:"track_requests_per_user"`   // Aggregated: pod, user, tenant, method, http_status
+	TrackRequestsPerBucket bool `yaml:"track_requests_per_bucket"` // Aggregated: pod, tenant, bucket, method, http_status
+	TrackRequestsPerTenant bool `yaml:"track_requests_per_tenant"` // Aggregated: pod, tenant, method, http_status
 
-	// Error Tracking
-	TrackErrorsByIP     bool // High cardinality, should be optional
-	TrackErrorsByUser   bool
-	TrackErrorsByBucket bool
-	TrackErrorsByStatus bool
+	// Method-based requests
+	TrackRequestsByMethodDetailed  bool `yaml:"track_requests_by_method"`            // Detailed: pod, user, tenant, bucket, method
+	TrackRequestsByMethodPerUser   bool `yaml:"track_requests_by_method_per_user"`   // Aggregated: pod, user, tenant, method
+	TrackRequestsByMethodPerBucket bool `yaml:"track_requests_by_method_per_bucket"` // Aggregated: pod, tenant, bucket, method
+	TrackRequestsByMethodPerTenant bool `yaml:"track_requests_by_method_per_tenant"` // Aggregated: pod, tenant, method
+	TrackRequestsByMethodGlobal    bool `yaml:"track_requests_by_method_global"`     // Aggregated: pod, method
 
-	// Latency & Performance
-	TrackLatencyByUser            bool // Fine-grained user tracking
-	TrackLatencyByBucket          bool // Latency grouped per bucket
-	TrackLatencyByTenant          bool // Aggregated latency by tenant
-	TrackLatencyByMethod          bool // Per HTTP method
-	TrackLatencyByBucketAndMethod bool // Combination of both (detailed)
+	// Operation-based requests
+	TrackRequestsByOperationDetailed  bool `yaml:"track_requests_by_operation"`            // Detailed: pod, user, tenant, bucket, operation, method
+	TrackRequestsByOperationPerUser   bool `yaml:"track_requests_by_operation_per_user"`   // Aggregated: pod, user, tenant, operation, method
+	TrackRequestsByOperationPerBucket bool `yaml:"track_requests_by_operation_per_bucket"` // Aggregated: pod, tenant, bucket, operation, method
+	TrackRequestsByOperationPerTenant bool `yaml:"track_requests_by_operation_per_tenant"` // Aggregated: pod, tenant, operation, method
+	TrackRequestsByOperationGlobal    bool `yaml:"track_requests_by_operation_global"`     // Aggregated: pod, operation, method
+
+	// Status-based requests
+	TrackRequestsByStatusDetailed  bool `yaml:"track_requests_by_status_detailed"`   // Detailed: pod, user, tenant, bucket, status
+	TrackRequestsByStatusPerUser   bool `yaml:"track_requests_by_status_per_user"`   // Aggregated: pod, user, tenant, status
+	TrackRequestsByStatusPerBucket bool `yaml:"track_requests_by_status_per_bucket"` // Aggregated: pod, tenant, bucket, status
+	TrackRequestsByStatusPerTenant bool `yaml:"track_requests_by_status_per_tenant"` // Aggregated: pod, tenant, status
+
+	// === BYTES METRICS ===
+	// Bytes sent
+	TrackBytesSentDetailed  bool `yaml:"track_bytes_sent_detailed"`   // Detailed: pod, user, tenant, bucket
+	TrackBytesSentPerUser   bool `yaml:"track_bytes_sent_per_user"`   // Aggregated: pod, user, tenant
+	TrackBytesSentPerBucket bool `yaml:"track_bytes_sent_per_bucket"` // Aggregated: pod, tenant, bucket
+	TrackBytesSentPerTenant bool `yaml:"track_bytes_sent_per_tenant"` // Aggregated: pod, tenant
+
+	// Bytes received
+	TrackBytesReceivedDetailed  bool `yaml:"track_bytes_received_detailed"`   // Detailed: pod, user, tenant, bucket
+	TrackBytesReceivedPerUser   bool `yaml:"track_bytes_received_per_user"`   // Aggregated: pod, user, tenant
+	TrackBytesReceivedPerBucket bool `yaml:"track_bytes_received_per_bucket"` // Aggregated: pod, tenant, bucket
+	TrackBytesReceivedPerTenant bool `yaml:"track_bytes_received_per_tenant"` // Aggregated: pod, tenant
+
+	// === ERROR METRICS ===
+	// Errors
+	TrackErrorsDetailed  bool `yaml:"track_errors_detailed"`   // Detailed: pod, user, tenant, bucket, http_status
+	TrackErrorsPerUser   bool `yaml:"track_errors_per_user"`   // Aggregated: pod, user, tenant, http_status
+	TrackErrorsPerBucket bool `yaml:"track_errors_per_bucket"` // Aggregated: pod, tenant, bucket, http_status
+	TrackErrorsPerTenant bool `yaml:"track_errors_per_tenant"` // Aggregated: pod, tenant, http_status
+	TrackErrorsPerStatus bool `yaml:"track_errors_per_status"` // Aggregated: pod, http_status
+	TrackErrorsByIP      bool `yaml:"track_errors_by_ip"`      // IP-based: pod, ip, tenant, http_status
+
+	// === IP-BASED METRICS ===
+	// Requests by IP
+	TrackRequestsByIPDetailed           bool `yaml:"track_requests_by_ip"`                      // Detailed: pod, user, tenant, ip
+	TrackRequestsByIPPerTenant          bool `yaml:"track_requests_by_ip_per_tenant"`           // Aggregated: pod, tenant, ip
+	TrackRequestsByIPBucketMethodTenant bool `yaml:"track_requests_by_ip_bucket_method_tenant"` // Detailed: pod, ip, bucket, method, tenant
+	TrackRequestsByIPGlobalPerTenant    bool `yaml:"track_requests_by_ip_global_per_tenant"`    // Aggregated: pod, tenant
+
+	// Bytes by IP
+	TrackBytesSentByIPDetailed        bool `yaml:"track_bytes_sent_by_ip"`                   // Detailed: pod, user, tenant, ip
+	TrackBytesSentByIPPerTenant       bool `yaml:"track_bytes_sent_by_ip_per_tenant"`        // Aggregated: pod, tenant, ip
+	TrackBytesSentByIPGlobalPerTenant bool `yaml:"track_bytes_sent_by_ip_global_per_tenant"` // Aggregated: pod, tenant
+
+	TrackBytesReceivedByIPDetailed        bool `yaml:"track_bytes_received_by_ip"`                   // Detailed: pod, user, tenant, ip
+	TrackBytesReceivedByIPPerTenant       bool `yaml:"track_bytes_received_by_ip_per_tenant"`        // Aggregated: pod, tenant, ip
+	TrackBytesReceivedByIPGlobalPerTenant bool `yaml:"track_bytes_received_by_ip_global_per_tenant"` // Aggregated: pod, tenant
+
+	// === LATENCY METRICS ===
+	TrackLatencyDetailed           bool `yaml:"track_latency_detailed"`              // Detailed: user, tenant, bucket, method (no pod!)
+	TrackLatencyPerUser            bool `yaml:"track_latency_per_user"`              // Aggregated: user, tenant, method
+	TrackLatencyPerBucket          bool `yaml:"track_latency_per_bucket"`            // Aggregated: tenant, bucket, method
+	TrackLatencyPerTenant          bool `yaml:"track_latency_per_tenant"`            // Aggregated: tenant, method
+	TrackLatencyPerMethod          bool `yaml:"track_latency_per_method"`            // Aggregated: method
+	TrackLatencyPerBucketAndMethod bool `yaml:"track_latency_per_bucket_and_method"` // Aggregated: tenant, bucket, method
+}
+
+// ApplyShortcuts applies shortcut configurations
+func (c *MetricsConfig) ApplyShortcuts() {
+	if c.TrackEverything {
+		// Enable only detailed metrics - aggregations can be done in Prometheus queries
+		// This is the most efficient approach with lowest cardinality
+		c.TrackRequestsDetailed = true
+		c.TrackRequestsByMethodDetailed = true
+		c.TrackRequestsByOperationDetailed = true
+		c.TrackRequestsByStatusDetailed = true
+
+		c.TrackBytesSentDetailed = true
+		c.TrackBytesReceivedDetailed = true
+
+		c.TrackErrorsDetailed = true
+		c.TrackErrorsByIP = true
+
+		c.TrackRequestsByIPDetailed = true
+		c.TrackBytesSentByIPDetailed = true
+		c.TrackBytesReceivedByIPDetailed = true
+
+		c.TrackLatencyDetailed = true
+	}
 }

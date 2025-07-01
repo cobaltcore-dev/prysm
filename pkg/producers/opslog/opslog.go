@@ -73,43 +73,11 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 	}
 
 	if cfg.Prometheus {
-		StartPrometheusServer(cfg.PrometheusPort, &cfg.MetricsConfig)
-
-		if cfg.MetricsConfig.TrackLatencyByMethod || cfg.MetricsConfig.TrackLatencyByUser ||
-			cfg.MetricsConfig.TrackLatencyByBucket || cfg.MetricsConfig.TrackLatencyByTenant ||
-			cfg.MetricsConfig.TrackLatencyByBucketAndMethod {
-			latencyObs = func(user, tenant, bucket, method string, seconds float64) {
-				// raw per-method
-				if cfg.MetricsConfig.TrackLatencyByBucketAndMethod {
-					requestsDurationHistogram.WithLabelValues(user, tenant, bucket, method).
-						Observe(seconds)
-				}
-				// per-method aggregated across users
-				if cfg.MetricsConfig.TrackLatencyByMethod {
-					requestsDurationHistogram.WithLabelValues("all", "all", bucket, method).
-						Observe(seconds)
-				}
-				// per-bucket
-				if cfg.MetricsConfig.TrackLatencyByBucket {
-					requestsDurationHistogram.WithLabelValues("all", "all", bucket, "all").
-						Observe(seconds)
-				}
-				// per-tenant
-				if cfg.MetricsConfig.TrackLatencyByTenant {
-					requestsDurationHistogram.WithLabelValues("all", tenant, "all", "all").
-						Observe(seconds)
-				}
-				// per-user
-				if cfg.MetricsConfig.TrackLatencyByUser {
-					requestsDurationHistogram.WithLabelValues(user, tenant, "all", "all").
-						Observe(seconds)
-				}
-			}
-		}
+		StartPrometheusServer(cfg.PrometheusPort, &cfg)
 	}
 
 	// Initialize metrics
-	metrics := NewMetrics(latencyObs)
+	metrics := NewMetrics(LatencyObs)
 	interval := time.Duration(cfg.PrometheusIntervalSeconds) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -290,6 +258,7 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 
 		// Update metrics with the log entry
 		metrics.Update(*logEntry, &cfg.MetricsConfig)
+
 		logPool.Put(logEntry)
 
 		// Print to stdout if enabled
