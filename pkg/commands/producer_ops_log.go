@@ -28,29 +28,75 @@ var (
 	opsIgnoreAnonymousRequests bool
 	opsPromIntervalSeconds     int
 
-	// MetricsConfig-related flags
-	opsTrackRequestsByIP                   bool
-	opsTrackBytesSentByIP                  bool
-	opsTrackBytesReceivedByIP              bool
-	opsTrackErrorsByIP                     bool
-	opsTrackErrorsByUser                   bool
+	// Shortcut config
+	opsTrackEverything bool
+
+	// Request metrics flags
+	opsTrackRequestsDetailed  bool
+	opsTrackRequestsPerUser   bool
+	opsTrackRequestsPerBucket bool
+	opsTrackRequestsPerTenant bool
+
+	// Method-based request flags
+	opsTrackRequestsByMethodDetailed  bool
+	opsTrackRequestsByMethodPerUser   bool
+	opsTrackRequestsByMethodPerBucket bool
+	opsTrackRequestsByMethodPerTenant bool
+	opsTrackRequestsByMethodGlobal    bool
+
+	// Operation-based request flags
+	opsTrackRequestsByOperationDetailed  bool
+	opsTrackRequestsByOperationPerUser   bool
+	opsTrackRequestsByOperationPerBucket bool
+	opsTrackRequestsByOperationPerTenant bool
+	opsTrackRequestsByOperationGlobal    bool
+
+	// Status-based request flags
+	opsTrackRequestsByStatusDetailed  bool
+	opsTrackRequestsByStatusPerUser   bool
+	opsTrackRequestsByStatusPerBucket bool
+	opsTrackRequestsByStatusPerTenant bool
+
+	// Bytes metrics flags
+	opsTrackBytesSentDetailed  bool
+	opsTrackBytesSentPerUser   bool
+	opsTrackBytesSentPerBucket bool
+	opsTrackBytesSentPerTenant bool
+
+	opsTrackBytesReceivedDetailed  bool
+	opsTrackBytesReceivedPerUser   bool
+	opsTrackBytesReceivedPerBucket bool
+	opsTrackBytesReceivedPerTenant bool
+
+	// Error metrics flags
+	opsTrackErrorsDetailed  bool
+	opsTrackErrorsPerUser   bool
+	opsTrackErrorsPerBucket bool
+	opsTrackErrorsPerTenant bool
+	opsTrackErrorsPerStatus bool
+	opsTrackErrorsByIP      bool
+
+	// IP-based metrics flags
+	opsTrackRequestsByIPDetailed           bool
+	opsTrackRequestsByIPPerTenant          bool
 	opsTrackRequestsByIPBucketMethodTenant bool
-	opsTrackRequestsByMethod               bool
-	opsTrackRequestsByOperation            bool
-	opsTrackRequestsByStatus               bool
-	opsTrackRequestsByBucket               bool
-	opsTrackRequestsByUser                 bool
-	opsTrackRequestsByTenant               bool
-	opsTrackErrorsByBucket                 bool
-	opsTrackErrorsByStatus                 bool
-	opsTrackLatencyByUser                  bool
-	opsTrackLatencyByBucket                bool
-	opsTrackLatencyByMethod                bool
-	opsTrackLatencyByTenant                bool
-	opsTrackBytesSentByUser                bool
-	opsTrackBytesReceivedByUser            bool
-	opsTrackBytesSentByBucket              bool
-	opsTrackBytesReceivedByBucket          bool
+	opsTrackRequestsByIPGlobalPerTenant    bool
+
+	opsTrackBytesSentByIPDetailed        bool
+	opsTrackBytesSentByIPPerTenant       bool
+	opsTrackBytesSentByIPGlobalPerTenant bool
+
+	opsTrackBytesReceivedByIPDetailed        bool
+	opsTrackBytesReceivedByIPPerTenant       bool
+	opsTrackBytesReceivedByIPGlobalPerTenant bool
+
+	// Latency metrics flags
+	opsTrackLatencyDetailed           bool
+	opsTrackLatencyPerUser            bool
+	opsTrackLatencyPerBucket          bool
+	opsTrackLatencyPerTenant          bool
+	opsTrackLatencyPerMethod          bool
+	opsTrackLatencyPerBucketAndMethod bool
 )
 
 var opsLogCmd = &cobra.Command{
@@ -88,28 +134,76 @@ Following this configuration change, the RadosGW will log operations to the file
 			IgnoreAnonymousRequests:   opsIgnoreAnonymousRequests,
 			PrometheusIntervalSeconds: opsPromIntervalSeconds,
 			MetricsConfig: opslog.MetricsConfig{
-				TrackRequestsByIP:                   opsTrackRequestsByIP,
-				TrackBytesSentByIP:                  opsTrackBytesSentByIP,
-				TrackBytesReceivedByIP:              opsTrackBytesReceivedByIP,
-				TrackBytesSentByUser:                opsTrackBytesSentByUser,
-				TrackBytesReceivedByUser:            opsTrackBytesReceivedByUser,
-				TrackBytesSentByBucket:              opsTrackBytesSentByBucket,
-				TrackBytesReceivedByBucket:          opsTrackBytesReceivedByBucket,
-				TrackErrorsByIP:                     opsTrackErrorsByIP,
-				TrackErrorsByUser:                   opsTrackErrorsByUser,
+				// Shortcut config
+				TrackEverything: opsTrackEverything,
+
+				// Request metrics
+				TrackRequestsDetailed:  opsTrackRequestsDetailed,
+				TrackRequestsPerUser:   opsTrackRequestsPerUser,
+				TrackRequestsPerBucket: opsTrackRequestsPerBucket,
+				TrackRequestsPerTenant: opsTrackRequestsPerTenant,
+
+				// Method-based requests
+				TrackRequestsByMethodDetailed:  opsTrackRequestsByMethodDetailed,
+				TrackRequestsByMethodPerUser:   opsTrackRequestsByMethodPerUser,
+				TrackRequestsByMethodPerBucket: opsTrackRequestsByMethodPerBucket,
+				TrackRequestsByMethodPerTenant: opsTrackRequestsByMethodPerTenant,
+				TrackRequestsByMethodGlobal:    opsTrackRequestsByMethodGlobal,
+
+				// Operation-based requests
+				TrackRequestsByOperationDetailed:  opsTrackRequestsByOperationDetailed,
+				TrackRequestsByOperationPerUser:   opsTrackRequestsByOperationPerUser,
+				TrackRequestsByOperationPerBucket: opsTrackRequestsByOperationPerBucket,
+				TrackRequestsByOperationPerTenant: opsTrackRequestsByOperationPerTenant,
+				TrackRequestsByOperationGlobal:    opsTrackRequestsByOperationGlobal,
+
+				// Status-based requests
+				TrackRequestsByStatusDetailed:  opsTrackRequestsByStatusDetailed,
+				TrackRequestsByStatusPerUser:   opsTrackRequestsByStatusPerUser,
+				TrackRequestsByStatusPerBucket: opsTrackRequestsByStatusPerBucket,
+				TrackRequestsByStatusPerTenant: opsTrackRequestsByStatusPerTenant,
+
+				// Bytes metrics
+				TrackBytesSentDetailed:  opsTrackBytesSentDetailed,
+				TrackBytesSentPerUser:   opsTrackBytesSentPerUser,
+				TrackBytesSentPerBucket: opsTrackBytesSentPerBucket,
+				TrackBytesSentPerTenant: opsTrackBytesSentPerTenant,
+
+				TrackBytesReceivedDetailed:  opsTrackBytesReceivedDetailed,
+				TrackBytesReceivedPerUser:   opsTrackBytesReceivedPerUser,
+				TrackBytesReceivedPerBucket: opsTrackBytesReceivedPerBucket,
+				TrackBytesReceivedPerTenant: opsTrackBytesReceivedPerTenant,
+
+				// Error metrics
+				TrackErrorsDetailed:  opsTrackErrorsDetailed,
+				TrackErrorsPerUser:   opsTrackErrorsPerUser,
+				TrackErrorsPerBucket: opsTrackErrorsPerBucket,
+				TrackErrorsPerTenant: opsTrackErrorsPerTenant,
+				TrackErrorsPerStatus: opsTrackErrorsPerStatus,
+
+				// IP-based metrics
+				TrackRequestsByIPDetailed:           opsTrackRequestsByIPDetailed,
+				TrackRequestsByIPPerTenant:          opsTrackRequestsByIPPerTenant,
 				TrackRequestsByIPBucketMethodTenant: opsTrackRequestsByIPBucketMethodTenant,
-				TrackRequestsByMethod:               opsTrackRequestsByMethod,
-				TrackRequestsByOperation:            opsTrackRequestsByOperation,
-				TrackRequestsByStatus:               opsTrackRequestsByStatus,
-				TrackRequestsByBucket:               opsTrackRequestsByBucket,
-				TrackRequestsByUser:                 opsTrackRequestsByUser,
-				TrackRequestsByTenant:               opsTrackRequestsByTenant,
-				TrackErrorsByBucket:                 opsTrackErrorsByBucket,
-				TrackErrorsByStatus:                 opsTrackErrorsByStatus,
-				TrackLatencyByUser:                  opsTrackLatencyByUser,
-				TrackLatencyByBucket:                opsTrackLatencyByBucket,
-				TrackLatencyByMethod:                opsTrackLatencyByMethod,
-				TrackLatencyByTenant:                opsTrackLatencyByTenant,
+				TrackRequestsByIPGlobalPerTenant:    opsTrackRequestsByIPGlobalPerTenant,
+
+				TrackBytesSentByIPDetailed:        opsTrackBytesSentByIPDetailed,
+				TrackBytesSentByIPPerTenant:       opsTrackBytesSentByIPPerTenant,
+				TrackBytesSentByIPGlobalPerTenant: opsTrackBytesSentByIPGlobalPerTenant,
+
+				TrackBytesReceivedByIPDetailed:        opsTrackBytesReceivedByIPDetailed,
+				TrackBytesReceivedByIPPerTenant:       opsTrackBytesReceivedByIPPerTenant,
+				TrackBytesReceivedByIPGlobalPerTenant: opsTrackBytesReceivedByIPGlobalPerTenant,
+
+				TrackErrorsByIP: opsTrackErrorsByIP,
+
+				// Latency metrics
+				TrackLatencyDetailed:           opsTrackLatencyDetailed,
+				TrackLatencyPerUser:            opsTrackLatencyPerUser,
+				TrackLatencyPerBucket:          opsTrackLatencyPerBucket,
+				TrackLatencyPerTenant:          opsTrackLatencyPerTenant,
+				TrackLatencyPerMethod:          opsTrackLatencyPerMethod,
+				TrackLatencyPerBucketAndMethod: opsTrackLatencyPerBucketAndMethod,
 			},
 		}
 
@@ -146,28 +240,12 @@ Following this configuration change, the RadosGW will log operations to the file
 		}
 
 		// Debugging all tracking options from config.MetricsConfig
-		event.Bool("track_requests_by_ip", config.MetricsConfig.TrackRequestsByIP)
-		event.Bool("track_bytes_sent_by_ip", config.MetricsConfig.TrackBytesSentByIP)
-		event.Bool("track_bytes_received_by_ip", config.MetricsConfig.TrackBytesReceivedByIP)
-		event.Bool("track_bytes_sent_by_user", config.MetricsConfig.TrackBytesSentByUser)
-		event.Bool("track_bytes_received_by_user", config.MetricsConfig.TrackBytesReceivedByUser)
-		event.Bool("track_bytes_sent_by_bucket", config.MetricsConfig.TrackBytesSentByBucket)
-		event.Bool("track_bytes_received_by_bucket", config.MetricsConfig.TrackBytesReceivedByBucket)
-		event.Bool("track_errors_by_ip", config.MetricsConfig.TrackErrorsByIP)
-		event.Bool("track_errors_by_user", config.MetricsConfig.TrackErrorsByUser)
-		event.Bool("track_requests_by_method", config.MetricsConfig.TrackRequestsByMethod)
-		event.Bool("track_requests_by_operation", config.MetricsConfig.TrackRequestsByOperation)
-		event.Bool("track_requests_by_status", config.MetricsConfig.TrackRequestsByStatus)
-		event.Bool("track_requests_by_bucket", config.MetricsConfig.TrackRequestsByBucket)
-		event.Bool("track_requests_by_user", config.MetricsConfig.TrackRequestsByUser)
-		event.Bool("track_requests_by_ip_bucket_method_tenant", config.MetricsConfig.TrackRequestsByIPBucketMethodTenant)
-		event.Bool("track_requests_by_tenant", config.MetricsConfig.TrackRequestsByTenant)
-		event.Bool("track_errors_by_bucket", config.MetricsConfig.TrackErrorsByBucket)
-		event.Bool("track_errors_by_status", config.MetricsConfig.TrackErrorsByStatus)
-		event.Bool("track_latency_by_user", config.MetricsConfig.TrackLatencyByUser)
-		event.Bool("track_latency_by_bucket", config.MetricsConfig.TrackLatencyByBucket)
-		event.Bool("track_latency_by_method", config.MetricsConfig.TrackLatencyByMethod)
-		event.Bool("track_latency_by_tenant", config.MetricsConfig.TrackLatencyByTenant)
+		event.Bool("track_everything", config.MetricsConfig.TrackEverything)
+		event.Bool("track_requests_detailed", config.MetricsConfig.TrackRequestsDetailed)
+		event.Bool("track_requests_per_user", config.MetricsConfig.TrackRequestsPerUser)
+		event.Bool("track_bytes_sent_detailed", config.MetricsConfig.TrackBytesSentDetailed)
+		event.Bool("track_errors_detailed", config.MetricsConfig.TrackErrorsDetailed)
+		event.Bool("track_latency_detailed", config.MetricsConfig.TrackLatencyDetailed)
 
 		event.Msg("OpsLog configuration initialized")
 
@@ -196,29 +274,75 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.IgnoreAnonymousRequests = getEnvBool("IGNORE_ANONYMOUS_REQUESTS", cfg.IgnoreAnonymousRequests)
 	cfg.PrometheusIntervalSeconds = getEnvInt("PROMETHEUS_INTERVAL", cfg.PrometheusIntervalSeconds)
 
-	// MetricsConfig environment variables
-	cfg.MetricsConfig.TrackRequestsByIP = getEnvBool("TRACK_REQUESTS_BY_IP", cfg.MetricsConfig.TrackRequestsByIP)
-	cfg.MetricsConfig.TrackBytesSentByIP = getEnvBool("TRACK_BYTES_SENT_BY_IP", cfg.MetricsConfig.TrackBytesSentByIP)
-	cfg.MetricsConfig.TrackBytesReceivedByIP = getEnvBool("TRACK_BYTES_RECEIVED_BY_IP", cfg.MetricsConfig.TrackBytesReceivedByIP)
-	cfg.MetricsConfig.TrackBytesSentByUser = getEnvBool("TRACK_BYTES_SENT_BY_USER", cfg.MetricsConfig.TrackBytesSentByUser)
-	cfg.MetricsConfig.TrackBytesReceivedByUser = getEnvBool("TRACK_BYTES_RECEIVED_BY_USER", cfg.MetricsConfig.TrackBytesReceivedByUser)
-	cfg.MetricsConfig.TrackBytesSentByBucket = getEnvBool("TRACK_BYTES_SENT_BY_BUCKET", cfg.MetricsConfig.TrackBytesSentByBucket)
-	cfg.MetricsConfig.TrackBytesReceivedByBucket = getEnvBool("TRACK_BYTES_RECEIVED_BY_BUCKET", cfg.MetricsConfig.TrackBytesReceivedByBucket)
+	// Shortcut config
+	cfg.MetricsConfig.TrackEverything = getEnvBool("TRACK_EVERYTHING", cfg.MetricsConfig.TrackEverything)
+
+	// Request metrics environment variables
+	cfg.MetricsConfig.TrackRequestsDetailed = getEnvBool("TRACK_REQUESTS_DETAILED", cfg.MetricsConfig.TrackRequestsDetailed)
+	cfg.MetricsConfig.TrackRequestsPerUser = getEnvBool("TRACK_REQUESTS_PER_USER", cfg.MetricsConfig.TrackRequestsPerUser)
+	cfg.MetricsConfig.TrackRequestsPerBucket = getEnvBool("TRACK_REQUESTS_PER_BUCKET", cfg.MetricsConfig.TrackRequestsPerBucket)
+	cfg.MetricsConfig.TrackRequestsPerTenant = getEnvBool("TRACK_REQUESTS_PER_TENANT", cfg.MetricsConfig.TrackRequestsPerTenant)
+
+	// Method-based requests
+	cfg.MetricsConfig.TrackRequestsByMethodDetailed = getEnvBool("TRACK_REQUESTS_BY_METHOD_DETAILED", cfg.MetricsConfig.TrackRequestsByMethodDetailed)
+	cfg.MetricsConfig.TrackRequestsByMethodPerUser = getEnvBool("TRACK_REQUESTS_BY_METHOD_PER_USER", cfg.MetricsConfig.TrackRequestsByMethodPerUser)
+	cfg.MetricsConfig.TrackRequestsByMethodPerBucket = getEnvBool("TRACK_REQUESTS_BY_METHOD_PER_BUCKET", cfg.MetricsConfig.TrackRequestsByMethodPerBucket)
+	cfg.MetricsConfig.TrackRequestsByMethodPerTenant = getEnvBool("TRACK_REQUESTS_BY_METHOD_PER_TENANT", cfg.MetricsConfig.TrackRequestsByMethodPerTenant)
+	cfg.MetricsConfig.TrackRequestsByMethodGlobal = getEnvBool("TRACK_REQUESTS_BY_METHOD_GLOBAL", cfg.MetricsConfig.TrackRequestsByMethodGlobal)
+
+	// Operation-based requests
+	cfg.MetricsConfig.TrackRequestsByOperationDetailed = getEnvBool("TRACK_REQUESTS_BY_OPERATION_DETAILED", cfg.MetricsConfig.TrackRequestsByOperationDetailed)
+	cfg.MetricsConfig.TrackRequestsByOperationPerUser = getEnvBool("TRACK_REQUESTS_BY_OPERATION_PER_USER", cfg.MetricsConfig.TrackRequestsByOperationPerUser)
+	cfg.MetricsConfig.TrackRequestsByOperationPerBucket = getEnvBool("TRACK_REQUESTS_BY_OPERATION_PER_BUCKET", cfg.MetricsConfig.TrackRequestsByOperationPerBucket)
+	cfg.MetricsConfig.TrackRequestsByOperationPerTenant = getEnvBool("TRACK_REQUESTS_BY_OPERATION_PER_TENANT", cfg.MetricsConfig.TrackRequestsByOperationPerTenant)
+	cfg.MetricsConfig.TrackRequestsByOperationGlobal = getEnvBool("TRACK_REQUESTS_BY_OPERATION_GLOBAL", cfg.MetricsConfig.TrackRequestsByOperationGlobal)
+
+	// Status-based requests
+	cfg.MetricsConfig.TrackRequestsByStatusDetailed = getEnvBool("TRACK_REQUESTS_BY_STATUS_DETAILED", cfg.MetricsConfig.TrackRequestsByStatusDetailed)
+	cfg.MetricsConfig.TrackRequestsByStatusPerUser = getEnvBool("TRACK_REQUESTS_BY_STATUS_PER_USER", cfg.MetricsConfig.TrackRequestsByStatusPerUser)
+	cfg.MetricsConfig.TrackRequestsByStatusPerBucket = getEnvBool("TRACK_REQUESTS_BY_STATUS_PER_BUCKET", cfg.MetricsConfig.TrackRequestsByStatusPerBucket)
+	cfg.MetricsConfig.TrackRequestsByStatusPerTenant = getEnvBool("TRACK_REQUESTS_BY_STATUS_PER_TENANT", cfg.MetricsConfig.TrackRequestsByStatusPerTenant)
+
+	// Bytes metrics
+	cfg.MetricsConfig.TrackBytesSentDetailed = getEnvBool("TRACK_BYTES_SENT_DETAILED", cfg.MetricsConfig.TrackBytesSentDetailed)
+	cfg.MetricsConfig.TrackBytesSentPerUser = getEnvBool("TRACK_BYTES_SENT_PER_USER", cfg.MetricsConfig.TrackBytesSentPerUser)
+	cfg.MetricsConfig.TrackBytesSentPerBucket = getEnvBool("TRACK_BYTES_SENT_PER_BUCKET", cfg.MetricsConfig.TrackBytesSentPerBucket)
+	cfg.MetricsConfig.TrackBytesSentPerTenant = getEnvBool("TRACK_BYTES_SENT_PER_TENANT", cfg.MetricsConfig.TrackBytesSentPerTenant)
+
+	cfg.MetricsConfig.TrackBytesReceivedDetailed = getEnvBool("TRACK_BYTES_RECEIVED_DETAILED", cfg.MetricsConfig.TrackBytesReceivedDetailed)
+	cfg.MetricsConfig.TrackBytesReceivedPerUser = getEnvBool("TRACK_BYTES_RECEIVED_PER_USER", cfg.MetricsConfig.TrackBytesReceivedPerUser)
+	cfg.MetricsConfig.TrackBytesReceivedPerBucket = getEnvBool("TRACK_BYTES_RECEIVED_PER_BUCKET", cfg.MetricsConfig.TrackBytesReceivedPerBucket)
+	cfg.MetricsConfig.TrackBytesReceivedPerTenant = getEnvBool("TRACK_BYTES_RECEIVED_PER_TENANT", cfg.MetricsConfig.TrackBytesReceivedPerTenant)
+
+	// Error metrics
+	cfg.MetricsConfig.TrackErrorsDetailed = getEnvBool("TRACK_ERRORS_DETAILED", cfg.MetricsConfig.TrackErrorsDetailed)
+	cfg.MetricsConfig.TrackErrorsPerUser = getEnvBool("TRACK_ERRORS_PER_USER", cfg.MetricsConfig.TrackErrorsPerUser)
+	cfg.MetricsConfig.TrackErrorsPerBucket = getEnvBool("TRACK_ERRORS_PER_BUCKET", cfg.MetricsConfig.TrackErrorsPerBucket)
+	cfg.MetricsConfig.TrackErrorsPerTenant = getEnvBool("TRACK_ERRORS_PER_TENANT", cfg.MetricsConfig.TrackErrorsPerTenant)
+	cfg.MetricsConfig.TrackErrorsPerStatus = getEnvBool("TRACK_ERRORS_PER_STATUS", cfg.MetricsConfig.TrackErrorsPerStatus)
 	cfg.MetricsConfig.TrackErrorsByIP = getEnvBool("TRACK_ERRORS_BY_IP", cfg.MetricsConfig.TrackErrorsByIP)
-	cfg.MetricsConfig.TrackErrorsByUser = getEnvBool("TRACK_ERRORS_BY_USER", cfg.MetricsConfig.TrackErrorsByUser)
-	cfg.MetricsConfig.TrackRequestsByMethod = getEnvBool("TRACK_REQUESTS_BY_METHOD", cfg.MetricsConfig.TrackRequestsByMethod)
-	cfg.MetricsConfig.TrackRequestsByOperation = getEnvBool("TRACK_REQUESTS_BY_OPERATION", cfg.MetricsConfig.TrackRequestsByOperation)
-	cfg.MetricsConfig.TrackRequestsByStatus = getEnvBool("TRACK_REQUESTS_BY_STATUS", cfg.MetricsConfig.TrackRequestsByStatus)
-	cfg.MetricsConfig.TrackRequestsByBucket = getEnvBool("TRACK_REQUESTS_BY_BUCKET", cfg.MetricsConfig.TrackRequestsByBucket)
-	cfg.MetricsConfig.TrackRequestsByUser = getEnvBool("TRACK_REQUESTS_BY_USER", cfg.MetricsConfig.TrackRequestsByUser)
+
+	// IP-based metrics
+	cfg.MetricsConfig.TrackRequestsByIPDetailed = getEnvBool("TRACK_REQUESTS_BY_IP_DETAILED", cfg.MetricsConfig.TrackRequestsByIPDetailed)
+	cfg.MetricsConfig.TrackRequestsByIPPerTenant = getEnvBool("TRACK_REQUESTS_BY_IP_PER_TENANT", cfg.MetricsConfig.TrackRequestsByIPPerTenant)
 	cfg.MetricsConfig.TrackRequestsByIPBucketMethodTenant = getEnvBool("TRACK_REQUESTS_BY_IP_BUCKET_METHOD_TENANT", cfg.MetricsConfig.TrackRequestsByIPBucketMethodTenant)
-	cfg.MetricsConfig.TrackRequestsByTenant = getEnvBool("TRACK_REQUESTS_BY_TENANT", cfg.MetricsConfig.TrackRequestsByTenant)
-	cfg.MetricsConfig.TrackErrorsByBucket = getEnvBool("TRACK_ERRORS_BY_BUCKET", cfg.MetricsConfig.TrackErrorsByBucket)
-	cfg.MetricsConfig.TrackErrorsByStatus = getEnvBool("TRACK_ERRORS_BY_STATUS", cfg.MetricsConfig.TrackErrorsByStatus)
-	cfg.MetricsConfig.TrackLatencyByUser = getEnvBool("TRACK_LATENCY_BY_USER", cfg.MetricsConfig.TrackLatencyByUser)
-	cfg.MetricsConfig.TrackLatencyByBucket = getEnvBool("TRACK_LATENCY_BY_BUCKET", cfg.MetricsConfig.TrackLatencyByBucket)
-	cfg.MetricsConfig.TrackLatencyByTenant = getEnvBool("TRACK_LATENCY_BY_TENANT", cfg.MetricsConfig.TrackLatencyByTenant)
-	cfg.MetricsConfig.TrackLatencyByMethod = getEnvBool("TRACK_LATENCY_BY_METHOD", cfg.MetricsConfig.TrackLatencyByMethod)
+	cfg.MetricsConfig.TrackRequestsByIPGlobalPerTenant = getEnvBool("TRACK_REQUESTS_BY_IP_GLOBAL_PER_TENANT", cfg.MetricsConfig.TrackRequestsByIPGlobalPerTenant)
+
+	cfg.MetricsConfig.TrackBytesSentByIPDetailed = getEnvBool("TRACK_BYTES_SENT_BY_IP_DETAILED", cfg.MetricsConfig.TrackBytesSentByIPDetailed)
+	cfg.MetricsConfig.TrackBytesSentByIPPerTenant = getEnvBool("TRACK_BYTES_SENT_BY_IP_PER_TENANT", cfg.MetricsConfig.TrackBytesSentByIPPerTenant)
+	cfg.MetricsConfig.TrackBytesSentByIPGlobalPerTenant = getEnvBool("TRACK_BYTES_SENT_BY_IP_GLOBAL_PER_TENANT", cfg.MetricsConfig.TrackBytesSentByIPGlobalPerTenant)
+
+	cfg.MetricsConfig.TrackBytesReceivedByIPDetailed = getEnvBool("TRACK_BYTES_RECEIVED_BY_IP_DETAILED", cfg.MetricsConfig.TrackBytesReceivedByIPDetailed)
+	cfg.MetricsConfig.TrackBytesReceivedByIPPerTenant = getEnvBool("TRACK_BYTES_RECEIVED_BY_IP_PER_TENANT", cfg.MetricsConfig.TrackBytesReceivedByIPPerTenant)
+	cfg.MetricsConfig.TrackBytesReceivedByIPGlobalPerTenant = getEnvBool("TRACK_BYTES_RECEIVED_BY_IP_GLOBAL_PER_TENANT", cfg.MetricsConfig.TrackBytesReceivedByIPGlobalPerTenant)
+
+	// Latency metrics
+	cfg.MetricsConfig.TrackLatencyDetailed = getEnvBool("TRACK_LATENCY_DETAILED", cfg.MetricsConfig.TrackLatencyDetailed)
+	cfg.MetricsConfig.TrackLatencyPerUser = getEnvBool("TRACK_LATENCY_PER_USER", cfg.MetricsConfig.TrackLatencyPerUser)
+	cfg.MetricsConfig.TrackLatencyPerBucket = getEnvBool("TRACK_LATENCY_PER_BUCKET", cfg.MetricsConfig.TrackLatencyPerBucket)
+	cfg.MetricsConfig.TrackLatencyPerTenant = getEnvBool("TRACK_LATENCY_PER_TENANT", cfg.MetricsConfig.TrackLatencyPerTenant)
+	cfg.MetricsConfig.TrackLatencyPerMethod = getEnvBool("TRACK_LATENCY_PER_METHOD", cfg.MetricsConfig.TrackLatencyPerMethod)
+	cfg.MetricsConfig.TrackLatencyPerBucketAndMethod = getEnvBool("TRACK_LATENCY_PER_BUCKET_AND_METHOD", cfg.MetricsConfig.TrackLatencyPerBucketAndMethod)
 
 	return cfg
 }
@@ -238,29 +362,76 @@ func init() {
 	opsLogCmd.Flags().BoolVar(&opsIgnoreAnonymousRequests, "ignore-anonymous-requests", true, "Ignore anonymous requests")
 	opsLogCmd.Flags().IntVar(&opsPromIntervalSeconds, "prometheus-interval", 60, "Prometheus metrics update interval in seconds")
 
-	// Metrics Tracking Flags (All Disabled by Default)
-	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIP, "track-requests-by-ip", false, "Track requests by IP")
-	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentByIP, "track-bytes-sent-by-ip", false, "Track bytes sent by IP")
-	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedByIP, "track-bytes-received-by-ip", false, "Track bytes received by IP")
-	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentByUser, "track-bytes-sent-by-user", false, "Track bytes sent per user")
-	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedByUser, "track-bytes-received-by-user", false, "Track bytes received per user")
-	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentByBucket, "track-bytes-sent-by-bucket", false, "Track bytes sent per bucket")
-	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedByBucket, "track-bytes-received-by-bucket", false, "Track bytes received per bucket")
+	// Shortcut flag
+	opsLogCmd.Flags().BoolVar(&opsTrackEverything, "track-everything", false, "Enable detailed tracking for all metric types (efficient mode)")
+
+	// Essential request metrics (most commonly used)
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsDetailed, "track-requests-detailed", false, "Track detailed requests with full labels")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsPerUser, "track-requests-per-user", false, "Track requests aggregated per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsPerBucket, "track-requests-per-bucket", false, "Track requests aggregated per bucket")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsPerTenant, "track-requests-per-tenant", false, "Track requests aggregated per tenant")
+
+	// Method-based request metrics
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByMethodDetailed, "track-requests-by-method-detailed", false, "Track detailed requests by HTTP method")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByMethodPerUser, "track-requests-by-method-per-user", false, "Track requests by method per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByMethodPerBucket, "track-requests-by-method-per-bucket", false, "Track requests by method per bucket")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByMethodPerTenant, "track-requests-by-method-per-tenant", false, "Track requests by method per tenant")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByMethodGlobal, "track-requests-by-method-global", false, "Track requests by method globally")
+
+	// Operation-based request metrics
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByOperationDetailed, "track-requests-by-operation-detailed", false, "Track detailed requests by operation")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByOperationPerUser, "track-requests-by-operation-per-user", false, "Track requests by operation per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByOperationPerBucket, "track-requests-by-operation-per-bucket", false, "Track requests by operation per bucket")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByOperationPerTenant, "track-requests-by-operation-per-tenant", false, "Track requests by operation per tenant")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByOperationGlobal, "track-requests-by-operation-global", false, "Track requests by operation globally")
+
+	// Status-based request metrics
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByStatusDetailed, "track-requests-by-status-detailed", false, "Track detailed requests by status")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByStatusPerUser, "track-requests-by-status-per-user", false, "Track requests by status per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByStatusPerBucket, "track-requests-by-status-per-bucket", false, "Track requests by status per bucket")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByStatusPerTenant, "track-requests-by-status-per-tenant", false, "Track requests by status per tenant")
+
+	// Bytes metrics
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentDetailed, "track-bytes-sent-detailed", false, "Track detailed bytes sent")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentPerUser, "track-bytes-sent-per-user", false, "Track bytes sent per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentPerBucket, "track-bytes-sent-per-bucket", false, "Track bytes sent per bucket")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentPerTenant, "track-bytes-sent-per-tenant", false, "Track bytes sent per tenant")
+
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedDetailed, "track-bytes-received-detailed", false, "Track detailed bytes received")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedPerUser, "track-bytes-received-per-user", false, "Track bytes received per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedPerBucket, "track-bytes-received-per-bucket", false, "Track bytes received per bucket")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedPerTenant, "track-bytes-received-per-tenant", false, "Track bytes received per tenant")
+
+	// Error metrics
+	opsLogCmd.Flags().BoolVar(&opsTrackErrorsDetailed, "track-errors-detailed", false, "Track detailed errors")
+	opsLogCmd.Flags().BoolVar(&opsTrackErrorsPerUser, "track-errors-per-user", false, "Track errors per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackErrorsPerBucket, "track-errors-per-bucket", false, "Track errors per bucket")
+	opsLogCmd.Flags().BoolVar(&opsTrackErrorsPerTenant, "track-errors-per-tenant", false, "Track errors per tenant")
+	opsLogCmd.Flags().BoolVar(&opsTrackErrorsPerStatus, "track-errors-per-status", false, "Track errors per HTTP status")
+
+	// IP-based metrics
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIPDetailed, "track-requests-by-ip-detailed", false, "Track requests by IP")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIPPerTenant, "track-requests-by-ip-per-tenant", false, "Track requests by IP per tenant")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIPBucketMethodTenant, "track-requests-by-ip-bucket-method-tenant", false, "Track requests by IP, bucket, method and tenant")
+	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIPGlobalPerTenant, "track-requests-by-ip-global-per-tenant", false, "Track requests by IP globally per tenant")
+
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentByIPDetailed, "track-bytes-sent-by-ip-detailed", false, "Track bytes sent by IP")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentByIPPerTenant, "track-bytes-sent-by-ip-per-tenant", false, "Track bytes sent by IP per tenant")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesSentByIPGlobalPerTenant, "track-bytes-sent-by-ip-global-per-tenant", false, "Track bytes sent by IP globally per tenant")
+
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedByIPDetailed, "track-bytes-received-by-ip-detailed", false, "Track bytes received by IP")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedByIPPerTenant, "track-bytes-received-by-ip-per-tenant", false, "Track bytes received by IP per tenant")
+	opsLogCmd.Flags().BoolVar(&opsTrackBytesReceivedByIPGlobalPerTenant, "track-bytes-received-by-ip-global-per-tenant", false, "Track bytes received by IP globally per tenant")
+
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByIP, "track-errors-by-ip", false, "Track errors by IP")
-	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByUser, "track-errors-by-user", false, "Track errors per user")
-	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByMethod, "track-requests-by-method", false, "Track requests by HTTP method")
-	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByOperation, "track-requests-by-operation", false, "Track requests by operation")
-	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByStatus, "track-requests-by-status", false, "Track requests by HTTP status code")
-	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByBucket, "track-requests-by-bucket", false, "Track requests by bucket")
-	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByUser, "track-requests-by-user", false, "Track requests by user")
-	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIPBucketMethodTenant, "track-requests-by-ip-bucket-method-tenant", false, "Track requests by IP, bucket, HTTP method and tenant")
-	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByTenant, "track-requests-by-tenant", false, "Track requests by tenant")
-	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByBucket, "track-errors-by-bucket", false, "Track errors per bucket")
-	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByStatus, "track-errors-by-status", false, "Track errors per HTTP status")
-	opsLogCmd.Flags().BoolVar(&opsTrackLatencyByMethod, "track-latency-by-method", false, "Track latency per method")
-	opsLogCmd.Flags().BoolVar(&opsTrackLatencyByUser, "track-latency-by-user", false, "Track latency per user")
-	opsLogCmd.Flags().BoolVar(&opsTrackLatencyByBucket, "track-latency-by-bucket", false, "Track latency per bucket")
-	opsLogCmd.Flags().BoolVar(&opsTrackLatencyByTenant, "track-latency-by-tenant", false, "Track latency per tenant")
+
+	// Latency metrics
+	opsLogCmd.Flags().BoolVar(&opsTrackLatencyDetailed, "track-latency-detailed", false, "Track detailed latency")
+	opsLogCmd.Flags().BoolVar(&opsTrackLatencyPerUser, "track-latency-per-user", false, "Track latency per user")
+	opsLogCmd.Flags().BoolVar(&opsTrackLatencyPerBucket, "track-latency-per-bucket", false, "Track latency per bucket")
+	opsLogCmd.Flags().BoolVar(&opsTrackLatencyPerTenant, "track-latency-per-tenant", false, "Track latency per tenant")
+	opsLogCmd.Flags().BoolVar(&opsTrackLatencyPerMethod, "track-latency-per-method", false, "Track latency per method")
+	opsLogCmd.Flags().BoolVar(&opsTrackLatencyPerBucketAndMethod, "track-latency-per-bucket-and-method", false, "Track latency per bucket and method")
 }
 
 func validateOpsLogConfig(config opslog.OpsLogConfig) {
