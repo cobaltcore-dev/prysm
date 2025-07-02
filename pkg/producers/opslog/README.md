@@ -44,7 +44,7 @@ prysm local-producer ops-log [flags]
 - `--track-everything` - Enable detailed tracking for all metric types (efficient mode).
 
 ### Latency Tracking Examples:
-
+ 
 ```bash
 # Enable all latency tracking
 prysm local-producer ops-log \
