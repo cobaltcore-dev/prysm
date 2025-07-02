@@ -86,68 +86,117 @@ func registerMethodMetrics(metricsConfig *MetricsConfig) {
 func publishMethodMetrics(diffMetrics *Metrics, cfg OpsLogConfig) {
 	metricsConfig := cfg.MetricsConfig
 
-	// Process RequestsByMethod data
-	// Key format: "user|bucket|method"
-	diffMetrics.RequestsByMethod.Range(func(key, count any) bool {
-		parts := strings.Split(key.(string), "|")
-		if len(parts) != 3 {
-			log.Warn().Msgf("Invalid key format in RequestsByMethod: %v", key)
+	// Publish detailed method metrics from dedicated storage
+	if metricsConfig.TrackRequestsByMethodDetailed {
+		diffMetrics.RequestsByMethodDetailed.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				log.Warn().Msgf("Invalid key format in RequestsByMethodDetailed: %v", key)
+				return true
+			}
+
+			user, bucket, method := parts[0], parts[1], parts[2]
+			userStr, tenantStr := extractUserAndTenant(user)
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsByMethodCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"user":   userStr,
+					"tenant": tenantStr,
+					"bucket": bucket,
+					"method": method,
+				}).Add(requestCount)
+			}
 			return true
-		}
+		})
+	}
 
-		user, bucket, method := parts[0], parts[1], parts[2]
-		userStr, tenantStr := extractUserAndTenant(user)
-		requestCount := float64(count.(*atomic.Uint64).Load())
+	// Publish per-user method metrics from dedicated storage
+	if metricsConfig.TrackRequestsByMethodPerUser {
+		diffMetrics.RequestsByMethodPerUser.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in RequestsByMethodPerUser: %v", key)
+				return true
+			}
 
-		if requestCount <= 0 {
+			user, method := parts[0], parts[1]
+			userStr, tenantStr := extractUserAndTenant(user)
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsByMethodPerUserCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"user":   userStr,
+					"tenant": tenantStr,
+					"method": method,
+				}).Add(requestCount)
+			}
 			return true
-		}
+		})
+	}
 
-		// Detailed metric - only if enabled
-		if metricsConfig.TrackRequestsByMethodDetailed {
-			requestsByMethodCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"user":   userStr,
-				"tenant": tenantStr,
-				"bucket": bucket,
-				"method": method,
-			}).Add(requestCount)
-		}
+	// Publish per-bucket method metrics from dedicated storage
+	if metricsConfig.TrackRequestsByMethodPerBucket {
+		diffMetrics.RequestsByMethodPerBucket.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				log.Warn().Msgf("Invalid key format in RequestsByMethodPerBucket: %v", key)
+				return true
+			}
 
-		// Aggregated metrics based on config
-		if metricsConfig.TrackRequestsByMethodPerUser {
-			requestsByMethodPerUserCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"user":   userStr,
-				"tenant": tenantStr,
-				"method": method,
-			}).Add(requestCount)
-		}
+			tenant, bucket, method := parts[0], parts[1], parts[2]
+			requestCount := float64(count.(*atomic.Uint64).Load())
 
-		if metricsConfig.TrackRequestsByMethodPerBucket {
-			requestsByMethodPerBucketCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"tenant": tenantStr,
-				"bucket": bucket,
-				"method": method,
-			}).Add(requestCount)
-		}
+			if requestCount > 0 {
+				requestsByMethodPerBucketCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+					"bucket": bucket,
+					"method": method,
+				}).Add(requestCount)
+			}
+			return true
+		})
+	}
 
-		if metricsConfig.TrackRequestsByMethodPerTenant {
-			requestsByMethodPerTenantCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"tenant": tenantStr,
-				"method": method,
-			}).Add(requestCount)
-		}
+	// Publish per-tenant method metrics from dedicated storage
+	if metricsConfig.TrackRequestsByMethodPerTenant {
+		diffMetrics.RequestsByMethodPerTenant.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in RequestsByMethodPerTenant: %v", key)
+				return true
+			}
 
-		if metricsConfig.TrackRequestsByMethodGlobal {
-			requestsByMethodGlobalCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"method": method,
-			}).Add(requestCount)
-		}
+			tenant, method := parts[0], parts[1]
+			requestCount := float64(count.(*atomic.Uint64).Load())
 
-		return true
-	})
+			if requestCount > 0 {
+				requestsByMethodPerTenantCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+					"method": method,
+				}).Add(requestCount)
+			}
+			return true
+		})
+	}
+
+	// Publish global method metrics from dedicated storage
+	if metricsConfig.TrackRequestsByMethodGlobal {
+		diffMetrics.RequestsByMethodGlobal.Range(func(key, count any) bool {
+			method := key.(string)
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsByMethodGlobalCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"method": method,
+				}).Add(requestCount)
+			}
+			return true
+		})
+	}
 }

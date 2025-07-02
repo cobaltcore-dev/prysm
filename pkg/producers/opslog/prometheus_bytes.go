@@ -118,17 +118,15 @@ func registerBytesMetrics(metricsConfig *MetricsConfig) {
 	}
 }
 
-// Updated publishing logic for bytes counters
 func publishBytesCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 	metricsConfig := cfg.MetricsConfig
 
-	// Process BytesSentByBucket data
-	if metricsConfig.TrackBytesSentDetailed || metricsConfig.TrackBytesSentPerUser ||
-		metricsConfig.TrackBytesSentPerBucket || metricsConfig.TrackBytesSentPerTenant {
-		diffMetrics.BytesSentPerBucket.Range(func(key, bytes any) bool {
+	// Publish detailed bytes sent metrics from dedicated storage
+	if metricsConfig.TrackBytesSentDetailed {
+		diffMetrics.BytesSentDetailed.Range(func(key, bytes any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 2 {
-				log.Warn().Msgf("Invalid key format in BytesSentByBucket: %v", key)
+				log.Warn().Msgf("Invalid key format in BytesSentDetailed: %v", key)
 				return true
 			}
 
@@ -136,8 +134,7 @@ func publishBytesCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 			userStr, tenantStr := extractUserAndTenant(user)
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
-			// Detailed metric
-			if metricsConfig.TrackBytesSentDetailed {
+			if totalBytes > 0 {
 				bytesSentCounter.With(prometheus.Labels{
 					"pod":    cfg.PodName,
 					"user":   userStr,
@@ -145,43 +142,16 @@ func publishBytesCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 					"bucket": bucket,
 				}).Add(totalBytes)
 			}
-
-			// Aggregated metrics based on config
-			if metricsConfig.TrackBytesSentPerUser {
-				bytesSentPerUserCounter.With(prometheus.Labels{
-					"pod":    cfg.PodName,
-					"user":   userStr,
-					"tenant": tenantStr,
-				}).Add(totalBytes)
-			}
-
-			if metricsConfig.TrackBytesSentPerBucket {
-				bytesSentPerBucketCounter.With(prometheus.Labels{
-					"pod":    cfg.PodName,
-					"tenant": tenantStr,
-					"bucket": bucket,
-				}).Add(totalBytes)
-			}
-
-			// Tenant-level aggregation
-			if metricsConfig.TrackBytesSentPerTenant {
-				bytesSentPerTenantCounter.With(prometheus.Labels{
-					"pod":    cfg.PodName,
-					"tenant": tenantStr,
-				}).Add(totalBytes)
-			}
-
 			return true
 		})
 	}
 
-	// Process BytesReceivedByBucket data
-	if metricsConfig.TrackBytesReceivedDetailed || metricsConfig.TrackBytesReceivedPerUser ||
-		metricsConfig.TrackBytesReceivedPerBucket || metricsConfig.TrackBytesReceivedPerTenant {
-		diffMetrics.BytesReceivedPerBucket.Range(func(key, bytes any) bool {
+	// Publish detailed bytes received metrics from dedicated storage
+	if metricsConfig.TrackBytesReceivedDetailed {
+		diffMetrics.BytesReceivedDetailed.Range(func(key, bytes any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 2 {
-				log.Warn().Msgf("Invalid key format in BytesReceivedByBucket: %v", key)
+				log.Warn().Msgf("Invalid key format in BytesReceivedDetailed: %v", key)
 				return true
 			}
 
@@ -189,8 +159,7 @@ func publishBytesCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 			userStr, tenantStr := extractUserAndTenant(user)
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
-			// Detailed metric
-			if metricsConfig.TrackBytesReceivedDetailed {
+			if totalBytes > 0 {
 				bytesReceivedCounter.With(prometheus.Labels{
 					"pod":    cfg.PodName,
 					"user":   userStr,
@@ -198,64 +167,120 @@ func publishBytesCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 					"bucket": bucket,
 				}).Add(totalBytes)
 			}
+			return true
+		})
+	}
 
-			// Aggregated metrics based on config
-			if metricsConfig.TrackBytesReceivedPerUser {
+	// Publish per-user bytes sent metrics from dedicated storage
+	if metricsConfig.TrackBytesSentPerUser {
+		diffMetrics.BytesSentPerUser.Range(func(key, bytes any) bool {
+			user := key.(string)
+			userStr, tenantStr := extractUserAndTenant(user)
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
+
+			if totalBytes > 0 {
+				bytesSentPerUserCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"user":   userStr,
+					"tenant": tenantStr,
+				}).Add(totalBytes)
+			}
+			return true
+		})
+	}
+
+	// Publish per-user bytes received metrics from dedicated storage
+	if metricsConfig.TrackBytesReceivedPerUser {
+		diffMetrics.BytesReceivedPerUser.Range(func(key, bytes any) bool {
+			user := key.(string)
+			userStr, tenantStr := extractUserAndTenant(user)
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
+
+			if totalBytes > 0 {
 				bytesReceivedPerUserCounter.With(prometheus.Labels{
 					"pod":    cfg.PodName,
 					"user":   userStr,
 					"tenant": tenantStr,
 				}).Add(totalBytes)
 			}
+			return true
+		})
+	}
 
-			if metricsConfig.TrackBytesReceivedPerBucket {
-				bytesReceivedPerBucketCounter.With(prometheus.Labels{
+	// Publish per-bucket bytes sent metrics from dedicated storage
+	if metricsConfig.TrackBytesSentPerBucket {
+		diffMetrics.BytesSentPerBucket.Range(func(key, bytes any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in BytesSentPerBucket: %v", key)
+				return true
+			}
+
+			tenant, bucket := parts[0], parts[1]
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
+
+			if totalBytes > 0 {
+				bytesSentPerBucketCounter.With(prometheus.Labels{
 					"pod":    cfg.PodName,
-					"tenant": tenantStr,
+					"tenant": tenant,
 					"bucket": bucket,
 				}).Add(totalBytes)
 			}
+			return true
+		})
+	}
 
-			// Tenant-level aggregation
-			if metricsConfig.TrackBytesReceivedPerTenant {
-				bytesReceivedPerTenantCounter.With(prometheus.Labels{
-					"pod":    cfg.PodName,
-					"tenant": tenantStr,
-				}).Add(totalBytes)
+	// Publish per-bucket bytes received metrics from dedicated storage
+	if metricsConfig.TrackBytesReceivedPerBucket {
+		diffMetrics.BytesReceivedPerBucket.Range(func(key, bytes any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in BytesReceivedPerBucket: %v", key)
+				return true
 			}
 
+			tenant, bucket := parts[0], parts[1]
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
+
+			if totalBytes > 0 {
+				bytesReceivedPerBucketCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+					"bucket": bucket,
+				}).Add(totalBytes)
+			}
 			return true
 		})
 	}
 
-	// Process BytesSentByUser data (if it's different from bucket data)
-	if metricsConfig.TrackBytesSentPerUser {
-		diffMetrics.BytesSentPerUser.Range(func(user, bytes any) bool {
-			userStr, tenantStr := extractUserAndTenant(user.(string))
+	// Publish per-tenant bytes sent metrics from dedicated storage
+	if metricsConfig.TrackBytesSentPerTenant {
+		diffMetrics.BytesSentPerTenant.Range(func(key, bytes any) bool {
+			tenant := key.(string)
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
-			bytesSentPerUserCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"user":   userStr,
-				"tenant": tenantStr,
-			}).Add(totalBytes)
-
+			if totalBytes > 0 {
+				bytesSentPerTenantCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+				}).Add(totalBytes)
+			}
 			return true
 		})
 	}
 
-	// Process BytesReceivedByUser data (if it's different from bucket data)
-	if metricsConfig.TrackBytesReceivedPerUser {
-		diffMetrics.BytesReceivedByUser.Range(func(user, bytes any) bool {
-			userStr, tenantStr := extractUserAndTenant(user.(string))
+	// Publish per-tenant bytes received metrics from dedicated storage
+	if metricsConfig.TrackBytesReceivedPerTenant {
+		diffMetrics.BytesReceivedPerTenant.Range(func(key, bytes any) bool {
+			tenant := key.(string)
 			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
-			bytesReceivedPerUserCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"user":   userStr,
-				"tenant": tenantStr,
-			}).Add(totalBytes)
-
+			if totalBytes > 0 {
+				bytesReceivedPerTenantCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+				}).Add(totalBytes)
+			}
 			return true
 		})
 	}

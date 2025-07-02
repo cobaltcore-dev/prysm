@@ -87,72 +87,128 @@ func registerOperationMetrics(metricsConfig *MetricsConfig) {
 func publishOperationMetrics(diffMetrics *Metrics, cfg OpsLogConfig) {
 	metricsConfig := cfg.MetricsConfig
 
-	// Process RequestsByOperation data
-	diffMetrics.RequestsByOperation.Range(func(key, count any) bool {
-		parts := strings.Split(key.(string), "|")
-		if len(parts) != 4 {
-			log.Warn().Msgf("Invalid key format in RequestsByOperation: %v", key)
+	// Publish detailed operation metrics from dedicated storage
+	if metricsConfig.TrackRequestsByOperationDetailed {
+		diffMetrics.RequestsByOperationDetailed.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 4 {
+				log.Warn().Msgf("Invalid key format in RequestsByOperationDetailed: %v", key)
+				return true
+			}
+
+			user, bucket, operation, method := parts[0], parts[1], parts[2], parts[3]
+			userStr, tenantStr := extractUserAndTenant(user)
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsByOperationCounter.With(prometheus.Labels{
+					"pod":       cfg.PodName,
+					"user":      userStr,
+					"tenant":    tenantStr,
+					"bucket":    bucket,
+					"operation": operation,
+					"method":    method,
+				}).Add(requestCount)
+			}
 			return true
-		}
+		})
+	}
 
-		user, bucket, operation, method := parts[0], parts[1], parts[2], parts[3]
-		userStr, tenantStr := extractUserAndTenant(user)
-		requestCount := float64(count.(*atomic.Uint64).Load())
+	// Publish per-user operation metrics from dedicated storage
+	if metricsConfig.TrackRequestsByOperationPerUser {
+		diffMetrics.RequestsByOperationPerUser.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				log.Warn().Msgf("Invalid key format in RequestsByOperationPerUser: %v", key)
+				return true
+			}
 
-		if requestCount <= 0 {
+			user, operation, method := parts[0], parts[1], parts[2]
+			userStr, tenantStr := extractUserAndTenant(user)
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsByOperationPerUserCounter.With(prometheus.Labels{
+					"pod":       cfg.PodName,
+					"user":      userStr,
+					"tenant":    tenantStr,
+					"operation": operation,
+					"method":    method,
+				}).Add(requestCount)
+			}
 			return true
-		}
+		})
+	}
 
-		// Detailed metric - only if enabled
-		if metricsConfig.TrackRequestsByOperationDetailed {
-			requestsByOperationCounter.With(prometheus.Labels{
-				"pod":       cfg.PodName,
-				"user":      userStr,
-				"tenant":    tenantStr,
-				"bucket":    bucket,
-				"operation": operation,
-				"method":    method,
-			}).Add(requestCount)
-		}
+	// Publish per-bucket operation metrics from dedicated storage
+	if metricsConfig.TrackRequestsByOperationPerBucket {
+		diffMetrics.RequestsByOperationPerBucket.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 4 {
+				log.Warn().Msgf("Invalid key format in RequestsByOperationPerBucket: %v", key)
+				return true
+			}
 
-		// Aggregated metrics based on config
-		if metricsConfig.TrackRequestsByOperationPerUser {
-			requestsByOperationPerUserCounter.With(prometheus.Labels{
-				"pod":       cfg.PodName,
-				"user":      userStr,
-				"tenant":    tenantStr,
-				"operation": operation,
-				"method":    method,
-			}).Add(requestCount)
-		}
+			tenant, bucket, operation, method := parts[0], parts[1], parts[2], parts[3]
+			requestCount := float64(count.(*atomic.Uint64).Load())
 
-		if metricsConfig.TrackRequestsByOperationPerBucket {
-			requestsByOperationPerBucketCounter.With(prometheus.Labels{
-				"pod":       cfg.PodName,
-				"tenant":    tenantStr,
-				"bucket":    bucket,
-				"operation": operation,
-				"method":    method,
-			}).Add(requestCount)
-		}
+			if requestCount > 0 {
+				requestsByOperationPerBucketCounter.With(prometheus.Labels{
+					"pod":       cfg.PodName,
+					"tenant":    tenant,
+					"bucket":    bucket,
+					"operation": operation,
+					"method":    method,
+				}).Add(requestCount)
+			}
+			return true
+		})
+	}
 
-		if metricsConfig.TrackRequestsByOperationPerTenant {
-			requestsByOperationPerTenantCounter.With(prometheus.Labels{
-				"pod":       cfg.PodName,
-				"tenant":    tenantStr,
-				"operation": operation,
-				"method":    method,
-			}).Add(requestCount)
-		}
+	// Publish per-tenant operation metrics from dedicated storage
+	if metricsConfig.TrackRequestsByOperationPerTenant {
+		diffMetrics.RequestsByOperationPerTenant.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				log.Warn().Msgf("Invalid key format in RequestsByOperationPerTenant: %v", key)
+				return true
+			}
 
-		if metricsConfig.TrackRequestsByOperationGlobal {
-			requestsByOperationGlobalCounter.With(prometheus.Labels{
-				"pod":       cfg.PodName,
-				"operation": operation,
-				"method":    method,
-			}).Add(requestCount)
-		}
+			tenant, operation, method := parts[0], parts[1], parts[2]
+			requestCount := float64(count.(*atomic.Uint64).Load())
 
-		return true
-	})
+			if requestCount > 0 {
+				requestsByOperationPerTenantCounter.With(prometheus.Labels{
+					"pod":       cfg.PodName,
+					"tenant":    tenant,
+					"operation": operation,
+					"method":    method,
+				}).Add(requestCount)
+			}
+			return true
+		})
+	}
+
+	// Publish global operation metrics from dedicated storage
+	if metricsConfig.TrackRequestsByOperationGlobal {
+		diffMetrics.RequestsByOperationGlobal.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in RequestsByOperationGlobal: %v", key)
+				return true
+			}
+
+			operation, method := parts[0], parts[1]
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsByOperationGlobalCounter.With(prometheus.Labels{
+					"pod":       cfg.PodName,
+					"operation": operation,
+					"method":    method,
+				}).Add(requestCount)
+			}
+			return true
+		})
+	}
 }

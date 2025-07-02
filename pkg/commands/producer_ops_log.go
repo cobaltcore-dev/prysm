@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/cobaltcore-dev/prysm/pkg/producers/opslog"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
@@ -239,13 +240,10 @@ Following this configuration change, the RadosGW will log operations to the file
 			event.Int("prometheus_port", config.PrometheusPort)
 		}
 
-		// Debugging all tracking options from config.MetricsConfig
-		event.Bool("track_everything", config.MetricsConfig.TrackEverything)
-		event.Bool("track_requests_detailed", config.MetricsConfig.TrackRequestsDetailed)
-		event.Bool("track_requests_per_user", config.MetricsConfig.TrackRequestsPerUser)
-		event.Bool("track_bytes_sent_detailed", config.MetricsConfig.TrackBytesSentDetailed)
-		event.Bool("track_errors_detailed", config.MetricsConfig.TrackErrorsDetailed)
-		event.Bool("track_latency_detailed", config.MetricsConfig.TrackLatencyDetailed)
+		// Enhanced debugging for tracking options
+		debugTrackingConfig(event, config.MetricsConfig)
+
+		event.Msg("OpsLog configuration initialized")
 
 		event.Msg("OpsLog configuration initialized")
 
@@ -257,6 +255,271 @@ Following this configuration change, the RadosGW will log operations to the file
 			opslog.StartFileOpsLogger(config)
 		}
 	},
+}
+
+// debugTrackingConfig adds comprehensive metrics configuration to the zerolog event
+func debugTrackingConfig(event *zerolog.Event, config opslog.MetricsConfig) {
+	// Count enabled metrics for summary
+	totalEnabled := 0
+
+	// Shortcut configuration
+	event.Bool("track_everything", config.TrackEverything)
+	if config.TrackEverything {
+		event.Str("memory_usage", "high").Str("note", "all metrics enabled")
+		return // Don't add individual flags if everything is enabled
+	}
+
+	// Request tracking
+	requestMetrics := []string{}
+	if config.TrackRequestsDetailed {
+		requestMetrics = append(requestMetrics, "detailed")
+		totalEnabled++
+	}
+	if config.TrackRequestsPerUser {
+		requestMetrics = append(requestMetrics, "per-user")
+		totalEnabled++
+	}
+	if config.TrackRequestsPerBucket {
+		requestMetrics = append(requestMetrics, "per-bucket")
+		totalEnabled++
+	}
+	if config.TrackRequestsPerTenant {
+		requestMetrics = append(requestMetrics, "per-tenant")
+		totalEnabled++
+	}
+	if len(requestMetrics) > 0 {
+		event.Strs("request_tracking", requestMetrics)
+	}
+
+	// Method-based tracking
+	methodMetrics := []string{}
+	if config.TrackRequestsByMethodDetailed {
+		methodMetrics = append(methodMetrics, "detailed")
+		totalEnabled++
+	}
+	if config.TrackRequestsByMethodPerUser {
+		methodMetrics = append(methodMetrics, "per-user")
+		totalEnabled++
+	}
+	if config.TrackRequestsByMethodPerBucket {
+		methodMetrics = append(methodMetrics, "per-bucket")
+		totalEnabled++
+	}
+	if config.TrackRequestsByMethodPerTenant {
+		methodMetrics = append(methodMetrics, "per-tenant")
+		totalEnabled++
+	}
+	if config.TrackRequestsByMethodGlobal {
+		methodMetrics = append(methodMetrics, "global")
+		totalEnabled++
+	}
+	if len(methodMetrics) > 0 {
+		event.Strs("method_tracking", methodMetrics)
+	}
+
+	// Operation-based tracking
+	operationMetrics := []string{}
+	if config.TrackRequestsByOperationDetailed {
+		operationMetrics = append(operationMetrics, "detailed")
+		totalEnabled++
+	}
+	if config.TrackRequestsByOperationPerUser {
+		operationMetrics = append(operationMetrics, "per-user")
+		totalEnabled++
+	}
+	if config.TrackRequestsByOperationPerBucket {
+		operationMetrics = append(operationMetrics, "per-bucket")
+		totalEnabled++
+	}
+	if config.TrackRequestsByOperationPerTenant {
+		operationMetrics = append(operationMetrics, "per-tenant")
+		totalEnabled++
+	}
+	if config.TrackRequestsByOperationGlobal {
+		operationMetrics = append(operationMetrics, "global")
+		totalEnabled++
+	}
+	if len(operationMetrics) > 0 {
+		event.Strs("operation_tracking", operationMetrics)
+	}
+
+	// Status-based tracking
+	statusMetrics := []string{}
+	if config.TrackRequestsByStatusDetailed {
+		statusMetrics = append(statusMetrics, "detailed")
+		totalEnabled++
+	}
+	if config.TrackRequestsByStatusPerUser {
+		statusMetrics = append(statusMetrics, "per-user")
+		totalEnabled++
+	}
+	if config.TrackRequestsByStatusPerBucket {
+		statusMetrics = append(statusMetrics, "per-bucket")
+		totalEnabled++
+	}
+	if config.TrackRequestsByStatusPerTenant {
+		statusMetrics = append(statusMetrics, "per-tenant")
+		totalEnabled++
+	}
+	if len(statusMetrics) > 0 {
+		event.Strs("status_tracking", statusMetrics)
+	}
+
+	// Bytes tracking
+	bytesMetrics := []string{}
+	if config.TrackBytesSentDetailed {
+		bytesMetrics = append(bytesMetrics, "sent-detailed")
+		totalEnabled++
+	}
+	if config.TrackBytesSentPerUser {
+		bytesMetrics = append(bytesMetrics, "sent-per-user")
+		totalEnabled++
+	}
+	if config.TrackBytesSentPerBucket {
+		bytesMetrics = append(bytesMetrics, "sent-per-bucket")
+		totalEnabled++
+	}
+	if config.TrackBytesSentPerTenant {
+		bytesMetrics = append(bytesMetrics, "sent-per-tenant")
+		totalEnabled++
+	}
+	if config.TrackBytesReceivedDetailed {
+		bytesMetrics = append(bytesMetrics, "received-detailed")
+		totalEnabled++
+	}
+	if config.TrackBytesReceivedPerUser {
+		bytesMetrics = append(bytesMetrics, "received-per-user")
+		totalEnabled++
+	}
+	if config.TrackBytesReceivedPerBucket {
+		bytesMetrics = append(bytesMetrics, "received-per-bucket")
+		totalEnabled++
+	}
+	if config.TrackBytesReceivedPerTenant {
+		bytesMetrics = append(bytesMetrics, "received-per-tenant")
+		totalEnabled++
+	}
+	if len(bytesMetrics) > 0 {
+		event.Strs("bytes_tracking", bytesMetrics)
+	}
+
+	// Error tracking
+	errorMetrics := []string{}
+	if config.TrackErrorsDetailed {
+		errorMetrics = append(errorMetrics, "detailed")
+		totalEnabled++
+	}
+	if config.TrackErrorsPerUser {
+		errorMetrics = append(errorMetrics, "per-user")
+		totalEnabled++
+	}
+	if config.TrackErrorsPerBucket {
+		errorMetrics = append(errorMetrics, "per-bucket")
+		totalEnabled++
+	}
+	if config.TrackErrorsPerTenant {
+		errorMetrics = append(errorMetrics, "per-tenant")
+		totalEnabled++
+	}
+	if config.TrackErrorsPerStatus {
+		errorMetrics = append(errorMetrics, "per-status")
+		totalEnabled++
+	}
+	if config.TrackErrorsByIP {
+		errorMetrics = append(errorMetrics, "by-ip")
+		totalEnabled++
+	}
+	if len(errorMetrics) > 0 {
+		event.Strs("error_tracking", errorMetrics)
+	}
+
+	// IP-based tracking
+	ipMetrics := []string{}
+	if config.TrackRequestsByIPDetailed {
+		ipMetrics = append(ipMetrics, "requests-detailed")
+		totalEnabled++
+	}
+	if config.TrackRequestsByIPPerTenant {
+		ipMetrics = append(ipMetrics, "requests-per-tenant")
+		totalEnabled++
+	}
+	if config.TrackRequestsByIPBucketMethodTenant {
+		ipMetrics = append(ipMetrics, "requests-bucket-method-tenant")
+		totalEnabled++
+	}
+	if config.TrackRequestsByIPGlobalPerTenant {
+		ipMetrics = append(ipMetrics, "requests-global-per-tenant")
+		totalEnabled++
+	}
+	if config.TrackBytesSentByIPDetailed {
+		ipMetrics = append(ipMetrics, "bytes-sent-detailed")
+		totalEnabled++
+	}
+	if config.TrackBytesSentByIPPerTenant {
+		ipMetrics = append(ipMetrics, "bytes-sent-per-tenant")
+		totalEnabled++
+	}
+	if config.TrackBytesSentByIPGlobalPerTenant {
+		ipMetrics = append(ipMetrics, "bytes-sent-global-per-tenant")
+		totalEnabled++
+	}
+	if config.TrackBytesReceivedByIPDetailed {
+		ipMetrics = append(ipMetrics, "bytes-received-detailed")
+		totalEnabled++
+	}
+	if config.TrackBytesReceivedByIPPerTenant {
+		ipMetrics = append(ipMetrics, "bytes-received-per-tenant")
+		totalEnabled++
+	}
+	if config.TrackBytesReceivedByIPGlobalPerTenant {
+		ipMetrics = append(ipMetrics, "bytes-received-global-per-tenant")
+		totalEnabled++
+	}
+	if len(ipMetrics) > 0 {
+		event.Strs("ip_tracking", ipMetrics)
+	}
+
+	// Latency tracking (uses histograms, not storage maps)
+	latencyMetrics := []string{}
+	if config.TrackLatencyDetailed {
+		latencyMetrics = append(latencyMetrics, "detailed")
+		totalEnabled++
+	}
+	if config.TrackLatencyPerUser {
+		latencyMetrics = append(latencyMetrics, "per-user")
+		totalEnabled++
+	}
+	if config.TrackLatencyPerBucket {
+		latencyMetrics = append(latencyMetrics, "per-bucket")
+		totalEnabled++
+	}
+	if config.TrackLatencyPerTenant {
+		latencyMetrics = append(latencyMetrics, "per-tenant")
+		totalEnabled++
+	}
+	if config.TrackLatencyPerMethod {
+		latencyMetrics = append(latencyMetrics, "per-method")
+		totalEnabled++
+	}
+	if config.TrackLatencyPerBucketAndMethod {
+		latencyMetrics = append(latencyMetrics, "per-bucket-and-method")
+		totalEnabled++
+	}
+	if len(latencyMetrics) > 0 {
+		event.Strs("latency_tracking", latencyMetrics)
+	}
+
+	// Summary information
+	event.Int("total_enabled_metrics", totalEnabled)
+
+	// Memory efficiency classification
+	if totalEnabled == 0 {
+		event.Str("memory_usage", "minimal").Str("note", "only basic counters")
+	} else if totalEnabled > 30 {
+		event.Str("memory_usage", "high").Str("note", "consider reducing in production")
+	} else {
+		event.Str("memory_usage", "efficient").Str("architecture", "dedicated storage")
+	}
 }
 
 func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
@@ -445,5 +708,52 @@ func validateOpsLogConfig(config opslog.OpsLogConfig) {
 	if missingParams {
 		fmt.Println("One or more required parameters are missing. Please provide them through flags or environment variables.")
 		os.Exit(1)
+	}
+
+	// Performance warnings
+	if config.MetricsConfig.TrackEverything {
+		log.Warn().Msg("Performance Warning: --track-everything enables all metrics. Monitor memory usage in production.")
+	}
+
+	// Count enabled detailed metrics (highest memory usage)
+	detailedCount := 0
+	if config.MetricsConfig.TrackRequestsDetailed {
+		detailedCount++
+	}
+	if config.MetricsConfig.TrackRequestsByMethodDetailed {
+		detailedCount++
+	}
+	if config.MetricsConfig.TrackRequestsByOperationDetailed {
+		detailedCount++
+	}
+	if config.MetricsConfig.TrackRequestsByStatusDetailed {
+		detailedCount++
+	}
+	if config.MetricsConfig.TrackBytesSentDetailed {
+		detailedCount++
+	}
+	if config.MetricsConfig.TrackBytesReceivedDetailed {
+		detailedCount++
+	}
+	if config.MetricsConfig.TrackErrorsDetailed {
+		detailedCount++
+	}
+	if config.MetricsConfig.TrackRequestsByIPDetailed {
+		detailedCount++
+	}
+	if config.MetricsConfig.TrackBytesSentByIPDetailed {
+		detailedCount++
+	}
+	if config.MetricsConfig.TrackBytesReceivedByIPDetailed {
+		detailedCount++
+	}
+
+	if detailedCount > 5 {
+		log.Warn().Int("detailed_metrics", detailedCount).Msg("Many detailed metrics enabled - these have highest memory usage")
+	}
+
+	// Interval warning for high-frequency environments
+	if config.PrometheusIntervalSeconds < 30 && config.MetricsConfig.TrackEverything {
+		log.Warn().Int("interval_seconds", config.PrometheusIntervalSeconds).Msg("Short interval with comprehensive tracking may impact performance")
 	}
 }
