@@ -99,123 +99,140 @@ func registerErrorMetrics(metricsConfig *MetricsConfig) {
 func publishErrorCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 	metricsConfig := cfg.MetricsConfig
 
-	// Process ErrorsByUserAndBucket data
-	diffMetrics.ErrorsByUserAndBucket.Range(func(key, count any) bool {
-		parts := strings.Split(key.(string), "|")
-		if len(parts) != 3 {
-			log.Warn().Msgf("Invalid key format in ErrorsByUserAndBucket: %v", key)
-			return true
-		}
-
-		user, bucket, status := parts[0], parts[1], parts[2]
-
-		// Exclude HTTP status codes in the 2xx range
-		if strings.HasPrefix(status, "2") {
-			return true
-		}
-
-		userStr, tenantStr := extractUserAndTenant(user)
-		errorCount := float64(count.(*atomic.Uint64).Load())
-
-		if errorCount <= 0 {
-			return true
-		}
-
-		// Detailed error metric - only if enabled
-		if metricsConfig.TrackErrorsDetailed {
-			errorsDetailedCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"user":        userStr,
-				"tenant":      tenantStr,
-				"bucket":      bucket,
-				"http_status": status,
-			}).Add(errorCount)
-		}
-
-		// Aggregated metrics based on config
-		if metricsConfig.TrackErrorsPerUser {
-			errorsPerUserCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"user":        userStr,
-				"tenant":      tenantStr,
-				"http_status": status,
-			}).Add(errorCount)
-		}
-
-		if metricsConfig.TrackErrorsPerBucket {
-			errorsPerBucketCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"tenant":      tenantStr,
-				"bucket":      bucket,
-				"http_status": status,
-			}).Add(errorCount)
-		}
-
-		if metricsConfig.TrackErrorsPerTenant {
-			errorsPerTenantCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"tenant":      tenantStr,
-				"http_status": status,
-			}).Add(errorCount)
-		}
-
-		return true
-	})
-
-	// Process ErrorsByIPAndBucket data
-	if metricsConfig.TrackErrorsByIP {
-		diffMetrics.ErrorsByIPAndBucket.Range(func(key, count any) bool {
+	// Publish detailed error metrics from dedicated storage
+	if metricsConfig.TrackErrorsDetailed {
+		diffMetrics.ErrorsDetailed.Range(func(key, count any) bool {
 			parts := strings.Split(key.(string), "|")
-			if len(parts) != 4 {
-				log.Warn().Msgf("Invalid key format in ErrorsByIPAndBucket: %v", key)
-				return true
-			}
-			ip, user, _, status := parts[0], parts[1], parts[2], parts[3] // Use _ for unused bucket
-
-			// Exclude HTTP status codes in the 2xx range
-			if strings.HasPrefix(status, "2") {
+			if len(parts) != 3 {
+				log.Warn().Msgf("Invalid key format in ErrorsDetailed: %v", key)
 				return true
 			}
 
-			_, tenantStr := extractUserAndTenant(user)
+			user, bucket, status := parts[0], parts[1], parts[2]
+			userStr, tenantStr := extractUserAndTenant(user)
 			errorCount := float64(count.(*atomic.Uint64).Load())
 
-			if errorCount <= 0 {
-				return true
+			if errorCount > 0 {
+				errorsDetailedCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"user":        userStr,
+					"tenant":      tenantStr,
+					"bucket":      bucket,
+					"http_status": status,
+				}).Add(errorCount)
 			}
-
-			errorsPerIPCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"ip":          ip,
-				"tenant":      tenantStr,
-				"http_status": status,
-			}).Add(errorCount)
-
 			return true
 		})
 	}
 
-	// Process RequestsPerStatusCode for global status aggregation
+	// Publish per-user error metrics from dedicated storage
+	if metricsConfig.TrackErrorsPerUser {
+		diffMetrics.ErrorsPerUser.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in ErrorsPerUser: %v", key)
+				return true
+			}
+
+			user, status := parts[0], parts[1]
+			userStr, tenantStr := extractUserAndTenant(user)
+			errorCount := float64(count.(*atomic.Uint64).Load())
+
+			if errorCount > 0 {
+				errorsPerUserCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"user":        userStr,
+					"tenant":      tenantStr,
+					"http_status": status,
+				}).Add(errorCount)
+			}
+			return true
+		})
+	}
+
+	// Publish per-bucket error metrics from dedicated storage
+	if metricsConfig.TrackErrorsPerBucket {
+		diffMetrics.ErrorsPerBucket.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				log.Warn().Msgf("Invalid key format in ErrorsPerBucket: %v", key)
+				return true
+			}
+
+			tenant, bucket, status := parts[0], parts[1], parts[2]
+			errorCount := float64(count.(*atomic.Uint64).Load())
+
+			if errorCount > 0 {
+				errorsPerBucketCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"tenant":      tenant,
+					"bucket":      bucket,
+					"http_status": status,
+				}).Add(errorCount)
+			}
+			return true
+		})
+	}
+
+	// Publish per-tenant error metrics from dedicated storage
+	if metricsConfig.TrackErrorsPerTenant {
+		diffMetrics.ErrorsPerTenant.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in ErrorsPerTenant: %v", key)
+				return true
+			}
+
+			tenant, status := parts[0], parts[1]
+			errorCount := float64(count.(*atomic.Uint64).Load())
+
+			if errorCount > 0 {
+				errorsPerTenantCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"tenant":      tenant,
+					"http_status": status,
+				}).Add(errorCount)
+			}
+			return true
+		})
+	}
+
+	// Publish per-status error metrics from dedicated storage
 	if metricsConfig.TrackErrorsPerStatus {
-		diffMetrics.RequestsPerStatusCode.Range(func(status, count any) bool {
-			statusStr := status.(string)
+		diffMetrics.ErrorsPerStatus.Range(func(key, count any) bool {
+			status := key.(string)
+			errorCount := float64(count.(*atomic.Uint64).Load())
 
-			// Exclude HTTP status codes in the 2xx range
-			if strings.HasPrefix(statusStr, "2") {
+			if errorCount > 0 {
+				errorsPerStatusCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"http_status": status,
+				}).Add(errorCount)
+			}
+			return true
+		})
+	}
+
+	// Publish per-IP error metrics from dedicated storage
+	if metricsConfig.TrackErrorsByIP {
+		diffMetrics.ErrorsPerIP.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				log.Warn().Msgf("Invalid key format in ErrorsPerIP: %v", key)
 				return true
 			}
 
-			requestCount := float64(count.(*atomic.Uint64).Load())
+			ip, tenant, status := parts[0], parts[1], parts[2]
+			errorCount := float64(count.(*atomic.Uint64).Load())
 
-			if requestCount <= 0 {
-				return true
+			if errorCount > 0 {
+				errorsPerIPCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"ip":          ip,
+					"tenant":      tenant,
+					"http_status": status,
+				}).Add(errorCount)
 			}
-
-			errorsPerStatusCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"http_status": statusStr,
-			}).Add(requestCount)
-
 			return true
 		})
 	}

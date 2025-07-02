@@ -57,8 +57,6 @@ func initPrometheusSettings(cfg *OpsLogConfig) {
 
 // PublishToPrometheus updates Prometheus metrics from aggregated data
 func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
-	metricsConfig := cfg.MetricsConfig
-
 	// Initialize previousMetrics as empty on first call
 	if previousMetrics == nil {
 		previousMetrics = NewMetrics() // Empty metrics
@@ -79,9 +77,7 @@ func PublishToPrometheus(totalMetrics *Metrics, cfg OpsLogConfig) {
 
 	publishOperationMetrics(diffMetrics, cfg)
 
-	if metricsConfig.TrackRequestsByStatusDetailed {
-		publishStatusMetrics(diffMetrics, cfg)
-	}
+	publishStatusMetrics(diffMetrics, cfg)
 
 	publishBytesCounters(diffMetrics, cfg)
 

@@ -68,67 +68,107 @@ func registerTotalRequestsMetrics(metricsConfig *MetricsConfig) {
 	}
 }
 
-// Updated publishing logic for request counters
 func publishRequestCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 	metricsConfig := cfg.MetricsConfig
 
-	// Always publish detailed requests
-	diffMetrics.RequestsByUser.Range(func(key, requestCount any) bool {
-		parts := strings.Split(key.(string), "|")
-		if len(parts) != 4 {
-			log.Warn().Msgf("Invalid key format in RequestsByUser: %v", key)
+	// Publish detailed requests - dedicated storage
+	if metricsConfig.TrackRequestsDetailed {
+		diffMetrics.RequestsDetailed.Range(func(key, requestCount any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 4 {
+				return true
+			}
+
+			user, bucket, method, httpStatus := parts[0], parts[1], parts[2], parts[3]
+			userStr, tenantStr := extractUserAndTenant(user)
+			rqCount := float64(requestCount.(*atomic.Uint64).Load())
+
+			if rqCount > 0 {
+				totalRequestsCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"user":        userStr,
+					"tenant":      tenantStr,
+					"bucket":      bucket,
+					"method":      method,
+					"http_status": httpStatus,
+				}).Add(rqCount)
+			}
 			return true
-		}
+		})
+	}
 
-		user, bucket, method, httpStatus := parts[0], parts[1], parts[2], parts[3]
-		userStr, tenantStr := extractUserAndTenant(user)
-		rqCount := float64(requestCount.(*atomic.Uint64).Load())
-		if rqCount <= 0 {
+	// Publish per-user requests - dedicated storage
+	if metricsConfig.TrackRequestsPerUser {
+		diffMetrics.RequestsByUser.Range(func(key, requestCount any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 4 {
+				log.Warn().Msgf("Invalid key format in RequestsByUser: %v", key)
+				return true
+			}
+
+			user, _, method, httpStatus := parts[0], parts[1], parts[2], parts[3]
+			userStr, tenantStr := extractUserAndTenant(user)
+			rqCount := float64(requestCount.(*atomic.Uint64).Load())
+
+			if rqCount > 0 {
+				totalRequestsPerUserCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"user":        userStr,
+					"tenant":      tenantStr,
+					"method":      method,
+					"http_status": httpStatus,
+				}).Add(rqCount)
+			}
 			return true
-		}
+		})
+	}
 
-		// Detailed metric - only if enabled
-		if metricsConfig.TrackRequestsDetailed {
-			totalRequestsCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"user":        userStr,
-				"tenant":      tenantStr,
-				"bucket":      bucket,
-				"method":      method,
-				"http_status": httpStatus,
-			}).Add(rqCount)
-		}
+	// Publish per-bucket requests - dedicated storage
+	if metricsConfig.TrackRequestsPerBucket {
+		diffMetrics.RequestsByBucket.Range(func(key, requestCount any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 4 {
+				log.Warn().Msgf("Invalid key format in RequestsByBucket: %v", key)
+				return true
+			}
 
-		// Aggregated metrics based on config
-		if metricsConfig.TrackRequestsPerUser {
-			totalRequestsPerUserCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"user":        userStr,
-				"tenant":      tenantStr,
-				"method":      method,
-				"http_status": httpStatus,
-			}).Add(rqCount)
-		}
+			bucket, user, method, httpStatus := parts[0], parts[1], parts[2], parts[3]
+			_, tenantStr := extractUserAndTenant(user)
+			rqCount := float64(requestCount.(*atomic.Uint64).Load())
 
-		if metricsConfig.TrackRequestsPerBucket {
-			totalRequestsPerBucketCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"tenant":      tenantStr,
-				"bucket":      bucket,
-				"method":      method,
-				"http_status": httpStatus,
-			}).Add(rqCount)
-		}
+			if rqCount > 0 {
+				totalRequestsPerBucketCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"tenant":      tenantStr,
+					"bucket":      bucket,
+					"method":      method,
+					"http_status": httpStatus,
+				}).Add(rqCount)
+			}
+			return true
+		})
+	}
 
-		if metricsConfig.TrackRequestsPerTenant {
-			totalRequestsPerTenantCounter.With(prometheus.Labels{
-				"pod":         cfg.PodName,
-				"tenant":      tenantStr,
-				"method":      method,
-				"http_status": httpStatus,
-			}).Add(rqCount)
-		}
+	// Publish per-tenant requests - dedicated storage
+	if metricsConfig.TrackRequestsPerTenant {
+		diffMetrics.RequestsByTenant.Range(func(key, requestCount any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				return true
+			}
 
-		return true
-	})
+			tenant, method, httpStatus := parts[0], parts[1], parts[2]
+			rqCount := float64(requestCount.(*atomic.Uint64).Load())
+
+			if rqCount > 0 {
+				totalRequestsPerTenantCounter.With(prometheus.Labels{
+					"pod":         cfg.PodName,
+					"tenant":      tenant,
+					"method":      method,
+					"http_status": httpStatus,
+				}).Add(rqCount)
+			}
+			return true
+		})
+	}
 }

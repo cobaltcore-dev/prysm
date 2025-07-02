@@ -143,13 +143,12 @@ func registerIPMetrics(metricsConfig *MetricsConfig) {
 func publishIPGauges(currentMetrics *Metrics, cfg OpsLogConfig) {
 	metricsConfig := cfg.MetricsConfig
 
-	// Track detailed requests by IP and user - only if enabled
+	// Publish detailed requests by IP from dedicated storage
 	if metricsConfig.TrackRequestsByIPDetailed {
-
-		currentMetrics.RequestsByIP.Range(func(key, count any) bool {
+		currentMetrics.RequestsByIPDetailed.Range(func(key, count any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 2 {
-				log.Warn().Msgf("Invalid key format in RequestsByIP: %v", key)
+				log.Warn().Msgf("Invalid key format in RequestsByIPDetailed: %v", key)
 				return true
 			}
 
@@ -157,76 +156,58 @@ func publishIPGauges(currentMetrics *Metrics, cfg OpsLogConfig) {
 			userStr, tenantStr := extractUserAndTenant(user)
 			requestCount := float64(count.(*atomic.Uint64).Load())
 
-			requestsByIPGauge.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"user":   userStr,
-				"tenant": tenantStr,
-				"ip":     ip,
-			}).Set(requestCount)
-
+			if requestCount > 0 {
+				requestsByIPGauge.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"user":   userStr,
+					"tenant": tenantStr,
+					"ip":     ip,
+				}).Set(requestCount)
+			}
 			return true
 		})
 	}
 
-	// Track aggregated requests per IP - only if enabled
+	// Publish aggregated requests per IP per tenant from dedicated storage
 	if metricsConfig.TrackRequestsByIPPerTenant {
-		ipTenantMap := make(map[string]map[string]float64)
-		currentMetrics.RequestsByIP.Range(func(key, count any) bool {
+		currentMetrics.RequestsPerIPPerTenant.Range(func(key, count any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in RequestsPerIPPerTenant: %v", key)
 				return true
 			}
 
-			user, ip := parts[0], parts[1]
-			_, tenantStr := extractUserAndTenant(user)
+			tenant, ip := parts[0], parts[1]
 			requestCount := float64(count.(*atomic.Uint64).Load())
 
-			if ipTenantMap[ip] == nil {
-				ipTenantMap[ip] = make(map[string]float64)
-			}
-			ipTenantMap[ip][tenantStr] += requestCount
-
-			return true
-		})
-
-		for ip, tenantCounts := range ipTenantMap {
-			for tenant, count := range tenantCounts {
+			if requestCount > 0 {
 				requestsPerIPGauge.With(prometheus.Labels{
 					"pod":    cfg.PodName,
 					"tenant": tenant,
 					"ip":     ip,
-				}).Set(count)
+				}).Set(requestCount)
 			}
-		}
-	}
-
-	// Track global tenant aggregation - only if enabled
-	if metricsConfig.TrackRequestsByIPGlobalPerTenant {
-		tenantTotalMap := make(map[string]float64)
-		currentMetrics.RequestsByIP.Range(func(key, count any) bool {
-			parts := strings.Split(key.(string), "|")
-			if len(parts) != 2 {
-				return true
-			}
-
-			user, _ := parts[0], parts[1]
-			_, tenantStr := extractUserAndTenant(user)
-			requestCount := float64(count.(*atomic.Uint64).Load())
-
-			tenantTotalMap[tenantStr] += requestCount
-
 			return true
 		})
-
-		for tenant, totalCount := range tenantTotalMap {
-			requestsPerTenantFromIPGauge.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"tenant": tenant,
-			}).Set(totalCount)
-		}
 	}
 
-	// Track requests by IP, bucket, method, tenant - independent
+	// Publish global tenant aggregation from dedicated storage
+	if metricsConfig.TrackRequestsByIPGlobalPerTenant {
+		currentMetrics.RequestsPerTenantFromIP.Range(func(key, count any) bool {
+			tenant := key.(string)
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsPerTenantFromIPGauge.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+				}).Set(requestCount)
+			}
+			return true
+		})
+	}
+
+	// Publish requests by IP, bucket, method, tenant from dedicated storage
 	if metricsConfig.TrackRequestsByIPBucketMethodTenant {
 		currentMetrics.RequestsByIPBucketMethodTenant.Range(func(key, count any) bool {
 			parts := strings.Split(key.(string), "|")
@@ -235,185 +216,147 @@ func publishIPGauges(currentMetrics *Metrics, cfg OpsLogConfig) {
 				return true
 			}
 
-			ip, bucket, method, user := parts[0], parts[1], parts[2], parts[3]
-			_, tenantStr := extractUserAndTenant(user)
+			ip, bucket, method, tenant := parts[0], parts[1], parts[2], parts[3]
 			requestCount := float64(count.(*atomic.Uint64).Load())
 
-			requestsByIPBucketMethodTenantGauge.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"ip":     ip,
-				"bucket": bucket,
-				"method": method,
-				"tenant": tenantStr,
-			}).Set(requestCount)
-
+			if requestCount > 0 {
+				requestsByIPBucketMethodTenantGauge.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"ip":     ip,
+					"bucket": bucket,
+					"method": method,
+					"tenant": tenant,
+				}).Set(requestCount)
+			}
 			return true
 		})
 	}
 
-	// Track bytes sent by IP - only if enabled
+	// Publish detailed bytes sent by IP from dedicated storage
 	if metricsConfig.TrackBytesSentByIPDetailed {
-
-		currentMetrics.BytesSentByIP.Range(func(key, bytesSent any) bool {
+		currentMetrics.BytesSentByIPDetailed.Range(func(key, bytes any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 2 {
-				log.Warn().Msgf("Invalid key format in BytesSentByIP: %v", key)
+				log.Warn().Msgf("Invalid key format in BytesSentByIPDetailed: %v", key)
 				return true
 			}
 
 			user, ip := parts[0], parts[1]
 			userStr, tenantStr := extractUserAndTenant(user)
-			totalBytesSent := float64(bytesSent.(*atomic.Uint64).Load())
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
-			bytesSentByIPGauge.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"user":   userStr,
-				"tenant": tenantStr,
-				"ip":     ip,
-			}).Set(totalBytesSent)
-
+			if totalBytes > 0 {
+				bytesSentByIPGauge.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"user":   userStr,
+					"tenant": tenantStr,
+					"ip":     ip,
+				}).Set(totalBytes)
+			}
 			return true
 		})
 	}
 
-	// Track aggregated bytes sent per IP - only if enabled
+	// Publish aggregated bytes sent per IP per tenant from dedicated storage
 	if metricsConfig.TrackBytesSentByIPPerTenant {
-		ipTenantBytesMap := make(map[string]map[string]float64)
-		currentMetrics.BytesSentByIP.Range(func(key, bytesSent any) bool {
+		currentMetrics.BytesSentPerIPPerTenant.Range(func(key, bytes any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in BytesSentPerIPPerTenant: %v", key)
 				return true
 			}
 
-			user, ip := parts[0], parts[1]
-			_, tenantStr := extractUserAndTenant(user)
-			totalBytesSent := float64(bytesSent.(*atomic.Uint64).Load())
+			tenant, ip := parts[0], parts[1]
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
-			if ipTenantBytesMap[ip] == nil {
-				ipTenantBytesMap[ip] = make(map[string]float64)
-			}
-			ipTenantBytesMap[ip][tenantStr] += totalBytesSent
-
-			return true
-		})
-
-		for ip, tenantBytes := range ipTenantBytesMap {
-			for tenant, bytes := range tenantBytes {
+			if totalBytes > 0 {
 				bytesSentPerIPGauge.With(prometheus.Labels{
 					"pod":    cfg.PodName,
 					"tenant": tenant,
 					"ip":     ip,
-				}).Set(bytes)
+				}).Set(totalBytes)
 			}
-		}
-	}
-
-	// Track global tenant aggregation for bytes sent - only if enabled
-	if metricsConfig.TrackBytesSentByIPGlobalPerTenant {
-		tenantTotalBytes := make(map[string]float64)
-		currentMetrics.BytesSentByIP.Range(func(key, bytesSent any) bool {
-			parts := strings.Split(key.(string), "|")
-			if len(parts) != 2 {
-				return true
-			}
-
-			user, _ := parts[0], parts[1]
-			_, tenantStr := extractUserAndTenant(user)
-			totalBytesSent := float64(bytesSent.(*atomic.Uint64).Load())
-
-			tenantTotalBytes[tenantStr] += totalBytesSent
-
 			return true
 		})
-
-		for tenant, totalBytes := range tenantTotalBytes {
-			bytesSentPerTenantFromIPGauge.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"tenant": tenant,
-			}).Set(totalBytes)
-		}
 	}
 
-	// Track bytes received by IP - only if enabled
-	if metricsConfig.TrackBytesReceivedByIPDetailed {
+	// Publish global tenant bytes sent aggregation from dedicated storage
+	if metricsConfig.TrackBytesSentByIPGlobalPerTenant {
+		currentMetrics.BytesSentPerTenantFromIP.Range(func(key, bytes any) bool {
+			tenant := key.(string)
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
-		currentMetrics.BytesReceivedByIP.Range(func(key, bytesReceived any) bool {
+			if totalBytes > 0 {
+				bytesSentPerTenantFromIPGauge.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+				}).Set(totalBytes)
+			}
+			return true
+		})
+	}
+
+	// Publish detailed bytes received by IP from dedicated storage
+	if metricsConfig.TrackBytesReceivedByIPDetailed {
+		currentMetrics.BytesReceivedByIPDetailed.Range(func(key, bytes any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 2 {
-				log.Warn().Msgf("Invalid key format in BytesReceivedByIP: %v", key)
+				log.Warn().Msgf("Invalid key format in BytesReceivedByIPDetailed: %v", key)
 				return true
 			}
 
 			user, ip := parts[0], parts[1]
 			userStr, tenantStr := extractUserAndTenant(user)
-			totalBytesReceived := float64(bytesReceived.(*atomic.Uint64).Load())
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
-			bytesReceivedByIPGauge.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"user":   userStr,
-				"tenant": tenantStr,
-				"ip":     ip,
-			}).Set(totalBytesReceived)
-
+			if totalBytes > 0 {
+				bytesReceivedByIPGauge.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"user":   userStr,
+					"tenant": tenantStr,
+					"ip":     ip,
+				}).Set(totalBytes)
+			}
 			return true
 		})
 	}
 
-	// Track aggregated bytes received per IP - only if enabled
+	// Publish aggregated bytes received per IP per tenant from dedicated storage
 	if metricsConfig.TrackBytesReceivedByIPPerTenant {
-		ipTenantReceivedMap := make(map[string]map[string]float64)
-		currentMetrics.BytesReceivedByIP.Range(func(key, bytesReceived any) bool {
+		currentMetrics.BytesReceivedPerIPPerTenant.Range(func(key, bytes any) bool {
 			parts := strings.Split(key.(string), "|")
 			if len(parts) != 2 {
+				log.Warn().Msgf("Invalid key format in BytesReceivedPerIPPerTenant: %v", key)
 				return true
 			}
 
-			user, ip := parts[0], parts[1]
-			_, tenantStr := extractUserAndTenant(user)
-			totalBytesReceived := float64(bytesReceived.(*atomic.Uint64).Load())
+			tenant, ip := parts[0], parts[1]
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
 
-			if ipTenantReceivedMap[ip] == nil {
-				ipTenantReceivedMap[ip] = make(map[string]float64)
-			}
-			ipTenantReceivedMap[ip][tenantStr] += totalBytesReceived
-
-			return true
-		})
-
-		for ip, tenantBytes := range ipTenantReceivedMap {
-			for tenant, bytes := range tenantBytes {
+			if totalBytes > 0 {
 				bytesReceivedPerIPGauge.With(prometheus.Labels{
 					"pod":    cfg.PodName,
 					"tenant": tenant,
 					"ip":     ip,
-				}).Set(bytes)
+				}).Set(totalBytes)
 			}
-		}
-	}
-
-	// Track global tenant aggregation for bytes received - only if enabled
-	if metricsConfig.TrackBytesReceivedByIPGlobalPerTenant {
-		tenantTotalReceived := make(map[string]float64)
-		currentMetrics.BytesReceivedByIP.Range(func(key, bytesReceived any) bool {
-			parts := strings.Split(key.(string), "|")
-			if len(parts) != 2 {
-				return true
-			}
-
-			user, _ := parts[0], parts[1]
-			_, tenantStr := extractUserAndTenant(user)
-			totalBytesReceived := float64(bytesReceived.(*atomic.Uint64).Load())
-
-			tenantTotalReceived[tenantStr] += totalBytesReceived
-
 			return true
 		})
+	}
 
-		for tenant, totalBytes := range tenantTotalReceived {
-			bytesReceivedPerTenantFromIPGauge.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"tenant": tenant,
-			}).Set(totalBytes)
-		}
+	// Publish global tenant bytes received aggregation from dedicated storage
+	if metricsConfig.TrackBytesReceivedByIPGlobalPerTenant {
+		currentMetrics.BytesReceivedPerTenantFromIP.Range(func(key, bytes any) bool {
+			tenant := key.(string)
+			totalBytes := float64(bytes.(*atomic.Uint64).Load())
+
+			if totalBytes > 0 {
+				bytesReceivedPerTenantFromIPGauge.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+				}).Set(totalBytes)
+			}
+			return true
+		})
 	}
 }

@@ -10,6 +10,7 @@ The **Local Producer - S3 Operations Log** is a tool designed to process and mon
 - **NATS Integration**: Publishes raw log events and aggregated metrics to NATS.
 - **Prometheus Metrics**: Exposes operation metrics for Prometheus scraping.
 - **Latency Tracking**: Real-time request latency histograms with multiple aggregation levels.
+- **Memory Efficient Architecture**: Dedicated storage maps for each metric type ensure minimal memory usage.
 - **Log File Rotation Support**: Monitors log file changes and rotates logs based on size and retention policies.
 - **Configurable**: Allows customization via command-line flags or environment variables.
 - **Anonymous Request Filtering**: Option to ignore anonymous requests to focus on authenticated users.
@@ -43,6 +44,7 @@ prysm local-producer ops-log [flags]
 - `--track-everything` - Enable detailed tracking for all metric types (efficient mode).
 
 ### Latency Tracking Examples:
+ 
 ```bash
 # Enable all latency tracking
 prysm local-producer ops-log \
@@ -176,9 +178,35 @@ prysm local-producer ops-log \
 | `radosgw_total_requests_per_user`     | Counter   | `pod`, `user`, `tenant`, `method`, `http_status`     | Total requests aggregated per user (all buckets combined).        |
 | `radosgw_total_requests_per_bucket`   | Counter   | `pod`, `tenant`, `bucket`, `method`, `http_status`   | Total requests aggregated per bucket (all users combined).        |
 | `radosgw_total_requests_per_tenant`   | Counter   | `pod`, `tenant`, `method`, `http_status`             | Total requests aggregated per tenant (all users and buckets).     |
-| `radosgw_requests_by_method`          | Counter   | `pod`, `user`, `tenant`, `bucket`, `method`          | Number of requests grouped by HTTP method (GET, PUT, DELETE, etc.). |
-| `radosgw_requests_by_operation`       | Counter   | `pod`, `user`, `tenant`, `bucket`, `operation`, `method` | Number of requests grouped by operation and HTTP method.          |
-| `radosgw_requests_by_status`          | Counter   | `pod`, `user`, `tenant`, `bucket`, `status`          | Number of requests grouped by HTTP status code (200, 404, etc.).  |
+
+### Method-based Request Counters
+
+| Metric Name                                   | Type      | Labels                                               | Description                                                        |
+|-----------------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
+| `radosgw_requests_by_method`                  | Counter   | `pod`, `user`, `tenant`, `bucket`, `method`          | Number of requests grouped by HTTP method with full detail.       |
+| `radosgw_requests_by_method_per_user`         | Counter   | `pod`, `user`, `tenant`, `method`                    | Number of requests by method aggregated per user.                 |
+| `radosgw_requests_by_method_per_bucket`       | Counter   | `pod`, `tenant`, `bucket`, `method`                  | Number of requests by method aggregated per bucket.               |
+| `radosgw_requests_by_method_per_tenant`       | Counter   | `pod`, `tenant`, `method`                            | Number of requests by method aggregated per tenant.               |
+| `radosgw_requests_by_method_global`           | Counter   | `pod`, `method`                                      | Number of requests by method globally aggregated.                 |
+
+### Operation-based Request Counters
+
+| Metric Name                                   | Type      | Labels                                               | Description                                                        |
+|-----------------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
+| `radosgw_requests_by_operation`               | Counter   | `pod`, `user`, `tenant`, `bucket`, `operation`, `method` | Number of requests grouped by operation with full detail.         |
+| `radosgw_requests_by_operation_per_user`      | Counter   | `pod`, `user`, `tenant`, `operation`, `method`       | Number of requests by operation aggregated per user.              |
+| `radosgw_requests_by_operation_per_bucket`    | Counter   | `pod`, `tenant`, `bucket`, `operation`, `method`     | Number of requests by operation aggregated per bucket.            |
+| `radosgw_requests_by_operation_per_tenant`    | Counter   | `pod`, `tenant`, `operation`, `method`               | Number of requests by operation aggregated per tenant.            |
+| `radosgw_requests_by_operation_global`        | Counter   | `pod`, `operation`, `method`                         | Number of requests by operation globally aggregated.              |
+
+### Status-based Request Counters
+
+| Metric Name                                   | Type      | Labels                                               | Description                                                        |
+|-----------------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
+| `radosgw_requests_by_status_detailed`         | Counter   | `pod`, `user`, `tenant`, `bucket`, `status`          | Number of requests grouped by HTTP status with full detail.       |
+| `radosgw_requests_by_status_per_user`         | Counter   | `pod`, `user`, `tenant`, `status`                    | Number of requests by status aggregated per user.                 |
+| `radosgw_requests_by_status_per_bucket`       | Counter   | `pod`, `tenant`, `bucket`, `status`                  | Number of requests by status aggregated per bucket.               |
+| `radosgw_requests_by_status_per_tenant`       | Counter   | `pod`, `tenant`, `status`                            | Number of requests by status aggregated per tenant.               |
 
 ### Bytes Transferred Counters
 
@@ -190,23 +218,34 @@ prysm local-producer ops-log \
 | `radosgw_bytes_received_per_user`     | Counter   | `pod`, `user`, `tenant`                              | Total bytes received aggregated per user (all buckets combined).  |
 | `radosgw_bytes_sent_per_bucket`       | Counter   | `pod`, `tenant`, `bucket`                            | Total bytes sent aggregated per bucket (all users combined).      |
 | `radosgw_bytes_received_per_bucket`   | Counter   | `pod`, `tenant`, `bucket`                            | Total bytes received aggregated per bucket (all users combined).  |
+| `radosgw_bytes_sent_per_tenant`       | Counter   | `pod`, `tenant`                                      | Total bytes sent aggregated per tenant (all users and buckets).   |
+| `radosgw_bytes_received_per_tenant`   | Counter   | `pod`, `tenant`                                      | Total bytes received aggregated per tenant (all users and buckets). |
 
 ### Error Counters
 
 | Metric Name                           | Type      | Labels                                               | Description                                                        |
 |---------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
-| `radosgw_errors_total`                | Counter   | `pod`, `user`, `tenant`, `bucket`, `http_status`     | Total number of error responses by user, bucket, and status code. |
-| `radosgw_http_errors_by_user`         | Counter   | `pod`, `user`, `tenant`, `bucket`, `http_status`     | HTTP errors grouped by user, tenant, bucket, and status code.     |
-| `radosgw_http_errors_by_ip`           | Counter   | `pod`, `ip`, `bucket`, `tenant`, `http_status`       | HTTP errors grouped by IP, bucket, tenant, and status code.       |
+| `radosgw_errors_detailed`             | Counter   | `pod`, `user`, `tenant`, `bucket`, `http_status`     | Total number of errors with full detail.                          |
+| `radosgw_errors_per_user`             | Counter   | `pod`, `user`, `tenant`, `http_status`               | Total errors aggregated per user (all buckets combined).          |
+| `radosgw_errors_per_bucket`           | Counter   | `pod`, `tenant`, `bucket`, `http_status`             | Total errors aggregated per bucket (all users combined).          |
+| `radosgw_errors_per_tenant`           | Counter   | `pod`, `tenant`, `http_status`                       | Total errors aggregated per tenant (all users and buckets).       |
+| `radosgw_errors_per_status`           | Counter   | `pod`, `http_status`                                 | Total errors aggregated per HTTP status code (global).            |
+| `radosgw_errors_per_ip`               | Counter   | `pod`, `ip`, `tenant`, `http_status`                 | Total errors aggregated per IP address.                           |
 
 ### IP-based Gauges
 
-| Metric Name                           | Type      | Labels                                               | Description                                                        |
-|---------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
-| `radosgw_requests_by_ip`              | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total number of requests grouped by IP and user.                  |
-| `radosgw_requests_by_ip_bucket_method_tenant` | Gauge | `pod`, `ip`, `bucket`, `method`, `tenant`            | Total number of requests grouped by IP, bucket and method.        |
-| `radosgw_bytes_sent_by_ip`            | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes sent grouped by IP and user.                          |
-| `radosgw_bytes_received_by_ip`        | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes received grouped by IP and user.                      |
+| Metric Name                                  | Type      | Labels                                               | Description                                                        |
+|----------------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
+| `radosgw_requests_by_ip`                     | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total number of requests grouped by IP and user.                  |
+| `radosgw_requests_per_ip`                    | Gauge     | `pod`, `tenant`, `ip`                                | Total requests aggregated per IP (all users combined).            |
+| `radosgw_requests_per_tenant_from_ip`        | Gauge     | `pod`, `tenant`                                      | Total requests aggregated per tenant from all IPs.                |
+| `radosgw_requests_by_ip_bucket_method_tenant`| Gauge     | `pod`, `ip`, `bucket`, `method`, `tenant`            | Total number of requests grouped by IP, bucket and method.        |
+| `radosgw_bytes_sent_by_ip`                   | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes sent grouped by IP and user.                          |
+| `radosgw_bytes_sent_per_ip`                  | Gauge     | `pod`, `tenant`, `ip`                                | Total bytes sent aggregated per IP (all users combined).          |
+| `radosgw_bytes_sent_per_tenant_from_ip`      | Gauge     | `pod`, `tenant`                                      | Total bytes sent aggregated per tenant from all IPs.              |
+| `radosgw_bytes_received_by_ip`               | Gauge     | `pod`, `user`, `tenant`, `ip`                        | Total bytes received grouped by IP and user.                      |
+| `radosgw_bytes_received_per_ip`              | Gauge     | `pod`, `tenant`, `ip`                                | Total bytes received aggregated per IP (all users combined).      |
+| `radosgw_bytes_received_per_tenant_from_ip`  | Gauge     | `pod`, `tenant`                                      | Total bytes received aggregated per tenant from all IPs.          |
 
 ### Latency Histograms
 
@@ -220,6 +259,15 @@ prysm local-producer ops-log \
 | `radosgw_requests_duration_per_bucket_and_method`    | Histogram | `tenant`, `bucket`, `method`                         | Histogram for request latencies aggregated per bucket and method (all users combined). |
 
 > **Note**: Histogram metrics do **not** include the `pod` label to reduce cardinality. Each histogram automatically provides `_bucket`, `_count`, and `_sum` metrics for comprehensive latency analysis.
+
+### Memory Efficiency Architecture
+
+The system uses a **dedicated storage architecture** where each metric type has its own optimized storage map:
+
+- **Memory Efficient**: Only enabled metric types consume memory
+- **Optimal Granularity**: Each aggregation level stores exactly the data it needs
+- **No Runtime Aggregation**: All aggregation happens at storage time for better performance
+- **Independent Metrics**: Each metric can be enabled/disabled independently without affecting others
 
 ### Multi-Tenant Support
 
@@ -240,8 +288,8 @@ Many metrics provide multiple aggregation levels for flexible monitoring:
 ## Workflow
 
 1. **Log Processing**: Reads and parses incoming log entries from the Ceph RGW log file.
-2. **Metrics Aggregation**: Updates counters, gauges, and histograms based on extracted information with proper tenant separation.
-3. **Latency Recording**: Records request latencies from the `total_time` field into Prometheus histograms.
+2. **Dedicated Storage**: Updates dedicated storage maps based on enabled metric types with proper tenant separation.
+3. **Latency Recording**: Records request latencies from the `total_time` field directly into Prometheus histograms.
 4. **Publishing to NATS**: Raw log events and aggregated metrics are sent to specified NATS subjects.
 5. **Prometheus Metrics**: Exposes metrics via an HTTP server for Prometheus scraping.
 6. **File Rotation Handling**: Monitors log file size and age, triggering rotation when needed.
@@ -291,6 +339,7 @@ prysm local-producer ops-log \
 - **Selective tracking**: Enable only the metrics you actually need for monitoring
 - **Latency tracking**: Start with `--track-latency-per-method` and add more granular tracking as needed
 - **Anonymous requests**: Use `--ignore-anonymous-requests` to reduce noise in multi-tenant environments
+- **Memory efficiency**: Each metric type uses dedicated storage, so only enabled metrics consume memory
 
 ### Recommended Configurations
 
@@ -317,6 +366,7 @@ prysm local-producer ops-log \
 - **Multi-tenant environments**: The tool automatically extracts tenant information from user identifiers and ensures proper separation of metrics across tenants.
 - **Bucket name collision handling**: Buckets with identical names from different tenants are properly isolated in all metrics.
 - **Latency units**: All latency histograms use seconds as the unit, converted from the millisecond `total_time` field in log entries.
+- **Memory efficiency**: The dedicated storage architecture ensures minimal memory usage by storing only enabled metric types.
 - Sidecar injection is supported via a mutating webhook (see related documentation for Kubernetes usage).
 
 > This README will be updated as new features and improvements are introduced. Contributions and feedback are welcome!

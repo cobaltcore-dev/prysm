@@ -72,60 +72,97 @@ func registerStatusMetrics(metricsConfig *MetricsConfig) {
 func publishStatusMetrics(diffMetrics *Metrics, cfg OpsLogConfig) {
 	metricsConfig := cfg.MetricsConfig
 
-	// Detailed status tracking from RequestsByUser
-	// Key format: "user|bucket|method|http_status"
-	diffMetrics.RequestsByUser.Range(func(key, requestCount any) bool {
-		parts := strings.Split(key.(string), "|")
-		if len(parts) != 4 {
+	// Publish detailed status metrics from dedicated storage
+	if metricsConfig.TrackRequestsByStatusDetailed {
+		diffMetrics.RequestsByStatusDetailed.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				return true
+			}
+
+			user, bucket, httpStatus := parts[0], parts[1], parts[2]
+			userStr, tenantStr := extractUserAndTenant(user)
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsByStatusDetailedCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"user":   userStr,
+					"tenant": tenantStr,
+					"bucket": bucket,
+					"status": httpStatus,
+				}).Add(requestCount)
+			}
 			return true
-		}
+		})
+	}
 
-		user, bucket, _, httpStatus := parts[0], parts[1], parts[2], parts[3]
-		userStr, tenantStr := extractUserAndTenant(user)
-		rqCount := float64(requestCount.(*atomic.Uint64).Load())
+	// Publish per-user status metrics from dedicated storage
+	if metricsConfig.TrackRequestsByStatusPerUser {
+		diffMetrics.RequestsByStatusPerUser.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				return true
+			}
 
-		if rqCount <= 0 {
+			user, httpStatus := parts[0], parts[1]
+			userStr, tenantStr := extractUserAndTenant(user)
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsByStatusPerUserCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"user":   userStr,
+					"tenant": tenantStr,
+					"status": httpStatus,
+				}).Add(requestCount)
+			}
 			return true
-		}
+		})
+	}
 
-		// Detailed status metric - only if enabled
-		if metricsConfig.TrackRequestsByStatusDetailed {
-			requestsByStatusDetailedCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"user":   userStr,
-				"tenant": tenantStr,
-				"bucket": bucket,
-				"status": httpStatus,
-			}).Add(rqCount)
-		}
+	// Publish per-bucket status metrics from dedicated storage
+	if metricsConfig.TrackRequestsByStatusPerBucket {
+		diffMetrics.RequestsByStatusPerBucket.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				return true
+			}
 
-		// Aggregated metrics based on config
-		if metricsConfig.TrackRequestsByStatusPerUser {
-			requestsByStatusPerUserCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"user":   userStr,
-				"tenant": tenantStr,
-				"status": httpStatus,
-			}).Add(rqCount)
-		}
+			tenant, bucket, httpStatus := parts[0], parts[1], parts[2]
+			requestCount := float64(count.(*atomic.Uint64).Load())
 
-		if metricsConfig.TrackRequestsByStatusPerBucket {
-			requestsByStatusPerBucketCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"tenant": tenantStr,
-				"bucket": bucket,
-				"status": httpStatus,
-			}).Add(rqCount)
-		}
+			if requestCount > 0 {
+				requestsByStatusPerBucketCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+					"bucket": bucket,
+					"status": httpStatus,
+				}).Add(requestCount)
+			}
+			return true
+		})
+	}
 
-		if metricsConfig.TrackRequestsByStatusPerTenant {
-			requestsByStatusPerTenantCounter.With(prometheus.Labels{
-				"pod":    cfg.PodName,
-				"tenant": tenantStr,
-				"status": httpStatus,
-			}).Add(rqCount)
-		}
+	// Publish per-tenant status metrics from dedicated storage
+	if metricsConfig.TrackRequestsByStatusPerTenant {
+		diffMetrics.RequestsByStatusPerTenant.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 2 {
+				return true
+			}
 
-		return true
-	})
+			tenant, httpStatus := parts[0], parts[1]
+			requestCount := float64(count.(*atomic.Uint64).Load())
+
+			if requestCount > 0 {
+				requestsByStatusPerTenantCounter.With(prometheus.Labels{
+					"pod":    cfg.PodName,
+					"tenant": tenant,
+					"status": httpStatus,
+				}).Add(requestCount)
+			}
+			return true
+		})
+	}
 }
