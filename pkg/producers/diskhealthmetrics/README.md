@@ -15,14 +15,44 @@ Prometheus metrics for monitoring dashboards and NATS subjects for alerting.
   and consistent data representation across various drives in your environment.
 - **Device Info Normalization**: Standardizes device information such as product name, capacity,
   vendor, and media type to maintain consistency across different systems and databases.
+- **Ceph OSD Integration**: Automatically maps physical disk devices to their corresponding Ceph OSD
+  numbers, providing enhanced observability for Ceph storage clusters. Works seamlessly with both
+  direct block devices and LVM logical volumes.
 - **Prometheus Metrics**: Exposes disk health metrics for Prometheus, including temperature,
   reallocated sectors, pending sectors, power-on hours, SSD life used percentage, and error counts.
+  All metrics include an `osd_id` label when Ceph integration is enabled.
 - **NATS Alerts**: Sends alerts to NATS subjects when certain thresholds for disk health attributes
   are exceeded, such as grown defects, reallocated sectors, pending sectors, and SSD lifetime usage.
 - **Flexible Configuration**: Allows configuration through command-line flags or environment
   variables, providing flexibility in deployment and integration with existing monitoring setups.
 
+## Ceph OSD Integration
+
+The tool provides seamless integration with Ceph storage clusters by automatically mapping physical
+disk devices to their corresponding OSD numbers. This feature works in both deployment scenarios:
+
+### Direct Block Devices
+When Ceph OSDs use direct block devices (e.g., `/dev/sda`), the mapping is straightforward:
+- Physical device `/dev/sda` → OSD ID `osd.1`
+
+### LVM Logical Volumes
+When Ceph OSDs use LVM logical volumes (e.g., `/dev/mapper/xyz`), the tool automatically resolves
+the device mapper dependencies to find the underlying physical devices:
+- Physical device `/dev/sda` → LVM volume `/dev/mapper/xyz` → OSD ID `osd.1`
+
+### Configuration
+Enable Ceph integration by setting the `--ceph-osd-base-path` flag to your Ceph OSD base directory:
+```bash
+--ceph-osd-base-path "/var/lib/rook/rook-ceph/"
+```
+
+When enabled, all Prometheus metrics will include an `osd_id` label, allowing for enhanced
+monitoring and alerting based on specific OSD performance and health metrics.
+
 ## Metrics Exposed
+
+All metrics include standard labels (`disk`, `node`, `instance`) and an optional `osd_id` label when
+Ceph integration is enabled:
 
 - **smart_attributes**: Gauges various SMART attributes of the disk.
 - **disk_temperature_celsius**: Monitors disk temperature in Celsius.
@@ -80,6 +110,22 @@ Configuration can also be set through environment variables:
 - `REALLOCATED_SECTORS_THRESHOLD`: Overrides the threshold for reallocated sectors.
 - `LIFETIME_USED_THRESHOLD`: Overrides the threshold for SSD lifetime used percentage.
 - `CEPH_OSD_BASE_PATH`: Overrides the base path for mapping devices to Ceph OSD numbers.
+
+## Deployment Example
+
+For Kubernetes/Rook deployments, mount the Ceph OSD base path as a volume:
+
+```yaml
+volumeMounts:
+  - name: host-rook-ceph
+    mountPath: /var/lib/rook/rook-ceph
+    readOnly: true
+volumes:
+  - name: host-rook-ceph
+    hostPath:
+      path: /var/lib/rook/rook-ceph
+      type: Directory
+```
 
 ## Acknowledgment
 
