@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -217,14 +218,72 @@ func getOSDIDForDisk(disk, basePath string) (string, error) {
 		return osdID, nil
 	}
 
-	whoamiPath := fmt.Sprintf("%s/%s/whoami", basePath, disk)
-	osdIDBytes, err := os.ReadFile(whoamiPath)
+	// Find the OSD directory that corresponds to this disk
+	osdID, err := findOSDIDForDisk(disk, basePath)
 	if err != nil {
-		log.Warn().Err(err).Str("whoami_path", whoamiPath).Msg("OSD ID file not found, continuing without OSD ID")
+		log.Warn().Err(err).Str("disk", disk).Str("base_path", basePath).Msg("OSD ID not found for disk, continuing without OSD ID")
 		return "", nil
 	}
 
-	osdID := strings.TrimSpace(string(osdIDBytes))
+	if osdID == "" {
+		log.Debug().Str("disk", disk).Msg("No OSD ID found for disk")
+		return "", nil
+	}
+
 	osdIDCache[disk] = osdID
 	return osdID, nil
+}
+
+func findOSDIDForDisk(disk, basePath string) (string, error) {
+	// Read all directories in the base path
+	entries, err := os.ReadDir(basePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read base path %s: %w", basePath, err)
+	}
+
+	// Resolve the canonical path of the target disk
+	targetDisk, err := filepath.EvalSymlinks(disk)
+	if err != nil {
+		targetDisk = disk // fallback to original if can't resolve
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		// Check if this directory matches the UUID_UUID pattern (contains underscore)
+		if !strings.Contains(entry.Name(), "_") {
+			continue
+		}
+
+		dirPath := filepath.Join(basePath, entry.Name())
+
+		// Check if this directory contains a block file/symlink
+		blockPath := filepath.Join(dirPath, "block")
+		if _, err := os.Stat(blockPath); err != nil {
+			continue // Skip if no block file/symlink
+		}
+
+		// Resolve the block symlink to get the actual device (equivalent to readlink -f)
+		blockDevice, err := filepath.EvalSymlinks(blockPath)
+		if err != nil {
+			continue // Skip if can't resolve symlink
+		}
+
+		// Check if this matches our target disk
+		if blockDevice == targetDisk || blockDevice == disk {
+			// Read the whoami file to get the OSD ID
+			whoamiPath := filepath.Join(dirPath, "whoami")
+			osdIDBytes, err := os.ReadFile(whoamiPath)
+			if err != nil {
+				log.Warn().Err(err).Str("whoami_path", whoamiPath).Msg("Failed to read whoami file")
+				continue
+			}
+
+			return strings.TrimSpace(string(osdIDBytes)), nil
+		}
+	}
+
+	return "", nil // No matching OSD directory found
 }
