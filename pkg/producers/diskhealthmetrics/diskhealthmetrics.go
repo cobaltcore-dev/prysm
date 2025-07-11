@@ -7,11 +7,15 @@ package diskhealthmetrics
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 )
+
+var osdIDCache = make(map[string]string)
 
 func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData {
 	var allMetrics []NormalizedSmartData
@@ -43,7 +47,7 @@ func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData
 		// }
 
 		// Normalize the data
-		normalizedData := normalizeSmartData(rawData, deviceInfo, smartAttrs, cfg.NodeName, cfg.InstanceID)
+		normalizedData := normalizeSmartData(rawData, deviceInfo, smartAttrs, cfg.NodeName, cfg.InstanceID, cfg.CephOSDBasePath)
 
 		allMetrics = append(allMetrics, normalizedData)
 	}
@@ -52,7 +56,7 @@ func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData
 }
 
 // normalizeSmartData normalizes the raw SMART data
-func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attributes map[string]SmartAttribute, nodeName, instanceID string) NormalizedSmartData {
+func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attributes map[string]SmartAttribute, nodeName, instanceID, basePath string) NormalizedSmartData {
 	var temperatureCelsius *int64
 	if smartData.Temperature.Current != 0 {
 		temperatureCelsius = &smartData.Temperature.Current
@@ -86,6 +90,7 @@ func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attri
 		reallocatedSectors = &smartData.SCSIGrownDefectList
 	}
 
+	osdID, _ := getOSDIDForDisk(smartData.Device.Name, basePath) // Ignore error as it's handled within the function
 	return NormalizedSmartData{
 		NodeName:           nodeName,
 		InstanceID:         instanceID,
@@ -101,6 +106,7 @@ func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attri
 			"UDMA_CRC_Error_Count": udmaCrcErrorCount,
 		},
 		Attributes: attributes,
+		OSDID:      osdID, // This may be an empty string if OSD ID is not applicable or retrievable
 	}
 }
 
@@ -202,4 +208,23 @@ func StartMonitoring(cfg DiskHealthMetricsConfig) {
 			fmt.Println(string(metricsJSON))
 		}
 	}
+}
+
+// getOSDIDForDisk attempts to retrieve the OSD ID from a specified path. If the path does not exist,
+// it logs a warning and returns an empty string, allowing the application to function in non-Ceph environments.
+func getOSDIDForDisk(disk, basePath string) (string, error) {
+	if osdID, found := osdIDCache[disk]; found {
+		return osdID, nil
+	}
+
+	whoamiPath := fmt.Sprintf("%s/%s/whoami", basePath, disk)
+	osdIDBytes, err := os.ReadFile(whoamiPath)
+	if err != nil {
+		log.Warn().Err(err).Str("whoami_path", whoamiPath).Msg("OSD ID file not found, continuing without OSD ID")
+		return "", nil
+	}
+
+	osdID := strings.TrimSpace(string(osdIDBytes))
+	osdIDCache[disk] = osdID
+	return osdID, nil
 }

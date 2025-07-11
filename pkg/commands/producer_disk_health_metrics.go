@@ -30,6 +30,7 @@ var (
 	dhmPendingSectorsThreshold     int64
 	dhmReallocatedSectorsThreshold int64
 	dhmLifetimeUsedThreshold       int64
+	dhmCephOSDBasePath             string
 )
 
 var diskHealthMetricsCmd = &cobra.Command{
@@ -52,6 +53,7 @@ var diskHealthMetricsCmd = &cobra.Command{
 			PendingSectorsThreshold:     dhmPendingSectorsThreshold,
 			ReallocatedSectorsThreshold: dhmReallocatedSectorsThreshold,
 			LifetimeUsedThreshold:       dhmLifetimeUsedThreshold,
+			CephOSDBasePath:             dhmCephOSDBasePath,
 		}
 
 		config = mergeDiskHealthMetricsConfigWithEnv(config)
@@ -74,9 +76,8 @@ var diskHealthMetricsCmd = &cobra.Command{
 			Str("disks", fmt.Sprintf("%v", config.Disks)).
 			Str("node_name", config.NodeName).
 			Str("instance_id", config.InstanceID).
-			Int("interval_seconds", config.Interval)
-		// Finalize the log message with the main message
-
+			Int("interval_seconds", config.Interval).
+			Str("ceph_osd_base_path", config.CephOSDBasePath)
 		event.Msg("configuration_loaded")
 
 		validateDiskHealthMetricsConfig(config)
@@ -102,6 +103,7 @@ func mergeDiskHealthMetricsConfigWithEnv(cfg diskhealthmetrics.DiskHealthMetrics
 	cfg.PendingSectorsThreshold = getEnvInt64("PENDING_SECTORS_THRESHOLD", cfg.PendingSectorsThreshold)
 	cfg.ReallocatedSectorsThreshold = getEnvInt64("REALLOCATED_SECTORS_THRESHOLD", cfg.ReallocatedSectorsThreshold)
 	cfg.LifetimeUsedThreshold = getEnvInt64("LIFETIME_USED_THRESHOLD", cfg.LifetimeUsedThreshold)
+	cfg.CephOSDBasePath = getEnv("CEPH_OSD_BASE_PATH", cfg.CephOSDBasePath)
 
 	return cfg
 }
@@ -119,6 +121,7 @@ func init() {
 	diskHealthMetricsCmd.Flags().Int64Var(&dhmPendingSectorsThreshold, "pending-sectors-threshold", 3, "Threshold for pending sectors to trigger a warning")
 	diskHealthMetricsCmd.Flags().Int64Var(&dhmReallocatedSectorsThreshold, "reallocated-sectors-threshold", 10, "Threshold for reallocated sectors to trigger a warning")
 	diskHealthMetricsCmd.Flags().Int64Var(&dhmLifetimeUsedThreshold, "lifetime-used-threshold", 80, "Threshold for SSD lifetime used percentage to trigger a critical alert")
+	diskHealthMetricsCmd.Flags().StringVar(&dhmCephOSDBasePath, "ceph-osd-base-path", "/var/lib/rook/rook-ceph/", "Base path for mapping devices to Ceph OSD numbers")
 }
 
 func validateDiskHealthMetricsConfig(config diskhealthmetrics.DiskHealthMetricsConfig) {

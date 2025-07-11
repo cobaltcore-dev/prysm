@@ -33,6 +33,7 @@ type NormalizedSmartData struct {
 	SSDLifeUsed        *int64                    `json:"ssd_life_used"`       // Percentage of SSD life used (useful for SSD wear monitoring)
 	ErrorCounts        map[string]int64          `json:"error_counts"`        // Dictionary of various error counts (e.g., command timeouts, CRC errors)
 	Attributes         map[string]SmartAttribute `json:"attributes"`          // key-value pairs of SMART attributes with their values
+	OSDID              string                    `json:"osd_id"`              // OSD ID (useful for Ceph environments for mapping to OSD ID)
 }
 
 // NatsEvent represents an event to be published to NATS

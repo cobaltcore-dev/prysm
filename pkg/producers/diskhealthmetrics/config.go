@@ -22,4 +22,6 @@ type DiskHealthMetricsConfig struct {
 	PendingSectorsThreshold     int64
 	ReallocatedSectorsThreshold int64
 	LifetimeUsedThreshold       int64 // percentage
+
+	CephOSDBasePath string
 }
