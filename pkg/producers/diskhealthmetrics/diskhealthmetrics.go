@@ -43,7 +43,7 @@ func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData
 		// }
 
 		// Normalize the data
-		normalizedData := normalizeSmartData(rawData, deviceInfo, smartAttrs, cfg.NodeName, cfg.InstanceID)
+		normalizedData := normalizeSmartData(rawData, deviceInfo, smartAttrs, cfg.NodeName, cfg.InstanceID, cfg.CephOSDBasePath)
 
 		allMetrics = append(allMetrics, normalizedData)
 	}
@@ -52,7 +52,7 @@ func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData
 }
 
 // normalizeSmartData normalizes the raw SMART data
-func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attributes map[string]SmartAttribute, nodeName, instanceID string) NormalizedSmartData {
+func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attributes map[string]SmartAttribute, nodeName, instanceID, basePath string) NormalizedSmartData {
 	var temperatureCelsius *int64
 	if smartData.Temperature.Current != 0 {
 		temperatureCelsius = &smartData.Temperature.Current
@@ -86,6 +86,7 @@ func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attri
 		reallocatedSectors = &smartData.SCSIGrownDefectList
 	}
 
+	osdID, _ := getOSDIDForDisk(smartData.Device.Name, basePath) // Ignore error as it's handled within the function
 	return NormalizedSmartData{
 		NodeName:           nodeName,
 		InstanceID:         instanceID,
@@ -101,6 +102,7 @@ func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attri
 			"UDMA_CRC_Error_Count": udmaCrcErrorCount,
 		},
 		Attributes: attributes,
+		OSDID:      osdID, // This may be an empty string if OSD ID is not applicable or retrievable
 	}
 }
 
