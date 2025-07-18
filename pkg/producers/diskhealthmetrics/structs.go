@@ -138,6 +138,19 @@ func GetSmartAttributes() map[string]SmartAttribute {
 		"total_uncorrected_write_errors":  {"Total Uncorrected Write Errors", "count", -1, -1, -1, -1},
 		"total_uncorrected_verify_errors": {"Total Uncorrected Verify Errors", "count", -1, -1, -1, -1},
 		"grown_defects_count":             {"Grown Defects Count", "count", -1, -1, -1, -1},
+
+		// NVMe-specific attributes from nvme-cli
+		"nvme_error_log_entries":    {"NVMe Error Log Entries", "count", -1, -1, -1, -1},
+		"nvme_subsystem_nqn":        {"NVMe Subsystem NQN Length", "chars", -1, -1, -1, -1},
+		"nvme_ieee_oui":             {"NVMe IEEE OUI", "hex", -1, -1, -1, -1},
+		"nvme_vendor_id":            {"NVMe Vendor ID", "id", -1, -1, -1, -1},
+		"nvme_subsystem_vendor_id":  {"NVMe Subsystem Vendor ID", "id", -1, -1, -1, -1},
+		"nvme_fabric_warnings":      {"NVMe Fabric Warnings", "count", -1, -1, -1, -1},
+		"nvme_sparse_errors":        {"NVMe Sparse Errors", "count", -1, -1, -1, -1},
+		"nvme_change_notifications": {"NVMe Change Notifications", "count", -1, -1, -1, -1},
+		"nvme_media_errors":         {"NVMe Media Errors", "count", -1, -1, -1, -1},
+		"nvme_aborted_commands":     {"NVMe Aborted Commands", "count", -1, -1, -1, -1},
+		"nvme_timeout_errors":       {"NVMe Timeout Errors", "count", -1, -1, -1, -1},
 	}
 
 	return smartAttrs
