@@ -16,6 +16,12 @@ import (
 func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData {
 	var allMetrics []NormalizedSmartData
 
+	// Check if nvme-cli is available for enhanced NVMe support
+	nvmeCliAvailable := checkNVMeCliInstalled()
+	if nvmeCliAvailable {
+		log.Info().Msg("nvme-cli detected, enhanced NVMe metrics will be available")
+	}
+
 	for _, disk := range cfg.Disks {
 		//FIXME rawData, err := collectSmartData(fmt.Sprintf("/dev/%s", disk))
 		rawData, err := collectSmartData(disk)
@@ -26,25 +32,41 @@ func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData
 			continue
 		}
 
-		// Normalize the device information
+		// Enhance NVMe devices with nvme-cli data if available
+		var nvmeController *NVMeIDControllerOutput
+		var nvmeErrors *NVMeErrorLogOutput
+
+		if nvmeCliAvailable && rawData.Device.Protocol == "NVMe" {
+			nvmeController, err = collectNVMeControllerData(disk)
+			if err != nil {
+				log.Warn().Err(err).Str("disk", disk).Msg("failed to collect NVMe controller data, continuing with smartctl only")
+			}
+
+			nvmeErrors, err = collectNVMeErrorLog(disk)
+			if err != nil {
+				log.Warn().Err(err).Str("disk", disk).Msg("failed to collect NVMe error log, continuing without error log data")
+			}
+
+			// Enhance the smartctl data with nvme-cli information
+			enhanceNVMeData(rawData, nvmeController, nvmeErrors)
+		}
+
 		deviceInfo := &DeviceInfo{}
 		FillDeviceInfoFromSmartData(deviceInfo, rawData)
 		NormalizeVendor(deviceInfo)
 		NormalizeDeviceInfo(deviceInfo)
 
-		// Normalize Smart Attributes
 		smartAttrs := GetSmartAttributes()
 		ProcessAndUpdateSmartAttributes(smartAttrs, rawData)
+
+		// Process NVMe-specific attributes if we have nvme-cli data
+		if nvmeController != nil || nvmeErrors != nil {
+			processNVMeSpecificAttributes(smartAttrs, nvmeController, nvmeErrors)
+		}
+
 		CleanupSmartAttributes(smartAttrs)
 
-		//FIXME: just for debug Print out the updated smartAttrs
-		// for key, attr := range smartAttrs {
-		// 	fmt.Printf("%s: %s (Unit: %s, Value: %d, Threshold: %d, Worst: %d, Raw: %d)\n", key, attr.Description, attr.Unit, attr.Value, attr.Threshold, attr.Worst, attr.RawValue)
-		// }
-
-		// Normalize the data
 		normalizedData := normalizeSmartData(rawData, deviceInfo, smartAttrs, cfg.NodeName, cfg.InstanceID, cfg.CephOSDBasePath)
-
 		allMetrics = append(allMetrics, normalizedData)
 	}
 
@@ -86,7 +108,10 @@ func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attri
 		reallocatedSectors = &smartData.SCSIGrownDefectList
 	}
 
+	enhanceDeviceInfo(deviceInfo)
+
 	osdID, _ := getOSDIDForDisk(smartData.Device.Name, basePath) // Ignore error as it's handled within the function
+
 	return NormalizedSmartData{
 		NodeName:           nodeName,
 		InstanceID:         instanceID,
@@ -114,31 +139,6 @@ func findSmartAttributeByID(attributes []SmartCtlATASMARTEntry, id int64) *Smart
 	}
 	return nil
 }
-
-// func findSmartAttributeByName(attributes []SmartCtlATASMARTEntry, name string) *SmartCtlATASMARTEntry {
-// 	for _, attr := range attributes {
-// 		if attr.Name == name {
-// 			return &attr
-// 		}
-// 	}
-// 	return nil
-// }
-
-// func parseSMARTOutput(output []byte, attribute string) uint64 {
-// 	lines := strings.Split(string(output), "\n")
-// 	for _, line := range lines {
-// 		if strings.Contains(line, attribute) {
-// 			fields := strings.Fields(line)
-// 			value, err := strconv.ParseUint(fields[9], 10, 64)
-// 			if err != nil {
-// 				log.Printf("Error parsing %s value: %v", attribute, err)
-// 				return 0
-// 			}
-// 			return value
-// 		}
-// 	}
-// 	return 0
-// }
 
 func StartMonitoring(cfg DiskHealthMetricsConfig) {
 	if !checkSmartctlInstalled() {
