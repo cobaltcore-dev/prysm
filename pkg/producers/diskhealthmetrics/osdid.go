@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sys/unix"
 )
 
 // Cache for OSD mappings: physical device -> OSD ID
@@ -35,14 +36,20 @@ func getOSDIDForDisk(disk, basePath string) (string, error) {
 		return "", nil
 	}
 
-	// For NVMe controller devices, discover all namespace devices
+	// For NVMe controller devices, discover namespace devices using glob
 	actualDisks := []string{disk}
-	if strings.HasPrefix(disk, "/dev/nvme") && !strings.Contains(disk, "n") {
-		// This is a controller device like /dev/nvme1, discover all namespaces
-		namespaces := discoverNVMeNamespaces(disk)
-		if len(namespaces) > 0 {
-			log.Debug().Str("original", disk).Strs("namespaces", namespaces).Msg("Discovered namespace devices for controller")
-			actualDisks = append(actualDisks, namespaces...)
+	if strings.HasPrefix(disk, "/dev/nvme") {
+		// Check if this is a controller device (just /dev/nvme + number)
+		suffix := strings.TrimPrefix(disk, "/dev/nvme")
+		if _, err := strconv.Atoi(suffix); err == nil {
+			// This is a controller device like /dev/nvme1, discover all namespaces
+			globPattern := disk + "n*"
+			if matches, err := filepath.Glob(globPattern); err == nil && len(matches) > 0 {
+				actualDisks = matches
+				for _, ns := range matches {
+					log.Debug().Str("original", disk).Str("namespace", ns).Msg("Found namespace device")
+				}
+			}
 		}
 	}
 
@@ -74,48 +81,6 @@ func getOSDIDForDisk(disk, basePath string) (string, error) {
 
 	log.Debug().Str("disk", disk).Msg("No OSD ID found for disk")
 	return "", nil
-}
-
-// discoverNVMeNamespaces discovers all namespace devices for an NVMe controller using sysfs
-func discoverNVMeNamespaces(controllerDevice string) []string {
-	var namespaces []string
-
-	// Extract controller number from device path like /dev/nvme1 -> nvme1
-	controllerName := strings.TrimPrefix(controllerDevice, "/dev/")
-
-	// Look in /sys/class/nvme/nvmeX/ for namespace directories
-	sysPath := filepath.Join("/sys/class/nvme", controllerName)
-
-	// Check if the controller directory exists
-	if _, err := os.Stat(sysPath); os.IsNotExist(err) {
-		log.Debug().Str("controller", controllerName).Str("sys_path", sysPath).Msg("Controller directory not found in sysfs")
-		return namespaces
-	}
-
-	// Read all entries in the controller directory
-	entries, err := os.ReadDir(sysPath)
-	if err != nil {
-		log.Warn().Err(err).Str("sys_path", sysPath).Msg("Failed to read controller directory")
-		return namespaces
-	}
-
-	// Look for namespace directories (pattern: nvmeXnY)
-	namespacePattern := controllerName + "n"
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), namespacePattern) {
-			// Found a namespace directory like nvme1n1, nvme1n2, etc.
-			namespaceName := entry.Name()
-			namespaceDevice := "/dev/" + namespaceName
-
-			// Verify the device actually exists
-			if _, err := os.Stat(namespaceDevice); err == nil {
-				namespaces = append(namespaces, namespaceDevice)
-				log.Debug().Str("controller", controllerName).Str("namespace", namespaceDevice).Msg("Discovered NVMe namespace")
-			}
-		}
-	}
-
-	return namespaces
 }
 
 // resolveDeviceMapperSlaves recursively resolves dm-* devices to physical devices
@@ -163,22 +128,17 @@ func resolveDeviceMapperSlaves(dev string) ([]string, error) {
 	return devices, nil
 }
 
-// Get device mapper minor number using /sys/block approach (no dmsetup needed)
+// Get device mapper minor number using proper unix.Major/Minor functions
 func getMapperDeviceMinor(mapperDevice string) (int, error) {
-	// Get major:minor from the device
 	var stat syscall.Stat_t
-	err := syscall.Stat(mapperDevice, &stat)
-	if err != nil {
+	if err := syscall.Stat(mapperDevice, &stat); err != nil {
 		return 0, fmt.Errorf("failed to stat %s: %w", mapperDevice, err)
 	}
 
-	// For device mapper devices, extract the minor number correctly
-	major := int((stat.Rdev >> 8) & 0xff)
-	minor := int(stat.Rdev&0xff) | int((stat.Rdev>>12)&0xfff00)
+	major := int(unix.Major(uint64(stat.Rdev)))
+	minor := int(unix.Minor(uint64(stat.Rdev)))
 
-	// Find the corresponding dm-* device in /sys/block
-	pattern := "/sys/block/dm-*"
-	matches, err := filepath.Glob(pattern)
+	matches, err := filepath.Glob("/sys/block/dm-*")
 	if err != nil {
 		return 0, err
 	}
@@ -190,8 +150,7 @@ func getMapperDeviceMinor(mapperDevice string) (int, error) {
 			continue
 		}
 
-		devStr := strings.TrimSpace(string(devBytes))
-		parts := strings.Split(devStr, ":")
+		parts := strings.Split(strings.TrimSpace(string(devBytes)), ":")
 		if len(parts) != 2 {
 			continue
 		}
@@ -200,10 +159,8 @@ func getMapperDeviceMinor(mapperDevice string) (int, error) {
 		sysMinor, _ := strconv.Atoi(parts[1])
 
 		if sysMajor == major && sysMinor == minor {
-			// Extract dm number from path like /sys/block/dm-20
 			dmName := filepath.Base(dmPath)
-			dmNumber := strings.TrimPrefix(dmName, "dm-")
-			return strconv.Atoi(dmNumber)
+			return strconv.Atoi(strings.TrimPrefix(dmName, "dm-"))
 		}
 	}
 
