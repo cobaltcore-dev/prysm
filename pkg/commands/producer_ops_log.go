@@ -22,6 +22,7 @@ var (
 	opsNatsSubject             string
 	opsNatsMetricsSubject      string
 	opsLogToStdout             bool
+	opsLogPrettyPrint          bool
 	opsLogRetentionDays        int
 	opsMaxLogFileSize          int64
 	opsPromEnabled             bool
@@ -128,6 +129,7 @@ Following this configuration change, the RadosGW will log operations to the file
 			NatsSubject:               opsNatsSubject,
 			NatsMetricsSubject:        opsNatsMetricsSubject,
 			LogToStdout:               opsLogToStdout,
+			LogPrettyPrint:            opsLogPrettyPrint,
 			LogRetentionDays:          opsLogRetentionDays,
 			MaxLogFileSize:            opsMaxLogFileSize,
 			Prometheus:                opsPromEnabled,
@@ -230,6 +232,10 @@ Following this configuration change, the RadosGW will log operations to the file
 
 		if config.LogToStdout {
 			event.Bool("log_to_stdout", config.LogToStdout)
+		}
+
+		if config.LogPrettyPrint {
+			event.Bool("log_pretty_print", config.LogPrettyPrint)
 		}
 
 		event.Int("log_retention_days", config.LogRetentionDays)
@@ -530,6 +536,7 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.NatsSubject = getEnv("NATS_SUBJECT", cfg.NatsSubject)
 	cfg.NatsMetricsSubject = getEnv("NATS_METRICS_SUBJECT", cfg.NatsMetricsSubject)
 	cfg.LogToStdout = getEnvBool("LOG_TO_STDOUT", cfg.LogToStdout)
+	cfg.LogPrettyPrint = getEnvBool("LOG_PRETTY_PRINT", cfg.LogPrettyPrint)
 	cfg.LogRetentionDays = getEnvInt("LOG_RETENTION_DAYS", cfg.LogRetentionDays)
 	cfg.MaxLogFileSize = getEnvInt64("MAX_LOG_FILE_SIZE", cfg.MaxLogFileSize)
 	cfg.PrometheusPort = getEnvInt("PROMETHEUS_PORT", cfg.PrometheusPort)
@@ -618,6 +625,7 @@ func init() {
 	opsLogCmd.Flags().StringVar(&opsNatsSubject, "nats-subject", "rgw.s3.ops", "NATS subject to publish results")
 	opsLogCmd.Flags().StringVar(&opsNatsMetricsSubject, "nats-metrics-subject", "rgw.s3.ops.aggregated.metrics", "NATS subject to publish aggregated metrics")
 	opsLogCmd.Flags().BoolVar(&opsLogToStdout, "log-to-stdout", false, "Log operations to stdout instead of a file")
+	opsLogCmd.Flags().BoolVar(&opsLogPrettyPrint, "log-pretty-print", false, "Enable pretty printing for log output")
 	opsLogCmd.Flags().IntVar(&opsLogRetentionDays, "log-retention-days", 1, "Number of days to retain old log files")
 	opsLogCmd.Flags().Int64Var(&opsMaxLogFileSize, "max-log-file-size", 10, "Maximum log file size in MB before rotation (e.g., 10 for 10 MB)")
 	opsLogCmd.Flags().BoolVar(&opsPromEnabled, "prometheus", false, "Enable Prometheus metrics")

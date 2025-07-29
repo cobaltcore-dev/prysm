@@ -263,7 +263,14 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 
 		// Print to stdout if enabled
 		if cfg.LogToStdout {
-			if b, err := json.MarshalIndent(logEntry, "", "  "); err == nil {
+			var b []byte
+			var err error
+			if cfg.LogPrettyPrint {
+				b, err = json.MarshalIndent(logEntry, "", "  ")
+			} else {
+				b, err = json.Marshal(logEntry)
+			}
+			if err == nil {
 				fmt.Println(string(b))
 			}
 		}
@@ -380,13 +387,18 @@ func handleConnection(cfg OpsLogConfig, conn net.Conn, nc *nats.Conn, metrics *M
 
 		// Conditional logging to stdout if enabled
 		if cfg.LogToStdout {
-			logEntryBytes, err := json.Marshal(logEntry)
-			// logEntryBytes, err := json.MarshalIndent(logEntry, "", "  ")
+			var b []byte
+			var err error
+			if cfg.LogPrettyPrint {
+				b, err = json.MarshalIndent(logEntry, "", "  ")
+			} else {
+				b, err = json.Marshal(logEntry)
+			}
 			if err != nil {
 				log.Error().Err(err).Msg("Error marshalling log entry for stdout")
 				continue
 			}
-			fmt.Println(string(logEntryBytes)) // Print log entry to stdout
+			fmt.Println(string(b)) // Print log entry to stdout
 		}
 
 		// Publish the individual log entry to NATS or print locally
