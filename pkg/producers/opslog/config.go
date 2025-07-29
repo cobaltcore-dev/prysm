@@ -13,6 +13,7 @@ type OpsLogConfig struct {
 	NatsMetricsSubject        string
 	UseNats                   bool
 	LogToStdout               bool
+	LogPrettyPrint            bool
 	LogRetentionDays          int   // Number of days to keep old log files
 	MaxLogFileSize            int64 // Maximum log file size in bytes before rotation
 	Prometheus                bool
