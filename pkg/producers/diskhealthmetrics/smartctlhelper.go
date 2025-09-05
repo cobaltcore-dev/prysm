@@ -222,6 +222,9 @@ func ProcessAndUpdateNVMeSmartAttributes(smartAttrs map[string]SmartAttribute, o
 
 	// Process media and data integrity errors
 	updateAttributeFromValue(smartAttrs, "media_and_data_integrity_errors", output.NVMeSmartHealthInfoLog.MediaErrors, output.NVMeSmartHealthInfoLog.MediaErrors, -1, -1, "count")
+
+	// Process critical warning - this is the primary health indicator for NVMe drives
+	updateAttributeFromValue(smartAttrs, "critical_warning", output.NVMeSmartHealthInfoLog.CriticalWarning, output.NVMeSmartHealthInfoLog.CriticalWarning, -1, -1, "bitfield")
 }
 
 // Helper function to update attributes by resolving alias and updating values

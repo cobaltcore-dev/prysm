@@ -17,6 +17,9 @@ The **Local Producer - S3 Operations Log** is a tool designed to process and mon
 - **Granular Metrics Control**: Fine-grained toggles to enable/disable specific metric categories.
 - **Auto Log Rotation on Startup**: Option to rotate log on start to avoid reprocessing.
 - **Multi-Tenant Support**: Proper tenant separation ensures metrics from different tenants are isolated, even for buckets with identical names.
+- **Zero-Value Error Metrics**: Error metrics always report 0 when no errors occur, ensuring visibility in monitoring dashboards.
+- **Timeout Error Detection**: Specialized timeout error tracking (408, 504, 598, 499) for detecting OSD-related issues.
+- **Error Categorization**: Automatic categorization of HTTP errors into timeout, connection, client, and server errors.
 
 ## Usage
 
@@ -42,6 +45,8 @@ prysm local-producer ops-log [flags]
 - `--ignore-anonymous-requests` - Ignore anonymous requests in metrics.
 - `--truncate-log-on-start` - Rotate log on start to avoid re-processing existing data.
 - `--track-everything` - Enable detailed tracking for all metric types (efficient mode).
+- `--track-timeout-errors` - Enable tracking of timeout errors (408, 504, 598, 499) for OSD issue detection.
+- `--track-errors-by-category` - Enable error categorization (timeout, connection, client, server).
 
 ### Latency Tracking Examples:
  
@@ -141,6 +146,8 @@ prysm local-producer ops-log \
 | `TRACK_ERRORS_PER_TENANT`                     | Track errors per tenant.                                      |
 | `TRACK_ERRORS_PER_STATUS`                     | Track errors per HTTP status code.                            |
 | `TRACK_ERRORS_BY_IP`                          | Track errors by IP address.                                   |
+| `TRACK_TIMEOUT_ERRORS`                        | Track timeout errors (408, 504, 598, 499) for OSD detection.  |
+| `TRACK_ERRORS_BY_CATEGORY`                    | Track errors by category (timeout, connection, client, server).|
 
 #### IP-based Tracking Environment Variables:
 
@@ -225,12 +232,24 @@ prysm local-producer ops-log \
 
 | Metric Name                           | Type      | Labels                                               | Description                                                        |
 |---------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
-| `radosgw_errors_detailed`             | Counter   | `pod`, `user`, `tenant`, `bucket`, `http_status`     | Total number of errors with full detail.                          |
-| `radosgw_errors_per_user`             | Counter   | `pod`, `user`, `tenant`, `http_status`               | Total errors aggregated per user (all buckets combined).          |
-| `radosgw_errors_per_bucket`           | Counter   | `pod`, `tenant`, `bucket`, `http_status`             | Total errors aggregated per bucket (all users combined).          |
-| `radosgw_errors_per_tenant`           | Counter   | `pod`, `tenant`, `http_status`                       | Total errors aggregated per tenant (all users and buckets).       |
-| `radosgw_errors_per_status`           | Counter   | `pod`, `http_status`                                 | Total errors aggregated per HTTP status code (global).            |
-| `radosgw_errors_per_ip`               | Counter   | `pod`, `ip`, `tenant`, `http_status`                 | Total errors aggregated per IP address.                           |
+| `radosgw_errors_detailed`             | Counter   | `pod`, `user`, `tenant`, `bucket`, `http_status`     | Total number of errors with full detail. **Always shows 0 when no errors**.  |
+| `radosgw_errors_per_user`             | Counter   | `pod`, `user`, `tenant`, `http_status`               | Total errors aggregated per user. **Always visible with value 0 when no errors**. |
+| `radosgw_errors_per_bucket`           | Counter   | `pod`, `tenant`, `bucket`, `http_status`             | Total errors aggregated per bucket. **Always visible with value 0 when no errors**. |
+| `radosgw_errors_per_tenant`           | Counter   | `pod`, `tenant`, `http_status`                       | Total errors aggregated per tenant. **Always visible with value 0 when no errors**. |
+| `radosgw_errors_per_status`           | Counter   | `pod`, `http_status`                                 | Total errors aggregated per HTTP status code. **Always visible with value 0 when no errors**. |
+| `radosgw_errors_per_ip`               | Counter   | `pod`, `ip`, `tenant`, `http_status`                 | Total errors aggregated per IP address. **Always visible with value 0 when no errors**. |
+
+### Timeout Error Counters (New)
+
+| Metric Name                           | Type      | Labels                                               | Description                                                        |
+|---------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
+| `radosgw_timeout_errors`              | Counter   | `pod`, `user`, `tenant`, `bucket`, `timeout_type`    | Total timeout errors by type (408, 504, 598, 499) for OSD issue detection. |
+
+### Error Category Counters (New)
+
+| Metric Name                           | Type      | Labels                                               | Description                                                        |
+|---------------------------------------|-----------|------------------------------------------------------|--------------------------------------------------------------------|
+| `radosgw_errors_by_category`          | Counter   | `pod`, `user`, `tenant`, `bucket`, `category`        | Errors categorized as: timeout, connection, client, server for better monitoring. |
 
 ### IP-based Gauges
 
@@ -358,6 +377,43 @@ prysm local-producer ops-log \
 --track-latency-detailed --track-latency-per-method --track-requests-per-user --track-requests-per-bucket --track-errors-per-user --track-bytes-sent-per-bucket
 ```
 
+## Error Monitoring Best Practices
+
+### Zero-Value Error Metrics
+All error metrics now report 0 when no errors occur, ensuring they remain visible in Prometheus and Grafana dashboards. This improvement:
+- Eliminates the "No data" issue in dashboards
+- Allows for proper rate calculations even when errors are intermittent
+- Ensures alerting rules work correctly with absent metrics
+
+### Timeout Error Detection for OSD Issues
+The new `radosgw_timeout_errors` metric specifically tracks timeout-related HTTP status codes:
+- **408 (Request Timeout)**: Client took too long to send request
+- **504 (Gateway Timeout)**: Upstream server timeout (often indicates OSD issues)
+- **598 (Network Read Timeout)**: Network-level timeout
+- **499 (Client Closed Request)**: Client disconnected before response
+
+Use these metrics to detect OSD performance issues:
+```promql
+# Alert when timeout errors exceed threshold
+rate(radosgw_timeout_errors[5m]) > 0.1
+```
+
+### Error Categorization
+The `radosgw_errors_by_category` metric automatically categorizes errors:
+- **timeout**: 408, 504, 598, 499 status codes
+- **connection**: 502, 503 status codes
+- **client**: 4xx errors (excluding timeouts)
+- **server**: 5xx errors (excluding timeouts and connection errors)
+
+This simplifies monitoring and alerting:
+```promql
+# Alert on server errors
+rate(radosgw_errors_by_category{category="server"}[5m]) > 0.05
+
+# Alert on connection issues
+rate(radosgw_errors_by_category{category="connection"}[5m]) > 0.1
+```
+
 ## Notes
 
 - Ensure that the Ceph RGW log format is JSON-based to be compatible with this tool.
@@ -367,6 +423,7 @@ prysm local-producer ops-log \
 - **Bucket name collision handling**: Buckets with identical names from different tenants are properly isolated in all metrics.
 - **Latency units**: All latency histograms use seconds as the unit, converted from the millisecond `total_time` field in log entries.
 - **Memory efficiency**: The dedicated storage architecture ensures minimal memory usage by storing only enabled metric types.
+- **Error visibility**: Error metrics always maintain visibility by reporting 0 when no errors occur, essential for proper monitoring.
 - Sidecar injection is supported via a mutating webhook (see related documentation for Kubernetes usage).
 
 > This README will be updated as new features and improvements are introduced. Contributions and feedback are welcome!

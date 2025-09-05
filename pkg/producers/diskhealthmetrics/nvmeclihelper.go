@@ -76,8 +76,19 @@ func enhanceNVMeData(smartData *SmartCtlOutput, nvmeController *NVMeIDController
 		}
 
 		// Add vendor information from nvme-cli
-		if nvmeController.VendorID > 0 {
-			smartData.Vendor = fmt.Sprintf("VID:0x%04x", nvmeController.VendorID)
+		// Store vendor IDs in NVMePCIVendor for use in normalize.go
+		if nvmeController.VendorID > 0 || nvmeController.SubsystemVendorID > 0 {
+			// If NVMePCIVendor is not already populated by smartctl, populate it from nvme-cli
+			if smartData.NVMePCIVendor == nil {
+				smartData.NVMePCIVendor = &SmartCtlNVMePCIVendor{
+					ID:          nvmeController.VendorID,
+					SubsystemID: nvmeController.SubsystemVendorID,
+				}
+			}
+			// Also set the vendor string for compatibility
+			if nvmeController.VendorID > 0 {
+				smartData.Vendor = fmt.Sprintf("VID:0x%04x", nvmeController.VendorID)
+			}
 		}
 
 		// Store SubsystemNQN - this will be used by your existing rebranding logic
@@ -140,12 +151,14 @@ func processNVMeSpecificAttributes(smartAttrs map[string]SmartAttribute, nvmeCon
 			}
 		}
 
-		// Store vendor and subsystem vendor IDs
+		// Store vendor and subsystem vendor IDs (as decimal, but hex format is in disk_info metric)
 		if nvmeController.VendorID > 0 {
+			// Store as decimal in smart_attributes, hex format (e.g., 0x144D) is available in disk_info metric
 			updateAttributeFromValue(smartAttrs, "nvme_vendor_id", nvmeController.VendorID, nvmeController.VendorID, -1, -1, "id")
 		}
 
 		if nvmeController.SubsystemVendorID > 0 {
+			// Store as decimal in smart_attributes, hex format is available in disk_info metric
 			updateAttributeFromValue(smartAttrs, "nvme_subsystem_vendor_id", nvmeController.SubsystemVendorID, nvmeController.SubsystemVendorID, -1, -1, "id")
 		}
 	}

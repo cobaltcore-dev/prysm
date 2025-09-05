@@ -31,6 +31,10 @@ var (
 	dhmReallocatedSectorsThreshold int64
 	dhmLifetimeUsedThreshold       int64
 	dhmCephOSDBasePath             string
+	dhmTestMode                    bool
+	dhmTestDataPath                string
+	dhmTestScenario                string
+	dhmTestDevices                 string
 )
 
 var diskHealthMetricsCmd = &cobra.Command{
@@ -54,6 +58,14 @@ var diskHealthMetricsCmd = &cobra.Command{
 			ReallocatedSectorsThreshold: dhmReallocatedSectorsThreshold,
 			LifetimeUsedThreshold:       dhmLifetimeUsedThreshold,
 			CephOSDBasePath:             dhmCephOSDBasePath,
+			TestMode:                    dhmTestMode,
+			TestDataPath:                dhmTestDataPath,
+			TestScenario:                dhmTestScenario,
+		}
+
+		// Parse test devices if provided
+		if dhmTestDevices != "" {
+			config.TestDevices = strings.Split(dhmTestDevices, ",")
 		}
 
 		config = mergeDiskHealthMetricsConfigWithEnv(config)
@@ -104,6 +116,16 @@ func mergeDiskHealthMetricsConfigWithEnv(cfg diskhealthmetrics.DiskHealthMetrics
 	cfg.ReallocatedSectorsThreshold = getEnvInt64("REALLOCATED_SECTORS_THRESHOLD", cfg.ReallocatedSectorsThreshold)
 	cfg.LifetimeUsedThreshold = getEnvInt64("LIFETIME_USED_THRESHOLD", cfg.LifetimeUsedThreshold)
 	cfg.CephOSDBasePath = getEnv("CEPH_OSD_BASE_PATH", cfg.CephOSDBasePath)
+	
+	// Test mode environment variables
+	cfg.TestMode = getEnvBool("TEST_MODE", cfg.TestMode)
+	cfg.TestDataPath = getEnv("TEST_DATA_PATH", cfg.TestDataPath)
+	cfg.TestScenario = getEnv("TEST_SCENARIO", cfg.TestScenario)
+	
+	testDevicesEnv := getEnv("TEST_DEVICES", "")
+	if testDevicesEnv != "" {
+		cfg.TestDevices = strings.Split(testDevicesEnv, ",")
+	}
 
 	return cfg
 }
@@ -122,13 +144,20 @@ func init() {
 	diskHealthMetricsCmd.Flags().Int64Var(&dhmReallocatedSectorsThreshold, "reallocated-sectors-threshold", 10, "Threshold for reallocated sectors to trigger a warning")
 	diskHealthMetricsCmd.Flags().Int64Var(&dhmLifetimeUsedThreshold, "lifetime-used-threshold", 80, "Threshold for SSD lifetime used percentage to trigger a critical alert")
 	diskHealthMetricsCmd.Flags().StringVar(&dhmCephOSDBasePath, "ceph-osd-base-path", "/var/lib/rook/rook-ceph/", "Base path for mapping devices to Ceph OSD numbers")
+	
+	// Test mode flags
+	diskHealthMetricsCmd.Flags().BoolVar(&dhmTestMode, "test-mode", false, "Enable test mode with simulated data (no smartctl required)")
+	diskHealthMetricsCmd.Flags().StringVar(&dhmTestDataPath, "test-data-path", "", "Path to test data directory (default: pkg/producers/diskhealthmetrics/testdata)")
+	diskHealthMetricsCmd.Flags().StringVar(&dhmTestScenario, "test-scenario", "mixed", "Test scenario: healthy, failing, mixed")
+	diskHealthMetricsCmd.Flags().StringVar(&dhmTestDevices, "test-devices", "", "Comma-separated list of test device names (default: nvme0,nvme1,sda,sdb)")
 }
 
 func validateDiskHealthMetricsConfig(config diskhealthmetrics.DiskHealthMetricsConfig) {
 	missingParams := false
 
-	if len(config.Disks) == 0 {
-		fmt.Println("Warning: --disks or DISKS must be set")
+	// In test mode, disks are optional (will use default test devices)
+	if !config.TestMode && len(config.Disks) == 0 {
+		fmt.Println("Warning: --disks or DISKS must be set (or use --test-mode)")
 		missingParams = true
 	}
 

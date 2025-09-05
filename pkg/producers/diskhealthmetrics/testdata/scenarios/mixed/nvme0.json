@@ -1,0 +1,91 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 4],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.6.48-flatcar",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "--json",
+      "--info",
+      "--health",
+      "--attributes",
+      "--tolerance=verypermissive",
+      "--nocheck=standby",
+      "--format=brief",
+      "--log=error",
+      "/dev/nvme0"
+    ],
+    "exit_status": 0
+  },
+  "local_time": {
+    "time_t": 1728459812,
+    "asctime": "Wed Oct  9 07:43:32 2024 UTC"
+  },
+  "device": {
+    "name": "/dev/nvme0",
+    "info_name": "/dev/nvme0",
+    "type": "nvme",
+    "protocol": "NVMe"
+  },
+  "model_name": "Samsung SSD 980 PRO 2TB",
+  "serial_number": "S5P2NG0NA12345",
+  "firmware_version": "5B2QGXA7",
+  "nvme_pci_vendor": {
+    "id": 5197,
+    "subsystem_id": 5197
+  },
+  "nvme_ieee_oui_identifier": 9528,
+  "nvme_total_capacity": 2000398934016,
+  "nvme_unallocated_capacity": 0,
+  "nvme_controller_id": 1,
+  "nvme_version": {
+    "string": "1.4",
+    "value": 66560
+  },
+  "nvme_number_of_namespaces": 1,
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": true,
+    "nvme": {
+      "value": 0
+    }
+  },
+  "nvme_smart_health_information_log": {
+    "critical_warning": 3,
+    "temperature": 72,
+    "available_spare": 15,
+    "available_spare_threshold": 10,
+    "percentage_used": 75,
+    "data_units_read": 158306932,
+    "data_units_written": 245541512,
+    "host_reads": 1812613571,
+    "host_writes": 3483569453,
+    "controller_busy_time": 1265,
+    "power_cycles": 1309,
+    "power_on_hours": 32705,
+    "unsafe_shutdowns": 53,
+    "media_errors": 42,
+    "num_err_log_entries": 15,
+    "warning_temp_time": 120,
+    "critical_comp_time": 0,
+    "temperature_sensors": [72, 68, 65]
+  },
+  "temperature": {
+    "current": 72
+  },
+  "power_cycle_count": 1309,
+  "power_on_time": {
+    "hours": 32705
+  },
+  "nvme_error_information_log": {
+    "size": 256,
+    "read": 16,
+    "unread": 15
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 4],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.6.48-flatcar",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl", "--json", "--info", "--health", "--attributes",
+      "--tolerance=verypermissive", "--nocheck=standby",
+      "--format=brief", "--log=error", "/dev/sdb"
+    ],
+    "exit_status": 0
+  },
+  "local_time": {
+    "time_t": 1728459826,
+    "asctime": "Wed Oct  9 07:43:46 2024 UTC"
+  },
+  "device": {
+    "name": "/dev/sdb",
+    "info_name": "/dev/sdb",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
+  "scsi_vendor": "WDC",
+  "scsi_product": "WD40EZAZ-00ZGHB0",
+  "scsi_model_name": "WDC WD40EZAZ-00ZGHB0",
+  "scsi_revision": "80.0",
+  "scsi_version": "SPC-4",
+  "user_capacity": {
+    "blocks": 7814037168,
+    "bytes": 4000787030016
+  },
+  "logical_block_size": 512,
+  "physical_block_size": 4096,
+  "scsi_lb_provisioning": {
+    "name": "fully provisioned",
+    "value": 0,
+    "management_enabled": {
+      "name": "LBPME",
+      "value": 0
+    },
+    "read_zeros": {
+      "name": "LBPRZ",
+      "value": 0
+    }
+  },
+  "rotation_rate": 5400,
+  "form_factor": {
+    "scsi_value": 2,
+    "name": "3.5 inches"
+  },
+  "logical_unit_id": "0x50014ee265abc123",
+  "serial_number": "WD-HEALTHY01",
+  "device_type": {
+    "scsi_terminology": "Peripheral Device Type [PDT]",
+    "scsi_value": 0,
+    "name": "disk"
+  },
+  "scsi_transport_protocol": {
+    "name": "SAS (SPL-4)",
+    "value": 6
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "temperature_warning": {
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "temperature": {
+    "current": 38,
+    "drive_trip": 60
+  },
+  "power_on_time": {
+    "hours": 8932,
+    "minutes": 42
+  },
+  "scsi_start_stop_cycle_counter": {
+    "year_of_manufacture": "2021",
+    "week_of_manufacture": "12",
+    "specified_cycle_count_over_device_lifetime": 50000,
+    "accumulated_start_stop_cycles": 456,
+    "specified_load_unload_count_over_device_lifetime": 600000,
+    "accumulated_load_unload_cycles": 1234
+  },
+  "scsi_grown_defect_list": 2,
+  "scsi_error_counter_log": {
+    "read": {
+      "errors_corrected_by_eccfast": 12,
+      "errors_corrected_by_eccdelayed": 3,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 15,
+      "correction_algorithm_invocations": 234567,
+      "gigabytes_processed": "12345.678",
+      "total_uncorrected_errors": 0
+    },
+    "write": {
+      "errors_corrected_by_eccfast": 8,
+      "errors_corrected_by_eccdelayed": 1,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 9,
+      "correction_algorithm_invocations": 123456,
+      "gigabytes_processed": "6789.012",
+      "total_uncorrected_errors": 0
+    },
+    "verify": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 1234,
+      "gigabytes_processed": "0.000",
+      "total_uncorrected_errors": 0
+    }
+  }
+}

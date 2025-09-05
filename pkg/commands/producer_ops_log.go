@@ -77,6 +77,8 @@ var (
 	opsTrackErrorsPerTenant bool
 	opsTrackErrorsPerStatus bool
 	opsTrackErrorsByIP      bool
+	opsTrackTimeoutErrors   bool
+	opsTrackErrorsByCategory bool
 
 	// IP-based metrics flags
 	opsTrackRequestsByIPDetailed           bool
@@ -178,11 +180,13 @@ Following this configuration change, the RadosGW will log operations to the file
 				TrackBytesReceivedPerTenant: opsTrackBytesReceivedPerTenant,
 
 				// Error metrics
-				TrackErrorsDetailed:  opsTrackErrorsDetailed,
-				TrackErrorsPerUser:   opsTrackErrorsPerUser,
-				TrackErrorsPerBucket: opsTrackErrorsPerBucket,
-				TrackErrorsPerTenant: opsTrackErrorsPerTenant,
-				TrackErrorsPerStatus: opsTrackErrorsPerStatus,
+				TrackErrorsDetailed:    opsTrackErrorsDetailed,
+				TrackErrorsPerUser:     opsTrackErrorsPerUser,
+				TrackErrorsPerBucket:   opsTrackErrorsPerBucket,
+				TrackErrorsPerTenant:   opsTrackErrorsPerTenant,
+				TrackErrorsPerStatus:   opsTrackErrorsPerStatus,
+				TrackTimeoutErrors:     opsTrackTimeoutErrors,
+				TrackErrorsByCategory:  opsTrackErrorsByCategory,
 
 				// IP-based metrics
 				TrackRequestsByIPDetailed:           opsTrackRequestsByIPDetailed,
@@ -591,6 +595,8 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.MetricsConfig.TrackErrorsPerTenant = getEnvBool("TRACK_ERRORS_PER_TENANT", cfg.MetricsConfig.TrackErrorsPerTenant)
 	cfg.MetricsConfig.TrackErrorsPerStatus = getEnvBool("TRACK_ERRORS_PER_STATUS", cfg.MetricsConfig.TrackErrorsPerStatus)
 	cfg.MetricsConfig.TrackErrorsByIP = getEnvBool("TRACK_ERRORS_BY_IP", cfg.MetricsConfig.TrackErrorsByIP)
+	cfg.MetricsConfig.TrackTimeoutErrors = getEnvBool("TRACK_TIMEOUT_ERRORS", cfg.MetricsConfig.TrackTimeoutErrors)
+	cfg.MetricsConfig.TrackErrorsByCategory = getEnvBool("TRACK_ERRORS_BY_CATEGORY", cfg.MetricsConfig.TrackErrorsByCategory)
 
 	// IP-based metrics
 	cfg.MetricsConfig.TrackRequestsByIPDetailed = getEnvBool("TRACK_REQUESTS_BY_IP_DETAILED", cfg.MetricsConfig.TrackRequestsByIPDetailed)
@@ -679,6 +685,8 @@ func init() {
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsPerBucket, "track-errors-per-bucket", false, "Track errors per bucket")
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsPerTenant, "track-errors-per-tenant", false, "Track errors per tenant")
 	opsLogCmd.Flags().BoolVar(&opsTrackErrorsPerStatus, "track-errors-per-status", false, "Track errors per HTTP status")
+	opsLogCmd.Flags().BoolVar(&opsTrackTimeoutErrors, "track-timeout-errors", false, "Track timeout errors (408, 504, 598, 499) separately for OSD issues")
+	opsLogCmd.Flags().BoolVar(&opsTrackErrorsByCategory, "track-errors-by-category", false, "Track errors by category (timeout, connection, client, server)")
 
 	// IP-based metrics
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsByIPDetailed, "track-requests-by-ip-detailed", false, "Track requests by IP")

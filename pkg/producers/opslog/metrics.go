@@ -75,6 +75,10 @@ type Metrics struct {
 	ErrorsPerStatus sync.Map // "http_status" -> *atomic.Uint64
 	ErrorsPerIP     sync.Map // "ip|tenant|http_status" -> *atomic.Uint64
 
+	// Enhanced error tracking for timeout and connection issues
+	TimeoutErrors    sync.Map // "user|bucket|timeout_type" -> *atomic.Uint64
+	ErrorsByCategory sync.Map // "tenant|bucket|category|status" -> *atomic.Uint64
+
 	// IP-based tracking - dedicated maps for each aggregation level
 	// Request tracking by IP
 	RequestsByIPDetailed           sync.Map // "user|ip" -> *atomic.Uint64
@@ -257,6 +261,14 @@ func (m *Metrics) ToJSON(metricsConfig *MetricsConfig) ([]byte, error) {
 	}
 	if metricsConfig.TrackErrorsByIP {
 		data["errors_per_ip"] = loadSyncMap(&m.ErrorsPerIP)
+	}
+	
+	if metricsConfig.TrackTimeoutErrors {
+		data["timeout_errors"] = loadSyncMap(&m.TimeoutErrors)
+	}
+	
+	if metricsConfig.TrackErrorsByCategory {
+		data["errors_by_category"] = loadSyncMap(&m.ErrorsByCategory)
 	}
 
 	return json.Marshal(data)
@@ -447,6 +459,21 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 	}
 
 	if logEntry.HTTPStatus[0] != '2' {
+		// Track timeout errors specifically
+		if metricsConfig.TrackTimeoutErrors && IsTimeoutError(logEntry.HTTPStatus) {
+			timeoutType := GetTimeoutType(logEntry.HTTPStatus)
+			key := logEntry.User + "|" + logEntry.Bucket + "|" + timeoutType
+			incrementSyncMap(&m.TimeoutErrors, key)
+		}
+
+		// Track errors by category
+		if metricsConfig.TrackErrorsByCategory {
+			errorCategory := CategorizeHTTPError(logEntry.HTTPStatus)
+			key := tenantStr + "|" + logEntry.Bucket + "|" + errorCategory + "|" + logEntry.HTTPStatus
+			incrementSyncMap(&m.ErrorsByCategory, key)
+		}
+
+		// Existing error tracking
 		if metricsConfig.TrackErrorsDetailed {
 			key := logEntry.User + "|" + logEntry.Bucket + "|" + logEntry.HTTPStatus
 			incrementSyncMap(&m.ErrorsDetailed, key)
@@ -531,6 +558,8 @@ func (m *Metrics) Reset() {
 	resetSyncMap(&m.ErrorsPerTenant)
 	resetSyncMap(&m.ErrorsPerStatus)
 	resetSyncMap(&m.ErrorsPerIP)
+	resetSyncMap(&m.TimeoutErrors)
+	resetSyncMap(&m.ErrorsByCategory)
 	resetSyncMap(&m.RequestsByIPDetailed)
 	resetSyncMap(&m.RequestsPerIPPerTenant)
 	resetSyncMap(&m.RequestsPerTenantFromIP)
@@ -696,6 +725,8 @@ func (m *Metrics) Clone() *Metrics {
 	copySyncMap(&m.ErrorsPerTenant, &clone.ErrorsPerTenant)
 	copySyncMap(&m.ErrorsPerStatus, &clone.ErrorsPerStatus)
 	copySyncMap(&m.ErrorsPerIP, &clone.ErrorsPerIP)
+	copySyncMap(&m.TimeoutErrors, &clone.TimeoutErrors)
+	copySyncMap(&m.ErrorsByCategory, &clone.ErrorsByCategory)
 	copySyncMap(&m.RequestsByIPDetailed, &clone.RequestsByIPDetailed)
 	copySyncMap(&m.RequestsPerIPPerTenant, &clone.RequestsPerIPPerTenant)
 	copySyncMap(&m.RequestsPerTenantFromIP, &clone.RequestsPerTenantFromIP)
@@ -764,6 +795,8 @@ func SubtractMetrics(total, previous *Metrics) *Metrics {
 	subtractSyncMap(&total.ErrorsPerTenant, &previous.ErrorsPerTenant, &delta.ErrorsPerTenant)
 	subtractSyncMap(&total.ErrorsPerStatus, &previous.ErrorsPerStatus, &delta.ErrorsPerStatus)
 	subtractSyncMap(&total.ErrorsPerIP, &previous.ErrorsPerIP, &delta.ErrorsPerIP)
+	subtractSyncMap(&total.TimeoutErrors, &previous.TimeoutErrors, &delta.TimeoutErrors)
+	subtractSyncMap(&total.ErrorsByCategory, &previous.ErrorsByCategory, &delta.ErrorsByCategory)
 	subtractSyncMap(&total.RequestsByIPDetailed, &previous.RequestsByIPDetailed, &delta.RequestsByIPDetailed)
 	subtractSyncMap(&total.RequestsPerIPPerTenant, &previous.RequestsPerIPPerTenant, &delta.RequestsPerIPPerTenant)
 	subtractSyncMap(&total.RequestsPerTenantFromIP, &previous.RequestsPerTenantFromIP, &delta.RequestsPerTenantFromIP)

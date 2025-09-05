@@ -66,6 +66,24 @@ var (
 		},
 		[]string{"pod", "ip", "tenant", "http_status"},
 	)
+
+	// Timeout-specific error metrics
+	timeoutErrorsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "radosgw_timeout_errors",
+			Help: "Total number of timeout errors by type (408, 504, 598, 499)",
+		},
+		[]string{"pod", "user", "tenant", "bucket", "timeout_type"},
+	)
+
+	// Enhanced error categorization metrics
+	errorsByCategoryCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "radosgw_errors_by_category",
+			Help: "Errors categorized by type (client, server, timeout, connection)",
+		},
+		[]string{"pod", "tenant", "bucket", "error_category", "http_status"},
+	)
 )
 
 func registerErrorMetrics(metricsConfig *MetricsConfig) {
@@ -94,6 +112,14 @@ func registerErrorMetrics(metricsConfig *MetricsConfig) {
 	if metricsConfig.TrackErrorsByIP {
 		prometheus.MustRegister(errorsPerIPCounter)
 	}
+
+	if metricsConfig.TrackTimeoutErrors {
+		prometheus.MustRegister(timeoutErrorsCounter)
+	}
+
+	if metricsConfig.TrackErrorsByCategory {
+		prometheus.MustRegister(errorsByCategoryCounter)
+	}
 }
 
 func publishErrorCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
@@ -112,15 +138,15 @@ func publishErrorCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 			userStr, tenantStr := extractUserAndTenant(user)
 			errorCount := float64(count.(*atomic.Uint64).Load())
 
-			if errorCount > 0 {
-				errorsDetailedCounter.With(prometheus.Labels{
-					"pod":         cfg.PodName,
-					"user":        userStr,
-					"tenant":      tenantStr,
-					"bucket":      bucket,
-					"http_status": status,
-				}).Add(errorCount)
-			}
+			// Always publish the metric, even if errorCount is 0
+			// This ensures the metric is visible in Prometheus with value 0
+			errorsDetailedCounter.With(prometheus.Labels{
+				"pod":         cfg.PodName,
+				"user":        userStr,
+				"tenant":      tenantStr,
+				"bucket":      bucket,
+				"http_status": status,
+			}).Add(errorCount)
 			return true
 		})
 	}
@@ -138,14 +164,13 @@ func publishErrorCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 			userStr, tenantStr := extractUserAndTenant(user)
 			errorCount := float64(count.(*atomic.Uint64).Load())
 
-			if errorCount > 0 {
-				errorsPerUserCounter.With(prometheus.Labels{
-					"pod":         cfg.PodName,
-					"user":        userStr,
-					"tenant":      tenantStr,
-					"http_status": status,
-				}).Add(errorCount)
-			}
+			// Always publish the metric, even if errorCount is 0
+			errorsPerUserCounter.With(prometheus.Labels{
+				"pod":         cfg.PodName,
+				"user":        userStr,
+				"tenant":      tenantStr,
+				"http_status": status,
+			}).Add(errorCount)
 			return true
 		})
 	}
@@ -162,14 +187,13 @@ func publishErrorCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 			tenant, bucket, status := parts[0], parts[1], parts[2]
 			errorCount := float64(count.(*atomic.Uint64).Load())
 
-			if errorCount > 0 {
-				errorsPerBucketCounter.With(prometheus.Labels{
-					"pod":         cfg.PodName,
-					"tenant":      tenant,
-					"bucket":      bucket,
-					"http_status": status,
-				}).Add(errorCount)
-			}
+			// Always publish the metric, even if errorCount is 0
+			errorsPerBucketCounter.With(prometheus.Labels{
+				"pod":         cfg.PodName,
+				"tenant":      tenant,
+				"bucket":      bucket,
+				"http_status": status,
+			}).Add(errorCount)
 			return true
 		})
 	}
@@ -186,13 +210,12 @@ func publishErrorCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 			tenant, status := parts[0], parts[1]
 			errorCount := float64(count.(*atomic.Uint64).Load())
 
-			if errorCount > 0 {
-				errorsPerTenantCounter.With(prometheus.Labels{
-					"pod":         cfg.PodName,
-					"tenant":      tenant,
-					"http_status": status,
-				}).Add(errorCount)
-			}
+			// Always publish the metric, even if errorCount is 0
+			errorsPerTenantCounter.With(prometheus.Labels{
+				"pod":         cfg.PodName,
+				"tenant":      tenant,
+				"http_status": status,
+			}).Add(errorCount)
 			return true
 		})
 	}
@@ -203,12 +226,11 @@ func publishErrorCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 			status := key.(string)
 			errorCount := float64(count.(*atomic.Uint64).Load())
 
-			if errorCount > 0 {
-				errorsPerStatusCounter.With(prometheus.Labels{
-					"pod":         cfg.PodName,
-					"http_status": status,
-				}).Add(errorCount)
-			}
+			// Always publish the metric, even if errorCount is 0
+			errorsPerStatusCounter.With(prometheus.Labels{
+				"pod":         cfg.PodName,
+				"http_status": status,
+			}).Add(errorCount)
 			return true
 		})
 	}
@@ -225,15 +247,112 @@ func publishErrorCounters(diffMetrics *Metrics, cfg OpsLogConfig) {
 			ip, tenant, status := parts[0], parts[1], parts[2]
 			errorCount := float64(count.(*atomic.Uint64).Load())
 
-			if errorCount > 0 {
-				errorsPerIPCounter.With(prometheus.Labels{
-					"pod":         cfg.PodName,
-					"ip":          ip,
-					"tenant":      tenant,
-					"http_status": status,
-				}).Add(errorCount)
-			}
+			// Always publish the metric, even if errorCount is 0
+			errorsPerIPCounter.With(prometheus.Labels{
+				"pod":         cfg.PodName,
+				"ip":          ip,
+				"tenant":      tenant,
+				"http_status": status,
+			}).Add(errorCount)
 			return true
 		})
 	}
+
+	// Publish timeout error metrics
+	if metricsConfig.TrackTimeoutErrors {
+		diffMetrics.TimeoutErrors.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 3 {
+				log.Warn().Msgf("Invalid key format in TimeoutErrors: %v", key)
+				return true
+			}
+
+			user, bucket, timeoutType := parts[0], parts[1], parts[2]
+			userStr, tenantStr := extractUserAndTenant(user)
+			errorCount := float64(count.(*atomic.Uint64).Load())
+
+			// Always publish the metric, even if errorCount is 0
+			timeoutErrorsCounter.With(prometheus.Labels{
+				"pod":          cfg.PodName,
+				"user":         userStr,
+				"tenant":       tenantStr,
+				"bucket":       bucket,
+				"timeout_type": timeoutType,
+			}).Add(errorCount)
+			return true
+		})
+	}
+
+	// Publish errors by category
+	if metricsConfig.TrackErrorsByCategory {
+		diffMetrics.ErrorsByCategory.Range(func(key, count any) bool {
+			parts := strings.Split(key.(string), "|")
+			if len(parts) != 4 {
+				log.Warn().Msgf("Invalid key format in ErrorsByCategory: %v", key)
+				return true
+			}
+
+			tenant, bucket, category, status := parts[0], parts[1], parts[2], parts[3]
+			errorCount := float64(count.(*atomic.Uint64).Load())
+
+			// Always publish the metric, even if errorCount is 0
+			errorsByCategoryCounter.With(prometheus.Labels{
+				"pod":            cfg.PodName,
+				"tenant":         tenant,
+				"bucket":         bucket,
+				"error_category": category,
+				"http_status":    status,
+			}).Add(errorCount)
+			return true
+		})
+	}
+}
+
+// IsTimeoutError checks if the HTTP status code indicates a timeout error
+func IsTimeoutError(status string) bool {
+	return status == "408" || // Request Timeout
+		status == "504" || // Gateway Timeout
+		status == "598" || // Network read timeout error
+		status == "499" // Client Closed Request (nginx specific)
+}
+
+// GetTimeoutType returns the specific type of timeout error
+func GetTimeoutType(status string) string {
+	switch status {
+	case "408":
+		return "request_timeout"
+	case "504":
+		return "gateway_timeout"
+	case "598":
+		return "network_read_timeout"
+	case "499":
+		return "client_closed_request"
+	default:
+		return "unknown_timeout"
+	}
+}
+
+// CategorizeHTTPError categorizes HTTP error status codes
+func CategorizeHTTPError(status string) string {
+	// Check for timeout errors first
+	if IsTimeoutError(status) {
+		return "timeout"
+	}
+
+	// Connection errors
+	if status == "502" || status == "503" {
+		return "connection"
+	}
+
+	// Client errors (4xx)
+	if len(status) > 0 && status[0] == '4' {
+		return "client"
+	}
+
+	// Server errors (5xx)
+	if len(status) > 0 && status[0] == '5' {
+		return "server"
+	}
+
+	return "unknown"
 }

@@ -1,0 +1,134 @@
+{
+  "json_format_version": [
+    1,
+    0
+  ],
+  "smartctl": {
+    "version": [
+      7,
+      4
+    ],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.6.48-flatcar",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "--json",
+      "--info",
+      "--health",
+      "--attributes",
+      "--tolerance=verypermissive",
+      "--nocheck=standby",
+      "--format=brief",
+      "--log=error",
+      "/dev/sdm"
+    ],
+    "exit_status": 0
+  },
+  "local_time": {
+    "time_t": 1728459826,
+    "asctime": "Wed Oct  9 07:43:46 2024 UTC"
+  },
+  "device": {
+    "name": "/dev/sdm",
+    "info_name": "/dev/sdm",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
+  "scsi_vendor": "LENOVO",
+  "scsi_product": "WUS721010AL5204",
+  "scsi_model_name": "LENOVO WUS721010AL5204",
+  "scsi_revision": "K6V3",
+  "scsi_version": "SPC-4",
+  "user_capacity": {
+    "blocks": 19532873728,
+    "bytes": 10000831348736
+  },
+  "logical_block_size": 512,
+  "physical_block_size": 4096,
+  "scsi_lb_provisioning": {
+    "name": "fully provisioned",
+    "value": 0,
+    "management_enabled": {
+      "name": "LBPME",
+      "value": 0
+    },
+    "read_zeros": {
+      "name": "LBPRZ",
+      "value": 0
+    }
+  },
+  "rotation_rate": 7200,
+  "form_factor": {
+    "scsi_value": 2,
+    "name": "3.5 inches"
+  },
+  "logical_unit_id": "0x5000cca0b0a328d0",
+  "serial_number": "VCJWRPDP",
+  "device_type": {
+    "scsi_terminology": "Peripheral Device Type [PDT]",
+    "scsi_value": 0,
+    "name": "disk"
+  },
+  "scsi_transport_protocol": {
+    "name": "SAS (SPL-4)",
+    "value": 6
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "temperature_warning": {
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "temperature": {
+    "current": 33,
+    "drive_trip": 65
+  },
+  "power_on_time": {
+    "hours": 12705,
+    "minutes": 11
+  },
+  "scsi_start_stop_cycle_counter": {
+    "year_of_manufacture": "2022",
+    "week_of_manufacture": "02",
+    "specified_cycle_count_over_device_lifetime": 50000,
+    "accumulated_start_stop_cycles": 288,
+    "specified_load_unload_count_over_device_lifetime": 600000,
+    "accumulated_load_unload_cycles": 807
+  },
+  "scsi_grown_defect_list": 0,
+  "scsi_error_counter_log": {
+    "read": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 1,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 1,
+      "correction_algorithm_invocations": 613491,
+      "gigabytes_processed": "84858.076",
+      "total_uncorrected_errors": 0
+    },
+    "write": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 957254,
+      "gigabytes_processed": "23105.655",
+      "total_uncorrected_errors": 0
+    },
+    "verify": {
+      "errors_corrected_by_eccfast": 0,
+      "errors_corrected_by_eccdelayed": 0,
+      "errors_corrected_by_rereads_rewrites": 0,
+      "total_errors_corrected": 0,
+      "correction_algorithm_invocations": 3668,
+      "gigabytes_processed": "0.000",
+      "total_uncorrected_errors": 0
+    }
+  }
+}
