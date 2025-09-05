@@ -71,12 +71,14 @@ type MetricsConfig struct {
 
 	// === ERROR METRICS ===
 	// Errors
-	TrackErrorsDetailed  bool `yaml:"track_errors_detailed"`   // Detailed: pod, user, tenant, bucket, http_status
-	TrackErrorsPerUser   bool `yaml:"track_errors_per_user"`   // Aggregated: pod, user, tenant, http_status
-	TrackErrorsPerBucket bool `yaml:"track_errors_per_bucket"` // Aggregated: pod, tenant, bucket, http_status
-	TrackErrorsPerTenant bool `yaml:"track_errors_per_tenant"` // Aggregated: pod, tenant, http_status
-	TrackErrorsPerStatus bool `yaml:"track_errors_per_status"` // Aggregated: pod, http_status
-	TrackErrorsByIP      bool `yaml:"track_errors_by_ip"`      // IP-based: pod, ip, tenant, http_status
+	TrackErrorsDetailed   bool `yaml:"track_errors_detailed"`    // Detailed: pod, user, tenant, bucket, http_status
+	TrackErrorsPerUser    bool `yaml:"track_errors_per_user"`    // Aggregated: pod, user, tenant, http_status
+	TrackErrorsPerBucket  bool `yaml:"track_errors_per_bucket"`  // Aggregated: pod, tenant, bucket, http_status
+	TrackErrorsPerTenant  bool `yaml:"track_errors_per_tenant"`  // Aggregated: pod, tenant, http_status
+	TrackErrorsPerStatus  bool `yaml:"track_errors_per_status"`  // Aggregated: pod, http_status
+	TrackErrorsByIP       bool `yaml:"track_errors_by_ip"`       // IP-based: pod, ip, tenant, http_status
+	TrackTimeoutErrors    bool `yaml:"track_timeout_errors"`     // Timeout-specific: pod, user, tenant, bucket, timeout_type
+	TrackErrorsByCategory bool `yaml:"track_errors_by_category"` // Categorized: pod, tenant, bucket, error_category, http_status
 
 	// === IP-BASED METRICS ===
 	// Requests by IP
@@ -118,6 +120,8 @@ func (c *MetricsConfig) ApplyShortcuts() {
 
 		c.TrackErrorsDetailed = true
 		c.TrackErrorsByIP = true
+		c.TrackTimeoutErrors = true
+		c.TrackErrorsByCategory = true
 
 		c.TrackRequestsByIPDetailed = true
 		c.TrackBytesSentByIPDetailed = true

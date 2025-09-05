@@ -90,7 +90,7 @@ var (
 		},
 		[]string{
 			"disk", "node", "instance", "osd_id",
-			"vendor", "model", "serial_number", "firmware_version",
+			"vendor", "vendor_id", "subsystem_vendor_id", "model", "serial_number", "firmware_version",
 			"product", "model_family", "capacity_gb", "media_type",
 			"form_factor", "rpm", "dwpd",
 		},
@@ -132,21 +132,23 @@ func PublishToPrometheus(metrics []NormalizedSmartData, cfg DiskHealthMetricsCon
 		// Publish device info metric (static information)
 		if metric.DeviceInfo != nil {
 			infoLabels := prometheus.Labels{
-				"disk":             metric.Device,
-				"node":             metric.NodeName,
-				"instance":         metric.InstanceID,
-				"osd_id":           metric.OSDID,
-				"vendor":           metric.DeviceInfo.Vendor,
-				"model":            metric.DeviceInfo.DeviceModel,
-				"serial_number":    metric.DeviceInfo.SerialNumber,
-				"firmware_version": metric.DeviceInfo.FirmwareVersion,
-				"product":          metric.DeviceInfo.Product,
-				"model_family":     metric.DeviceInfo.ModelFamily,
-				"capacity_gb":      fmt.Sprintf("%.2f", metric.DeviceInfo.Capacity),
-				"media_type":       metric.DeviceInfo.Media,
-				"form_factor":      metric.DeviceInfo.FormFactor,
-				"rpm":              fmt.Sprintf("%d", metric.DeviceInfo.RPM),
-				"dwpd":             fmt.Sprintf("%.2f", metric.DeviceInfo.DWPD),
+				"disk":                metric.Device,
+				"node":                metric.NodeName,
+				"instance":            metric.InstanceID,
+				"osd_id":              metric.OSDID,
+				"vendor":              metric.DeviceInfo.Vendor,
+				"vendor_id":           metric.DeviceInfo.VendorID,
+				"subsystem_vendor_id": metric.DeviceInfo.SubsystemVendorID,
+				"model":               metric.DeviceInfo.DeviceModel,
+				"serial_number":       metric.DeviceInfo.SerialNumber,
+				"firmware_version":    metric.DeviceInfo.FirmwareVersion,
+				"product":             metric.DeviceInfo.Product,
+				"model_family":        metric.DeviceInfo.ModelFamily,
+				"capacity_gb":         fmt.Sprintf("%.2f", metric.DeviceInfo.Capacity),
+				"media_type":          metric.DeviceInfo.Media,
+				"form_factor":         metric.DeviceInfo.FormFactor,
+				"rpm":                 fmt.Sprintf("%d", metric.DeviceInfo.RPM),
+				"dwpd":                fmt.Sprintf("%.2f", metric.DeviceInfo.DWPD),
 			}
 			// Info metrics are typically set to 1 to indicate presence
 			diskInfoGauge.With(infoLabels).Set(1)

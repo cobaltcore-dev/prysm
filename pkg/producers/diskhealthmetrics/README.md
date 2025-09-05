@@ -15,6 +15,11 @@ Prometheus metrics for monitoring dashboards and NATS subjects for alerting.
   and consistent data representation across various drives in your environment.
 - **Device Info Normalization**: Standardizes device information such as product name, capacity,
   vendor, and media type to maintain consistency across different systems and databases.
+- **Enhanced NVMe Support**: 
+  - Exposes critical NVMe-specific attributes including `critical_warning` bitfield for early failure detection
+  - Vendor IDs displayed in standard hexadecimal format (e.g., "0x144D" for Samsung)
+  - Available spare percentage and threshold monitoring
+  - Media error tracking and error log entry counts
 - **Ceph OSD Integration**: Automatically maps physical disk devices to their corresponding Ceph OSD
   numbers, providing enhanced observability for Ceph storage clusters. Works seamlessly with both
   direct block devices and LVM logical volumes.
@@ -54,14 +59,48 @@ monitoring and alerting based on specific OSD performance and health metrics.
 All metrics include standard labels (`disk`, `node`, `instance`) and an optional `osd_id` label when
 Ceph integration is enabled:
 
-- **smart_attributes**: Gauges various SMART attributes of the disk.
-- **disk_temperature_celsius**: Monitors disk temperature in Celsius.
-- **disk_reallocated_sectors**: Tracks the number of reallocated sectors.
-- **disk_pending_sectors**: Monitors the number of pending sectors.
-- **disk_power_on_hours_total**: Reports the cumulative number of hours the disk has been powered on.
-- **ssd_life_used_percentage**: Indicates the percentage of SSD life used.
-- **disk_error_counts_total**: Tracks various error counts for the disk.
-- **disk_capacity_gb**: Reports the capacity of the disk in GB.
+### Core Metrics
+- **smart_attributes**: Gauges various SMART attributes of the disk with `attribute` label
+  - Includes NVMe-specific attributes like `critical_warning`, `available_spare`, `available_spare_threshold`
+  - Vendor IDs stored as decimal values (e.g., `nvme_vendor_id`, `nvme_subsystem_vendor_id`)
+- **disk_temperature_celsius**: Monitors disk temperature in Celsius
+- **disk_reallocated_sectors**: Tracks the number of reallocated sectors
+- **disk_pending_sectors**: Monitors the number of pending sectors
+- **disk_power_on_hours_total**: Reports the cumulative number of hours the disk has been powered on
+- **ssd_life_used_percentage**: Indicates the percentage of SSD life used (normalized from various wear indicators)
+- **disk_error_counts_total**: Tracks various error counts for the disk with `error_type` label
+- **disk_capacity_gb**: Reports the capacity of the disk in GB
+
+### Device Information Metric
+- **disk_info**: Static information about the disk device (value always 1) with labels:
+  - `vendor`: Vendor/manufacturer name
+  - `vendor_id`: NVMe Vendor ID in hex format (e.g., "0x144D" for Samsung)
+  - `subsystem_vendor_id`: NVMe Subsystem Vendor ID in hex format
+  - `model`: Device model
+  - `serial_number`: Device serial number
+  - `firmware_version`: Firmware version
+  - `product`: Product name
+  - `model_family`: Model family (for ATA devices)
+  - `capacity_gb`: Capacity in GB
+  - `media_type`: Media type (ssd, hdd, nvme)
+  - `form_factor`: Physical form factor
+  - `rpm`: Rotational speed (for HDDs)
+  - `dwpd`: Drive Writes Per Day (for SSDs)
+
+## NVMe Critical Warning Interpretation
+
+The `critical_warning` attribute in `smart_attributes` is a bitfield that provides early warning for NVMe drive issues:
+
+| Value | Meaning |
+|-------|---------|
+| 0x00  | No critical warnings (drive is healthy) |
+| 0x01  | Available spare space has fallen below threshold |
+| 0x02  | Temperature exceeded threshold |
+| 0x04  | NVM subsystem reliability has been degraded |
+| 0x08  | Drive is in read-only mode |
+| 0x10  | Volatile memory backup device has failed |
+
+Multiple bits can be set simultaneously. For example, 0x06 means both temperature exceeded (0x02) and reliability degraded (0x04).
 
 ## Alerts and Thresholds
 
@@ -126,6 +165,14 @@ volumes:
       path: /var/lib/rook/rook-ceph
       type: Directory
 ```
+
+## Recent Improvements
+
+### Version Updates
+- **NVMe Critical Warning Support**: Added exposure of the `critical_warning` bitfield for early failure detection
+- **Hexadecimal Vendor IDs**: Vendor IDs and Subsystem Vendor IDs now displayed in standard hex format (e.g., "0x144D")
+- **Enhanced Device Info Metric**: Added `disk_info` metric with comprehensive device metadata labels
+- **Improved NVMe Integration**: Better support for NVMe-specific attributes from both smartctl and nvme-cli
 
 ## Acknowledgment
 

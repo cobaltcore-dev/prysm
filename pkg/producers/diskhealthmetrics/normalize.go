@@ -66,7 +66,9 @@ func FillDeviceInfoFromSmartData(deviceInfo *DeviceInfo, smartData *SmartCtlOutp
 		// NVMe-specific processing
 		// Use the ID and SubsystemID to represent the vendor, or leave blank if unavailable
 		if smartData.NVMePCIVendor != nil {
-			deviceInfo.Vendor = fmt.Sprintf("Vendor ID: %d, Subsystem ID: %d", smartData.NVMePCIVendor.ID, smartData.NVMePCIVendor.SubsystemID)
+			deviceInfo.Vendor = fmt.Sprintf("Vendor ID: 0x%04X, Subsystem ID: 0x%04X", smartData.NVMePCIVendor.ID, smartData.NVMePCIVendor.SubsystemID)
+			deviceInfo.VendorID = fmt.Sprintf("0x%04X", smartData.NVMePCIVendor.ID)
+			deviceInfo.SubsystemVendorID = fmt.Sprintf("0x%04X", smartData.NVMePCIVendor.SubsystemID)
 		}
 		deviceInfo.Product = smartData.DeviceModel
 		deviceInfo.Media = "nvme"

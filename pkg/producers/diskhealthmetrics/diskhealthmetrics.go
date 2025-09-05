@@ -7,6 +7,8 @@ package diskhealthmetrics
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -15,6 +17,11 @@ import (
 
 func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData {
 	var allMetrics []NormalizedSmartData
+
+	// Check for test mode
+	if cfg.TestMode {
+		return collectTestDiskHealthMetrics(cfg)
+	}
 
 	// Check if nvme-cli is available for enhanced NVMe support
 	nvmeCliAvailable := checkNVMeCliInstalled()
@@ -73,6 +80,59 @@ func collectDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData
 	return allMetrics
 }
 
+// collectTestDiskHealthMetrics collects metrics from test data files
+func collectTestDiskHealthMetrics(cfg DiskHealthMetricsConfig) []NormalizedSmartData {
+	var allMetrics []NormalizedSmartData
+	
+	// Determine test data path
+	scenarioPath := filepath.Join(cfg.TestDataPath, "scenarios", cfg.TestScenario)
+	
+	for _, device := range cfg.Disks {
+		jsonFile := filepath.Join(scenarioPath, device + ".json")
+		
+		// Check if file exists
+		if _, err := os.Stat(jsonFile); os.IsNotExist(err) {
+			log.Warn().Str("device", device).Str("file", jsonFile).Msg("Test data file not found, skipping")
+			continue
+		}
+		
+		// Load test data
+		rawData, err := collectSmartDataFromFile(jsonFile)
+		if err != nil {
+			log.Error().Err(err).Str("file", jsonFile).Msg("Error loading test data")
+			continue
+		}
+		
+		// Override device name to match test device
+		rawData.Device.Name = "/dev/" + device
+		rawData.Device.InfoName = "/dev/" + device
+		
+		// Process as normal
+		deviceInfo := &DeviceInfo{}
+		FillDeviceInfoFromSmartData(deviceInfo, rawData)
+		NormalizeVendor(deviceInfo)
+		NormalizeDeviceInfo(deviceInfo)
+		
+		smartAttrs := GetSmartAttributes()
+		ProcessAndUpdateSmartAttributes(smartAttrs, rawData)
+		CleanupSmartAttributes(smartAttrs)
+		
+		normalizedData := normalizeSmartData(rawData, deviceInfo, smartAttrs, 
+			cfg.NodeName, cfg.InstanceID, cfg.CephOSDBasePath)
+		
+		// Add a note in the log that this is test data
+		log.Debug().
+			Str("device", device).
+			Str("scenario", cfg.TestScenario).
+			Interface("attributes", smartAttrs).
+			Msg("Processed test device data")
+		
+		allMetrics = append(allMetrics, normalizedData)
+	}
+	
+	return allMetrics
+}
+
 // normalizeSmartData normalizes the raw SMART data
 func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attributes map[string]SmartAttribute, nodeName, instanceID, basePath string) NormalizedSmartData {
 	var temperatureCelsius *int64
@@ -99,9 +159,15 @@ func normalizeSmartData(smartData *SmartCtlOutput, deviceInfo *DeviceInfo, attri
 
 	// Initialize device-specific attributes
 	if smartData.Device.Protocol == "ATA" && smartData.ATASMARTAttributes != nil {
-		reallocatedSectors = &findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 5).Raw.Value
-		pendingSectors = &findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 197).Raw.Value
-		udmaCrcErrorCount = findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 199).Raw.Value
+		if attr := findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 5); attr != nil {
+			reallocatedSectors = &attr.Raw.Value
+		}
+		if attr := findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 197); attr != nil {
+			pendingSectors = &attr.Raw.Value
+		}
+		if attr := findSmartAttributeByID(smartData.ATASMARTAttributes.Table, 199); attr != nil {
+			udmaCrcErrorCount = attr.Raw.Value
+		}
 		powerOnHours = &smartData.PowerOnTime.Hours
 	} else if smartData.Device.Protocol == "SCSI" && smartData.SCSIStartStopCycleCounter != nil {
 		powerOnHours = &smartData.PowerOnTime.Hours
@@ -141,20 +207,42 @@ func findSmartAttributeByID(attributes []SmartCtlATASMARTEntry, id int64) *Smart
 }
 
 func StartMonitoring(cfg DiskHealthMetricsConfig) {
-	if !checkSmartctlInstalled() {
+	// Skip smartctl check in test mode
+	if !cfg.TestMode && !checkSmartctlInstalled() {
 		log.Fatal().Msg("smartctl is not installed. please install smartmontools package.")
 	}
 
-	// Discover devices if wildcard (*) is used in the configuration.
-	if len(cfg.Disks) == 1 && cfg.Disks[0] == "*" {
-		devices, err := discoverDevices()
-		if err != nil {
-			log.Fatal().Err(err).Msg("Error discovering devices")
+	// Handle test mode setup
+	if cfg.TestMode {
+		// Use default test devices if none specified
+		if len(cfg.TestDevices) == 0 {
+			cfg.TestDevices = []string{"nvme0", "nvme1", "sda", "sdb"}
 		}
+		cfg.Disks = cfg.TestDevices
+		
+		// Set default test data path if not specified
+		if cfg.TestDataPath == "" {
+			cfg.TestDataPath = "pkg/producers/diskhealthmetrics/testdata"
+		}
+		
+		log.Info().
+			Bool("test_mode", true).
+			Str("test_scenario", cfg.TestScenario).
+			Str("test_data_path", cfg.TestDataPath).
+			Strs("test_devices", cfg.TestDevices).
+			Msg("Running in test mode with simulated data")
+	} else {
+		// Discover devices if wildcard (*) is used in the configuration.
+		if len(cfg.Disks) == 1 && cfg.Disks[0] == "*" {
+			devices, err := discoverDevices()
+			if err != nil {
+				log.Fatal().Err(err).Msg("Error discovering devices")
+			}
 
-		cfg.Disks = make([]string, len(devices.Devices))
-		for i, device := range devices.Devices {
-			cfg.Disks[i] = device.Name
+			cfg.Disks = make([]string, len(devices.Devices))
+			for i, device := range devices.Devices {
+				cfg.Disks[i] = device.Name
+			}
 		}
 	}
 

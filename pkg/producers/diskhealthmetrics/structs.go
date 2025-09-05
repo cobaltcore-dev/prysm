@@ -48,19 +48,21 @@ type NatsEvent struct {
 }
 
 type DeviceInfo struct {
-	ModelFamily     string  // ATA devices might have this, but it can be left blank for SCSI/NVMe.
-	DeviceModel     string  // Device-specific model name (e.g., "Samsung SSD 970 EVO" for NVMe).
-	SerialNumber    string  // Unique identifier for the device.
-	FirmwareVersion string  // Firmware version if available (common for all protocols).
-	Vendor          string  // The vendor/manufacturer of the device (e.g., "Seagate", "LENOVO").
-	Product         string  // The product name or number (e.g., "WUS721010AL5204").
-	LunID           string  // Logical Unit Identifier, mostly used for SCSI devices.
-	Capacity        float64 // Capacity of the device in GB.
-	DWPD            float64 // Drive Writes Per Day (usually relevant for SSDs, NVMe).
-	RPM             int64   // Rotational speed in RPM (for HDDs, relevant for ATA/SCSI).
-	FormFactor      string  // Physical form factor, like "sff" or "lff".
-	Media           string  // Media type, such as "ssd", "hdd", "nvme".
-	HealthStatus    bool
+	ModelFamily       string  // ATA devices might have this, but it can be left blank for SCSI/NVMe.
+	DeviceModel       string  // Device-specific model name (e.g., "Samsung SSD 970 EVO" for NVMe).
+	SerialNumber      string  // Unique identifier for the device.
+	FirmwareVersion   string  // Firmware version if available (common for all protocols).
+	Vendor            string  // The vendor/manufacturer of the device (e.g., "Seagate", "LENOVO").
+	VendorID          string  // NVMe Vendor ID in hex format (e.g., "0x144D" for Samsung)
+	SubsystemVendorID string  // NVMe Subsystem Vendor ID in hex format
+	Product           string  // The product name or number (e.g., "WUS721010AL5204").
+	LunID             string  // Logical Unit Identifier, mostly used for SCSI devices.
+	Capacity          float64 // Capacity of the device in GB.
+	DWPD              float64 // Drive Writes Per Day (usually relevant for SSDs, NVMe).
+	RPM               int64   // Rotational speed in RPM (for HDDs, relevant for ATA/SCSI).
+	FormFactor        string  // Physical form factor, like "sff" or "lff".
+	Media             string  // Media type, such as "ssd", "hdd", "nvme".
+	HealthStatus      bool
 }
 
 // SmartAttribute defines the structure for a SMART attribute's metadata.
@@ -140,6 +142,7 @@ func GetSmartAttributes() map[string]SmartAttribute {
 		"grown_defects_count":             {"Grown Defects Count", "count", -1, -1, -1, -1},
 
 		// NVMe-specific attributes from nvme-cli
+		"critical_warning":          {"NVMe Critical Warning", "bitfield", -1, -1, -1, -1},
 		"nvme_error_log_entries":    {"NVMe Error Log Entries", "count", -1, -1, -1, -1},
 		"nvme_subsystem_nqn":        {"NVMe Subsystem NQN Length", "chars", -1, -1, -1, -1},
 		"nvme_ieee_oui":             {"NVMe IEEE OUI", "hex", -1, -1, -1, -1},

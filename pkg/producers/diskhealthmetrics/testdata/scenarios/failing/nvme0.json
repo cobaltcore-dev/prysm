@@ -1,0 +1,91 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 4],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.6.48-flatcar",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl",
+      "--json",
+      "--info",
+      "--health",
+      "--attributes",
+      "--tolerance=verypermissive",
+      "--nocheck=standby",
+      "--format=brief",
+      "--log=error",
+      "/dev/nvme0"
+    ],
+    "exit_status": 24
+  },
+  "local_time": {
+    "time_t": 1728459812,
+    "asctime": "Wed Oct  9 07:43:32 2024 UTC"
+  },
+  "device": {
+    "name": "/dev/nvme0",
+    "info_name": "/dev/nvme0",
+    "type": "nvme",
+    "protocol": "NVMe"
+  },
+  "model_name": "WD Black SN850 1TB",
+  "serial_number": "WD1234567890",
+  "firmware_version": "614600WD",
+  "nvme_pci_vendor": {
+    "id": 5384,
+    "subsystem_id": 5384
+  },
+  "nvme_ieee_oui_identifier": 6606,
+  "nvme_total_capacity": 1000204886016,
+  "nvme_unallocated_capacity": 0,
+  "nvme_controller_id": 1,
+  "nvme_version": {
+    "string": "1.4",
+    "value": 66560
+  },
+  "nvme_number_of_namespaces": 1,
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": false,
+    "nvme": {
+      "value": 1
+    }
+  },
+  "nvme_smart_health_information_log": {
+    "critical_warning": 31,
+    "temperature": 85,
+    "available_spare": 2,
+    "available_spare_threshold": 10,
+    "percentage_used": 98,
+    "data_units_read": 858306932,
+    "data_units_written": 945541512,
+    "host_reads": 9812613571,
+    "host_writes": 14835694530,
+    "controller_busy_time": 5265,
+    "power_cycles": 4309,
+    "power_on_hours": 52705,
+    "unsafe_shutdowns": 253,
+    "media_errors": 1250,
+    "num_err_log_entries": 255,
+    "warning_temp_time": 5000,
+    "critical_comp_time": 100,
+    "temperature_sensors": [85, 82, 79]
+  },
+  "temperature": {
+    "current": 85
+  },
+  "power_cycle_count": 4309,
+  "power_on_time": {
+    "hours": 52705
+  },
+  "nvme_error_information_log": {
+    "size": 256,
+    "read": 256,
+    "unread": 255
+  }
+}

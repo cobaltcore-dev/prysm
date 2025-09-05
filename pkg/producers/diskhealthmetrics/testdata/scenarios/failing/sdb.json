@@ -1,0 +1,126 @@
+{
+  "json_format_version": [1, 0],
+  "smartctl": {
+    "version": [7, 4],
+    "pre_release": false,
+    "svn_revision": "5530",
+    "platform_info": "x86_64-linux-6.6.48-flatcar",
+    "build_info": "(local build)",
+    "argv": [
+      "smartctl", "--json", "--info", "--health", "--attributes",
+      "--tolerance=verypermissive", "--nocheck=standby",
+      "--format=brief", "--log=error", "/dev/sdb"
+    ],
+    "exit_status": 24
+  },
+  "local_time": {
+    "time_t": 1728459826,
+    "asctime": "Wed Oct  9 07:43:46 2024 UTC"
+  },
+  "device": {
+    "name": "/dev/sdb",
+    "info_name": "/dev/sdb",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
+  "scsi_vendor": "SEAGATE",
+  "scsi_product": "ST10000NM0016",
+  "scsi_model_name": "SEAGATE ST10000NM0016",
+  "scsi_revision": "SN04",
+  "scsi_version": "SPC-4",
+  "user_capacity": {
+    "blocks": 19532873728,
+    "bytes": 10000831348736
+  },
+  "logical_block_size": 512,
+  "physical_block_size": 4096,
+  "scsi_lb_provisioning": {
+    "name": "fully provisioned",
+    "value": 0,
+    "management_enabled": {
+      "name": "LBPME",
+      "value": 0
+    },
+    "read_zeros": {
+      "name": "LBPRZ",
+      "value": 0
+    }
+  },
+  "rotation_rate": 7200,
+  "form_factor": {
+    "scsi_value": 2,
+    "name": "3.5 inches"
+  },
+  "logical_unit_id": "0x5000c500a1234567",
+  "serial_number": "ZA1FAILING",
+  "device_type": {
+    "scsi_terminology": "Peripheral Device Type [PDT]",
+    "scsi_value": 0,
+    "name": "disk"
+  },
+  "scsi_transport_protocol": {
+    "name": "SAS (SPL-4)",
+    "value": 6
+  },
+  "smart_support": {
+    "available": true,
+    "enabled": true
+  },
+  "temperature_warning": {
+    "enabled": true
+  },
+  "smart_status": {
+    "passed": false
+  },
+  "temperature": {
+    "current": 65,
+    "drive_trip": 65
+  },
+  "power_on_time": {
+    "hours": 52705,
+    "minutes": 11
+  },
+  "scsi_start_stop_cycle_counter": {
+    "year_of_manufacture": "2018",
+    "week_of_manufacture": "42",
+    "specified_cycle_count_over_device_lifetime": 50000,
+    "accumulated_start_stop_cycles": 45000,
+    "specified_load_unload_count_over_device_lifetime": 600000,
+    "accumulated_load_unload_cycles": 580000
+  },
+  "scsi_grown_defect_list": 1250,
+  "scsi_error_counter_log": {
+    "read": {
+      "errors_corrected_by_eccfast": 12500,
+      "errors_corrected_by_eccdelayed": 8900,
+      "errors_corrected_by_rereads_rewrites": 2345,
+      "total_errors_corrected": 23745,
+      "correction_algorithm_invocations": 2613491,
+      "gigabytes_processed": "484858.076",
+      "total_uncorrected_errors": 567
+    },
+    "write": {
+      "errors_corrected_by_eccfast": 5600,
+      "errors_corrected_by_eccdelayed": 3450,
+      "errors_corrected_by_rereads_rewrites": 890,
+      "total_errors_corrected": 9940,
+      "correction_algorithm_invocations": 1957254,
+      "gigabytes_processed": "123105.655",
+      "total_uncorrected_errors": 234
+    },
+    "verify": {
+      "errors_corrected_by_eccfast": 450,
+      "errors_corrected_by_eccdelayed": 230,
+      "errors_corrected_by_rereads_rewrites": 120,
+      "total_errors_corrected": 800,
+      "correction_algorithm_invocations": 23668,
+      "gigabytes_processed": "120.500",
+      "total_uncorrected_errors": 45
+    }
+  },
+  "non_medium_errors": 789,
+  "scsi_pending_defects": {
+    "count": 234,
+    "lba_of_first_defect": 123456789
+  }
+}

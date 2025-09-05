@@ -24,4 +24,10 @@ type DiskHealthMetricsConfig struct {
 	LifetimeUsedThreshold       int64 // percentage
 
 	CephOSDBasePath string
+
+	// Test mode configuration
+	TestMode     bool     // Enable test mode with simulated data
+	TestDataPath string   // Path to test data directory
+	TestScenario string   // Test scenario name (e.g., "healthy", "failing", "mixed")
+	TestDevices  []string // Simulated device names in test mode
 }
