@@ -6,6 +6,7 @@ package opslog
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -263,15 +264,17 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 
 		// Print to stdout if enabled
 		if cfg.LogToStdout {
-			var b []byte
-			var err error
 			if cfg.LogPrettyPrint {
-				b, err = json.MarshalIndent(logEntry, "", "  ")
+				var buf bytes.Buffer
+				if err := json.NewEncoder(&buf).Encode(json.RawMessage(str)); err == nil {
+					var pretty bytes.Buffer
+					if err := json.Indent(&pretty, buf.Bytes(), "", "  "); err == nil {
+						fmt.Println(pretty.String())
+					}
+				}
 			} else {
-				b, err = json.Marshal(logEntry)
-			}
-			if err == nil {
-				fmt.Println(string(b))
+				// Print the raw line
+				fmt.Println(str)
 			}
 		}
 
