@@ -368,7 +368,7 @@ func handleConnection(cfg OpsLogConfig, conn net.Conn, nc *nats.Conn, metrics *M
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
-		var logEntry S3OperationLog
+		var logEntry any
 		err := json.Unmarshal(scanner.Bytes(), &logEntry)
 		if err != nil {
 			log.Error().Err(err).Msg("Error unmarshalling log entry")
