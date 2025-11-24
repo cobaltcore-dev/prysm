@@ -7,7 +7,6 @@ package opslog
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net"
@@ -21,66 +20,28 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
-	"github.com/sapcc/go-bits/audittools"
 )
 
-// KeystoneDomain represents a Keystone domain.
-type KeystoneDomain struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-// KeystoneProject represents a Keystone project.
-type KeystoneProject struct {
-	ID     string         `json:"id"`
-	Name   string         `json:"name"`
-	Domain KeystoneDomain `json:"domain"`
-}
-
-// KeystoneUser represents a Keystone user.
-type KeystoneUser struct {
-	ID     string         `json:"id"`
-	Name   string         `json:"name"`
-	Domain KeystoneDomain `json:"domain"`
-}
-
-// KeystoneApplicationCredential represents an application credential.
-type KeystoneApplicationCredential struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Restricted bool   `json:"restricted"`
-}
-
-// KeystoneScope represents the full Keystone authentication scope.
-type KeystoneScope struct {
-	Project               KeystoneProject                `json:"project"`
-	User                  KeystoneUser                   `json:"user"`
-	Roles                 []string                       `json:"roles"`
-	ApplicationCredential *KeystoneApplicationCredential `json:"application_credential,omitempty"`
-}
-
 type S3OperationLog struct {
-	Bucket             string         `json:"bucket"`
-	Object             string         `json:"object,omitempty"`
-	Time               string         `json:"time"`
-	TimeLocal          string         `json:"time_local"`
-	RemoteAddr         string         `json:"remote_addr"`
-	User               string         `json:"user"`
-	Operation          string         `json:"operation"`
-	URI                string         `json:"uri"`
-	HTTPStatus         string         `json:"http_status"`
-	ErrorCode          string         `json:"error_code"`
-	BytesSent          int            `json:"bytes_sent"`
-	BytesReceived      int            `json:"bytes_received"`
-	ObjectSize         int            `json:"object_size"`
-	TotalTime          int            `json:"total_time"`
-	UserAgent          string         `json:"user_agent"`
-	Referrer           string         `json:"referrer"`
-	TransID            string         `json:"trans_id"`
-	AuthenticationType string         `json:"authentication_type"`
-	AccessKeyID        string         `json:"access_key_id"`
-	TempURL            bool           `json:"temp_url"`
-	KeystoneScope      *KeystoneScope `json:"keystone_scope,omitempty"`
+	Bucket             string `json:"bucket"`
+	Time               string `json:"time"`
+	TimeLocal          string `json:"time_local"`
+	RemoteAddr         string `json:"remote_addr"`
+	User               string `json:"user"`
+	Operation          string `json:"operation"`
+	URI                string `json:"uri"`
+	HTTPStatus         string `json:"http_status"`
+	ErrorCode          string `json:"error_code"`
+	BytesSent          int    `json:"bytes_sent"`
+	BytesReceived      int    `json:"bytes_received"`
+	ObjectSize         int    `json:"object_size"`
+	TotalTime          int    `json:"total_time"`
+	UserAgent          string `json:"user_agent"`
+	Referrer           string `json:"referrer"`
+	TransID            string `json:"trans_id"`
+	AuthenticationType string `json:"authentication_type"`
+	AccessKeyID        string `json:"access_key_id"`
+	TempURL            bool   `json:"temp_url"`
 }
 
 // CleanupBucketName extracts the actual bucket name, removing any tenant/user prefixes.
@@ -116,9 +77,6 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 		StartPrometheusServer(cfg.PrometheusPort, &cfg)
 	}
 
-	// Initialize audit trail
-	auditor := InitAuditor(context.Background(), cfg.AuditSink, nil)
-
 	// Initialize metrics
 	metrics := NewMetrics(LatencyObs)
 	interval := time.Duration(cfg.PrometheusIntervalSeconds) * time.Second
@@ -131,7 +89,7 @@ func StartFileOpsLogger(cfg OpsLogConfig) {
 	}
 	defer watcher.Close()
 
-	startLogWatchLoop(cfg, nc, watcher, metrics, auditor)
+	startLogWatchLoop(cfg, nc, watcher, metrics)
 
 	if cfg.TruncateLogOnStart && cfg.LogFilePath != "" {
 		if err := rotateLogFile(cfg, watcher); err != nil {
@@ -183,7 +141,7 @@ func createLogWatcher(cfg OpsLogConfig) *fsnotify.Watcher {
 	return watcher
 }
 
-func startLogWatchLoop(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watcher, metrics *Metrics, auditor audittools.Auditor) {
+func startLogWatchLoop(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watcher, metrics *Metrics) {
 	// var lastModTime time.Time
 	var lastOffset int64 = 0
 
@@ -199,7 +157,7 @@ func startLogWatchLoop(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					time.Sleep(100 * time.Millisecond)
 
-					offset, err := processLogEntries(cfg, nc, watcher, metrics, auditor, lastOffset)
+					offset, err := processLogEntries(cfg, nc, watcher, metrics, lastOffset)
 					if err != nil {
 						log.Error().Err(err).Msg("Failed to process log entries")
 						continue
@@ -231,7 +189,7 @@ func publishMetricsToNATS(cfg OpsLogConfig, nc *nats.Conn, metrics *Metrics) {
 	}
 }
 
-func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watcher, metrics *Metrics, auditor audittools.Auditor, lastOffset int64) (int64, error) {
+func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watcher, metrics *Metrics, lastOffset int64) (int64, error) {
 	file, err := os.Open(cfg.LogFilePath)
 	if err != nil {
 		return lastOffset, fmt.Errorf("error opening log file: %w", err)
@@ -301,25 +259,6 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 
 		// Update metrics with the log entry
 		metrics.Update(*logEntry, &cfg.MetricsConfig)
-
-		// Publish audit event if auditor is configured
-		if auditor != nil && cfg.AuditSink.Enabled {
-			auditEvent, err := logEntry.ToAuditEvent()
-			if err != nil {
-				log.Warn().Err(err).Msg("Failed to convert ops log entry to audit event")
-			} else {
-				auditor.Record(auditEvent)
-
-				if cfg.AuditSink.Debug {
-					log.Debug().
-						Str("operation", logEntry.Operation).
-						Str("user", logEntry.User).
-						Str("bucket", logEntry.Bucket).
-						Str("http_status", logEntry.HTTPStatus).
-						Msg("Audit event recorded")
-				}
-			}
-		}
 
 		logPool.Put(logEntry)
 

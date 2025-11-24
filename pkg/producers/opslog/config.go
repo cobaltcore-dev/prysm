@@ -4,15 +4,6 @@
 
 package opslog
 
-// AuditSinkConfig defines the RabbitMQ audit sink configuration.
-type AuditSinkConfig struct {
-	Enabled           bool   `mapstructure:"enabled"`
-	RabbitMQURL       string `mapstructure:"rabbitmq_url"`
-	QueueName         string `mapstructure:"queue_name"`
-	InternalQueueSize int    `mapstructure:"internal_queue_size"` // Optional, defaults to 20
-	Debug             bool   `mapstructure:"debug"`                // Log published events
-}
-
 type OpsLogConfig struct {
 	LogFilePath               string
 	TruncateLogOnStart        bool
@@ -31,7 +22,6 @@ type OpsLogConfig struct {
 	IgnoreAnonymousRequests   bool
 	PrometheusIntervalSeconds int
 	MetricsConfig             MetricsConfig
-	AuditSink                 AuditSinkConfig
 }
 
 // MetricsConfig defines which metrics to collect and at what granularity

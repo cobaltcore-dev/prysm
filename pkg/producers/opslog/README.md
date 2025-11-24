@@ -9,7 +9,6 @@ The **Local Producer - S3 Operations Log** is a tool designed to process and mon
 - **S3 Log Processing**: Reads and parses Ceph RGW operation logs.
 - **NATS Integration**: Publishes raw log events and aggregated metrics to NATS.
 - **Prometheus Metrics**: Exposes operation metrics for Prometheus scraping.
-- **RabbitMQ Audit Trail**: Publishes CADF-formatted Keystone audit events to RabbitMQ for compliance and security monitoring.
 - **Latency Tracking**: Real-time request latency histograms with multiple aggregation levels.
 - **Memory Efficient Architecture**: Dedicated storage maps for each metric type ensure minimal memory usage.
 - **Log File Rotation Support**: Monitors log file changes and rotates logs based on size and retention policies.
@@ -48,14 +47,9 @@ prysm local-producer ops-log [flags]
 - `--track-everything` - Enable detailed tracking for all metric types (efficient mode).
 - `--track-timeout-errors` - Enable tracking of timeout errors (408, 504, 598, 499) for OSD issue detection.
 - `--track-errors-by-category` - Enable error categorization (timeout, connection, client, server).
-- `--audit-enabled` - Enable RabbitMQ audit trail publishing.
-- `--audit-rabbitmq-url` - RabbitMQ connection URL (e.g., `amqp://user:pass@host:port`).
-- `--audit-queue-name` - RabbitMQ queue name for audit events (default: `keystone.notifications.info`).
-- `--audit-queue-size` - Internal audit event queue size (default: 20).
-- `--audit-debug` - Enable debug logging for published audit events.
 
 ### Latency Tracking Examples:
-
+ 
 ```bash
 # Enable all latency tracking
 prysm local-producer ops-log \
@@ -70,34 +64,6 @@ prysm local-producer ops-log \
 prysm local-producer ops-log \
   --log-file /var/log/ceph/ops-log.log \
   --prometheus --prometheus-port 8080 \
-  --track-everything
-```
-
-### RabbitMQ Audit Trail Examples:
-
-```bash
-# Enable audit trail publishing to RabbitMQ
-prysm local-producer ops-log \
-  --log-file /var/log/ceph/ops-log.log \
-  --audit-enabled \
-  --audit-rabbitmq-url "amqp://guest:guest@rabbitmq.example.com:5672" \
-  --audit-queue-name "keystone.notifications.info"
-
-# With debug logging for troubleshooting
-prysm local-producer ops-log \
-  --log-file /var/log/ceph/ops-log.log \
-  --audit-enabled \
-  --audit-rabbitmq-url "amqp://guest:guest@rabbitmq.example.com:5672" \
-  --audit-queue-name "keystone.notifications.info" \
-  --audit-debug
-
-# Combined monitoring and audit trail
-prysm local-producer ops-log \
-  --log-file /var/log/ceph/ops-log.log \
-  --prometheus --prometheus-port 8080 \
-  --audit-enabled \
-  --audit-rabbitmq-url "amqp://guest:guest@rabbitmq.example.com:5672" \
-  --audit-queue-name "keystone.notifications.info" \
   --track-everything
 ```
 
@@ -118,11 +84,6 @@ prysm local-producer ops-log \
 | `IGNORE_ANONYMOUS_REQUESTS`  | Ignore anonymous requests in metrics.           |
 | `TRUNCATE_LOG_ON_START`      | Whether to rotate the log file on startup.      |
 | `TRACK_EVERYTHING`           | Enable detailed tracking for all metric types.  |
-| `AUDIT_ENABLED`              | Enable RabbitMQ audit trail publishing.         |
-| `AUDIT_RABBITMQ_URL`         | RabbitMQ connection URL.                        |
-| `AUDIT_QUEUE_NAME`           | RabbitMQ queue name for audit events.           |
-| `AUDIT_QUEUE_SIZE`           | Internal audit event queue size.                |
-| `AUDIT_DEBUG`                | Enable debug logging for audit events.          |
 
 #### Request Tracking Environment Variables:
 
@@ -343,126 +304,15 @@ Many metrics provide multiple aggregation levels for flexible monitoring:
 - **Per-tenant**: Aggregated across all buckets and users within a tenant
 - **Global**: Fully aggregated across all dimensions
 
-## RabbitMQ Audit Trail
-
-The ops-log producer can publish CADF-formatted (Cloud Auditing Data Federation) audit events to RabbitMQ for compliance and security monitoring. These events are consumed by Hermes and other audit processing systems.
-
-### Features
-
-- **CADF Format Compliance**: All audit events follow the CADF 1.0 standard
-- **Keystone Integration**: Includes full Keystone scope information (project, user, domain, roles)
-- **Application Credentials**: Properly tracks API calls made with application credentials
-- **Fire-and-Forget Publishing**: Non-blocking audit event publishing that doesn't impact log processing
-- **Graceful Degradation**: Uses NullAuditor when RabbitMQ is unavailable (development/testing)
-- **Buffered Channel**: 20-event internal queue with automatic retry on failures
-
-### CADF Event Structure
-
-Each audit event includes:
-
-- **Initiator**: Keystone user information with project, domain, roles, and application credential details
-- **Target**: Object (with bucket attachment), Bucket, or Account target types
-- **Action**: Mapped RadosGW operations (`read`, `read/list`, `create`, `delete`, `update`, `update/copy`)
-- **Observer**: Prysm ops-log service identification
-- **Outcome**: Success/failure with HTTP status code
-- **Request Path**: Full Swift/S3 URI path
-
-### Example CADF Event
-
-```json
-{
-  "typeURI": "http://schemas.dmtf.org/cloud/audit/1.0/event",
-  "eventTime": "2025-11-05T09:38:35.042215+00:00",
-  "action": "read",
-  "outcome": "success",
-  "reason": {
-    "reasonType": "HTTP",
-    "reasonCode": "200"
-  },
-  "initiator": {
-    "typeURI": "service/security/account/user",
-    "name": "charlie",
-    "id": "9e83cf791297602fc0f40496726e46a0",
-    "project_id": "1a234ef54d4f6f930a5d03cfa9e186f6",
-    "project_name": "dev",
-    "domain_id": "default",
-    "domain_name": "Default",
-    "application_credential_id": "cad3f50c10ff628a1d7dc1694ffc1c62",
-    "attachments": [{
-      "name": "application_credential_name",
-      "content": "dev-app-cred-charlie"
-    }]
-  },
-  "target": {
-    "typeURI": "service/storage/object",
-    "name": "data/report.pdf",
-    "id": "backup-bucket/data/report.pdf",
-    "attachments": [{
-      "name": "bucket",
-      "typeURI": "service/storage/bucket",
-      "content": "backup-bucket"
-    }]
-  },
-  "observer": {
-    "typeURI": "service/storage/object",
-    "name": "prysm-ops-log"
-  }
-}
-```
-
-### Operation to Action Mapping
-
-| RadosGW Operation | CADF Action    | Description                    |
-|-------------------|----------------|--------------------------------|
-| `list_buckets`    | `read/list`    | List all buckets              |
-| `list_bucket`     | `read/list`    | List objects in bucket        |
-| `get_obj`         | `read`         | Download object               |
-| `get_bucket_info` | `read`         | Get bucket metadata           |
-| `head_obj`        | `read`         | Get object metadata           |
-| `head_bucket`     | `read`         | Get bucket headers            |
-| `put_obj`         | `create`       | Upload new object             |
-| `create_bucket`   | `create`       | Create new bucket             |
-| `delete_obj`      | `delete`       | Delete object                 |
-| `delete_bucket`   | `delete`       | Delete bucket                 |
-| `copy_obj`        | `update/copy`  | Copy object                   |
-| `post_obj`        | `update`       | Update object metadata        |
-
-### Configuration
-
-Enable audit trail with these flags:
-
-```bash
---audit-enabled                    # Enable audit event publishing
---audit-rabbitmq-url               # RabbitMQ connection (amqp://user:pass@host:port)
---audit-queue-name                 # Queue name (default: keystone.notifications.info)
---audit-queue-size                 # Internal queue size (default: 20)
---audit-debug                      # Log published events for troubleshooting
-```
-
-### Behavior
-
-- **RabbitMQ Available**: Audit events published successfully
-- **RabbitMQ Unavailable at Startup**: Falls back to NullAuditor (no-op), logs warning
-- **RabbitMQ Connection Lost During Runtime**: Internal queue buffers events, automatic retry
-- **Development/Testing**: Use NullAuditor by omitting `--audit-enabled` or `--audit-rabbitmq-url`
-
-### Notes
-
-- Audit events are published asynchronously and never block ops log processing
-- File watcher (fsnotify) only triggers on NEW writes to the log file
-- Ops log is truncated on prysm startup (ephemeral sidecar architecture)
-- Full Keystone scope is required in ops log entries for proper audit tracking
-
 ## Workflow
 
 1. **Log Processing**: Reads and parses incoming log entries from the Ceph RGW log file.
 2. **Dedicated Storage**: Updates dedicated storage maps based on enabled metric types with proper tenant separation.
 3. **Latency Recording**: Records request latencies from the `total_time` field directly into Prometheus histograms.
-4. **Audit Trail Publishing** *(optional)*: Converts ops log entries to CADF format and publishes to RabbitMQ asynchronously.
-5. **Publishing to NATS**: Raw log events and aggregated metrics are sent to specified NATS subjects.
-6. **Prometheus Metrics**: Exposes metrics via an HTTP server for Prometheus scraping.
-7. **File Rotation Handling**: Monitors log file size and age, triggering rotation when needed.
-8. **Log Rotation on Start** *(optional)*: Backs up and clears the log file at startup to avoid re-processing.
+4. **Publishing to NATS**: Raw log events and aggregated metrics are sent to specified NATS subjects.
+5. **Prometheus Metrics**: Exposes metrics via an HTTP server for Prometheus scraping.
+6. **File Rotation Handling**: Monitors log file size and age, triggering rotation when needed.
+7. **Log Rotation on Start** *(optional)*: Backs up and clears the log file at startup to avoid re-processing.
 
 ## Example Workflows
 
@@ -498,20 +348,6 @@ prysm local-producer ops-log \
   --track-latency-per-method \
   --track-requests-per-tenant \
   --track-errors-per-user
-```
-
-### Audit Trail for Compliance
-
-```bash
-# Production audit trail with monitoring
-prysm local-producer ops-log \
-  --log-file /var/log/ceph/ops-log.log \
-  --audit-enabled \
-  --audit-rabbitmq-url "amqp://audit-user:password@rabbitmq.prod.example.com:5672" \
-  --audit-queue-name "keystone.notifications.info" \
-  --prometheus --prometheus-port 8080 \
-  --track-latency-per-method \
-  --track-requests-per-tenant
 ```
 
 ## Configuration Best Practices
@@ -582,15 +418,12 @@ rate(radosgw_errors_by_category{category="connection"}[5m]) > 0.1
 
 - Ensure that the Ceph RGW log format is JSON-based to be compatible with this tool.
 - If using NATS, ensure the server is running and accessible from the producer.
-- If using RabbitMQ audit trail, ensure the RabbitMQ server is accessible and the queue exists.
 - Prometheus should be configured to scrape the exposed metrics endpoint.
 - **Multi-tenant environments**: The tool automatically extracts tenant information from user identifiers and ensures proper separation of metrics across tenants.
 - **Bucket name collision handling**: Buckets with identical names from different tenants are properly isolated in all metrics.
 - **Latency units**: All latency histograms use seconds as the unit, converted from the millisecond `total_time` field in log entries.
 - **Memory efficiency**: The dedicated storage architecture ensures minimal memory usage by storing only enabled metric types.
 - **Error visibility**: Error metrics always maintain visibility by reporting 0 when no errors occur, essential for proper monitoring.
-- **Audit trail**: CADF events are published asynchronously and never block ops log processing. Falls back to NullAuditor if RabbitMQ is unavailable.
-- **Keystone scope**: Full Keystone authentication scope (including application credentials) is required in ops log entries for complete audit tracking.
 - Sidecar injection is supported via a mutating webhook (see related documentation for Kubernetes usage).
 
 > This README will be updated as new features and improvements are introduced. Contributions and feedback are welcome!
