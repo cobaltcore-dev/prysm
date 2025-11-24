@@ -30,6 +30,13 @@ var (
 	opsIgnoreAnonymousRequests bool
 	opsPromIntervalSeconds     int
 
+	// Audit flags
+	opsAuditEnabled           bool
+	opsAuditRabbitMQURL       string
+	opsAuditQueueName         string
+	opsAuditInternalQueueSize int
+	opsAuditDebug             bool
+
 	// Shortcut config
 	opsTrackEverything bool
 
@@ -211,6 +218,13 @@ Following this configuration change, the RadosGW will log operations to the file
 				TrackLatencyPerTenant:          opsTrackLatencyPerTenant,
 				TrackLatencyPerMethod:          opsTrackLatencyPerMethod,
 				TrackLatencyPerBucketAndMethod: opsTrackLatencyPerBucketAndMethod,
+			},
+			AuditSink: opslog.AuditSinkConfig{
+				Enabled:           opsAuditEnabled,
+				RabbitMQURL:       opsAuditRabbitMQURL,
+				QueueName:         opsAuditQueueName,
+				InternalQueueSize: opsAuditInternalQueueSize,
+				Debug:             opsAuditDebug,
 			},
 		}
 
@@ -638,6 +652,13 @@ func init() {
 	opsLogCmd.Flags().IntVar(&opsPromPort, "prometheus-port", 8080, "Prometheus metrics port")
 	opsLogCmd.Flags().BoolVar(&opsIgnoreAnonymousRequests, "ignore-anonymous-requests", true, "Ignore anonymous requests")
 	opsLogCmd.Flags().IntVar(&opsPromIntervalSeconds, "prometheus-interval", 60, "Prometheus metrics update interval in seconds")
+
+	// Audit flags
+	opsLogCmd.Flags().BoolVar(&opsAuditEnabled, "audit-enabled", false, "Enable audit event publishing to RabbitMQ")
+	opsLogCmd.Flags().StringVar(&opsAuditRabbitMQURL, "audit-rabbitmq-url", "", "RabbitMQ connection URL (amqp://user:pass@host:port)")
+	opsLogCmd.Flags().StringVar(&opsAuditQueueName, "audit-queue-name", "keystone.notifications.info", "RabbitMQ queue name for audit events")
+	opsLogCmd.Flags().IntVar(&opsAuditInternalQueueSize, "audit-queue-size", 20, "Internal queue size for audit events")
+	opsLogCmd.Flags().BoolVar(&opsAuditDebug, "audit-debug", false, "Log published audit events for debugging")
 
 	// Shortcut flag
 	opsLogCmd.Flags().BoolVar(&opsTrackEverything, "track-everything", false, "Enable detailed tracking for all metric types (efficient mode)")
