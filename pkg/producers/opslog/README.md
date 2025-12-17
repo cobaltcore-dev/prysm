@@ -2,25 +2,40 @@
 
 ## Overview
 
-The **Local Producer - S3 Operations Log** is a tool designed to process and monitor S3 operation logs from Ceph RadosGW. It parses log entries, aggregates metrics, and provides real-time observability by publishing them to NATS or exposing them in Prometheus format.
+The **Local Producer - S3 Operations Log** is a tool designed to process and
+monitor S3 operation logs from Ceph RadosGW. It parses log entries, aggregates
+metrics, and provides real-time observability by publishing them to NATS or
+exposing them in Prometheus format.
 
 ## Key Features
 
 - **S3 Log Processing**: Reads and parses Ceph RGW operation logs.
 - **NATS Integration**: Publishes raw log events and aggregated metrics to NATS.
 - **Prometheus Metrics**: Exposes operation metrics for Prometheus scraping.
-- **RabbitMQ Audit Trail**: Publishes CADF-formatted Keystone audit events to RabbitMQ for compliance and security monitoring.
-- **Latency Tracking**: Real-time request latency histograms with multiple aggregation levels.
-- **Memory Efficient Architecture**: Dedicated storage maps for each metric type ensure minimal memory usage.
-- **Log File Rotation Support**: Monitors log file changes and rotates logs based on size and retention policies.
-- **Configurable**: Allows customization via command-line flags or environment variables.
-- **Anonymous Request Filtering**: Option to ignore anonymous requests to focus on authenticated users.
-- **Granular Metrics Control**: Fine-grained toggles to enable/disable specific metric categories.
-- **Auto Log Rotation on Startup**: Option to rotate log on start to avoid reprocessing.
-- **Multi-Tenant Support**: Proper tenant separation ensures metrics from different tenants are isolated, even for buckets with identical names.
-- **Zero-Value Error Metrics**: Error metrics always report 0 when no errors occur, ensuring visibility in monitoring dashboards.
-- **Timeout Error Detection**: Specialized timeout error tracking (408, 504, 598, 499) for detecting OSD-related issues.
-- **Error Categorization**: Automatic categorization of HTTP errors into timeout, connection, client, and server errors.
+- **RabbitMQ Audit Trail**: Publishes CADF-formatted Keystone audit events to
+  RabbitMQ for compliance and security monitoring.
+- **Latency Tracking**: Real-time request latency histograms with multiple
+  aggregation levels.
+- **Memory Efficient Architecture**: Dedicated storage maps for each metric
+  type ensure minimal memory usage.
+- **Log File Rotation Support**: Monitors log file changes and rotates logs
+  based on size and retention policies.
+- **Configurable**: Allows customization via command-line flags or environment
+  variables.
+- **Anonymous Request Filtering**: Option to ignore anonymous requests to focus
+  on authenticated users.
+- **Granular Metrics Control**: Fine-grained toggles to enable/disable specific
+  metric categories.
+- **Auto Log Rotation on Startup**: Option to rotate log on start to avoid
+  reprocessing.
+- **Multi-Tenant Support**: Proper tenant separation ensures metrics from
+  different tenants are isolated, even for buckets with identical names.
+- **Zero-Value Error Metrics**: Error metrics always report 0 when no errors
+  occur, ensuring visibility in monitoring dashboards.
+- **Timeout Error Detection**: Specialized timeout error tracking (408, 504,
+  598, 499) for detecting OSD-related issues.
+- **Error Categorization**: Automatic categorization of HTTP errors into
+  timeout, connection, client, and server errors.
 
 ## Usage
 
@@ -32,11 +47,13 @@ prysm local-producer ops-log [flags]
 
 ### Example Flags:
 
-- `--log-file "/var/log/ceph/ceph-rgw-ops.json.log"` - Path to the S3 operations log file.
+- `--log-file "/var/log/ceph/ceph-rgw-ops.json.log"` - Path to the S3
+  operations log file.
 - `--socket-path "/tmp/ops-log.sock"` - Path to the Unix domain socket.
 - `--nats-url "nats://localhost:4222"` - NATS server URL for publishing logs.
 - `--nats-subject "rgw.s3.ops"` - NATS subject to publish raw log events.
-- `--nats-metrics-subject "rgw.s3.ops.aggregated.metrics"` - NATS subject for aggregated metrics.
+- `--nats-metrics-subject "rgw.s3.ops.aggregated.metrics"` - NATS subject for
+  aggregated metrics.
 - `--log-to-stdout` - Enable logging operations to stdout.
 - `--log-retention-days 1` - Number of days to retain old log files.
 - `--max-log-file-size 10` - Maximum log file size in MB before rotation.
@@ -44,13 +61,19 @@ prysm local-producer ops-log [flags]
 - `--prometheus-port 8080` - Port for Prometheus metrics.
 - `--prometheus-interval 60` - Prometheus metrics update interval in seconds.
 - `--ignore-anonymous-requests` - Ignore anonymous requests in metrics.
-- `--truncate-log-on-start` - Rotate log on start to avoid re-processing existing data.
-- `--track-everything` - Enable detailed tracking for all metric types (efficient mode).
-- `--track-timeout-errors` - Enable tracking of timeout errors (408, 504, 598, 499) for OSD issue detection.
-- `--track-errors-by-category` - Enable error categorization (timeout, connection, client, server).
+- `--truncate-log-on-start` - Rotate log on start to avoid re-processing
+  existing data.
+- `--track-everything` - Enable detailed tracking for all metric types
+  (efficient mode).
+- `--track-timeout-errors` - Enable tracking of timeout errors (408, 504, 598,
+  499) for OSD issue detection.
+- `--track-errors-by-category` - Enable error categorization (timeout,
+  connection, client, server).
 - `--audit-enabled` - Enable RabbitMQ audit trail publishing.
-- `--audit-rabbitmq-url` - RabbitMQ connection URL (e.g., `amqp://user:pass@host:port`).
-- `--audit-queue-name` - RabbitMQ queue name for audit events (default: `keystone.notifications.info`).
+- `--audit-rabbitmq-url` - RabbitMQ connection URL (e.g.,
+  `amqp://user:pass@host:port`).
+- `--audit-queue-name` - RabbitMQ queue name for audit events (default:
+  `keystone.notifications.info`).
 - `--audit-queue-size` - Internal audit event queue size (default: 20).
 - `--audit-debug` - Enable debug logging for published audit events.
 
@@ -316,28 +339,37 @@ prysm local-producer ops-log \
 | `radosgw_requests_duration_per_method`               | Histogram | `method`                                             | Histogram for request latencies aggregated per method (global).   |
 | `radosgw_requests_duration_per_bucket_and_method`    | Histogram | `tenant`, `bucket`, `method`                         | Histogram for request latencies aggregated per bucket and method (all users combined). |
 
-> **Note**: Histogram metrics do **not** include the `pod` label to reduce cardinality. Each histogram automatically provides `_bucket`, `_count`, and `_sum` metrics for comprehensive latency analysis.
+> **Note**: Histogram metrics do **not** include the `pod` label to reduce
+> cardinality. Each histogram automatically provides `_bucket`, `_count`, and
+> `_sum` metrics for comprehensive latency analysis.
 
 ### Memory Efficiency Architecture
 
-The system uses a **dedicated storage architecture** where each metric type has its own optimized storage map:
+The system uses a **dedicated storage architecture** where each metric type has
+its own optimized storage map:
 
 - **Memory Efficient**: Only enabled metric types consume memory
-- **Optimal Granularity**: Each aggregation level stores exactly the data it needs
-- **No Runtime Aggregation**: All aggregation happens at storage time for better performance
-- **Independent Metrics**: Each metric can be enabled/disabled independently without affecting others
+- **Optimal Granularity**: Each aggregation level stores exactly the data it
+  needs
+- **No Runtime Aggregation**: All aggregation happens at storage time for
+  better performance
+- **Independent Metrics**: Each metric can be enabled/disabled independently
+  without affecting others
 
 ### Multi-Tenant Support
 
 All bucket-level metrics now properly separate tenants to avoid data collision:
-- **Bucket metrics** include tenant information to distinguish between buckets with identical names across different tenants
+- **Bucket metrics** include tenant information to distinguish between buckets
+  with identical names across different tenants
 - **IP-based error tracking** includes tenant context for proper attribution
-- **Aggregation levels** provide both tenant-specific and tenant-aggregated views for flexible monitoring
+- **Aggregation levels** provide both tenant-specific and tenant-aggregated
+  views for flexible monitoring
 
 ### Metric Aggregation Levels
 
 Many metrics provide multiple aggregation levels for flexible monitoring:
-- **Full granularity**: Complete dimensional breakdown (user, tenant, bucket, method, status)
+- **Full granularity**: Complete dimensional breakdown (user, tenant, bucket,
+  method, status)
 - **Per-user**: Aggregated by user across all buckets
 - **Per-bucket**: Aggregated by bucket with tenant separation across all users
 - **Per-tenant**: Aggregated across all buckets and users within a tenant
@@ -345,24 +377,33 @@ Many metrics provide multiple aggregation levels for flexible monitoring:
 
 ## RabbitMQ Audit Trail
 
-The ops-log producer can publish CADF-formatted (Cloud Auditing Data Federation) audit events to RabbitMQ for compliance and security monitoring. These events are consumed by Hermes and other audit processing systems.
+The ops-log producer can publish CADF-formatted (Cloud Auditing Data
+Federation) audit events to RabbitMQ for compliance and security monitoring.
+These events are consumed by Hermes and other audit processing systems.
 
 ### Features
 
 - **CADF Format Compliance**: All audit events follow the CADF 1.0 standard
-- **Keystone Integration**: Includes full Keystone scope information (project, user, domain, roles)
-- **Application Credentials**: Properly tracks API calls made with application credentials
-- **Fire-and-Forget Publishing**: Non-blocking audit event publishing that doesn't impact log processing
-- **Graceful Degradation**: Uses NullAuditor when RabbitMQ is unavailable (development/testing)
-- **Buffered Channel**: 20-event internal queue with automatic retry on failures
+- **Keystone Integration**: Includes full Keystone scope information (project,
+  user, domain, roles)
+- **Application Credentials**: Properly tracks API calls made with application
+  credentials
+- **Fire-and-Forget Publishing**: Non-blocking audit event publishing that
+  doesn't impact log processing
+- **Graceful Degradation**: Uses NullAuditor when RabbitMQ is unavailable
+  (development/testing)
+- **Buffered Channel**: 20-event internal queue with automatic retry on
+  failures
 
 ### CADF Event Structure
 
 Each audit event includes:
 
-- **Initiator**: Keystone user information with project, domain, roles, and application credential details
+- **Initiator**: Keystone user information with project, domain, roles, and
+  application credential details
 - **Target**: Object (with bucket attachment), Bucket, or Account target types
-- **Action**: Mapped RadosGW operations (`read`, `read/list`, `create`, `delete`, `update`, `update/copy`)
+- **Action**: Mapped RadosGW operations (`read`, `read/list`, `create`,
+  `delete`, `update`, `update/copy`)
 - **Observer**: Prysm ops-log service identification
 - **Outcome**: Success/failure with HTTP status code
 - **Request Path**: Full Swift/S3 URI path
@@ -442,9 +483,12 @@ Enable audit trail with these flags:
 ### Behavior
 
 - **RabbitMQ Available**: Audit events published successfully
-- **RabbitMQ Unavailable at Startup**: Falls back to NullAuditor (no-op), logs warning
-- **RabbitMQ Connection Lost During Runtime**: Internal queue buffers events, automatic retry
-- **Development/Testing**: Use NullAuditor by omitting `--audit-enabled` or `--audit-rabbitmq-url`
+- **RabbitMQ Unavailable at Startup**: Falls back to NullAuditor (no-op), logs
+  warning
+- **RabbitMQ Connection Lost During Runtime**: Internal queue buffers events,
+  automatic retry
+- **Development/Testing**: Use NullAuditor by omitting `--audit-enabled` or
+  `--audit-rabbitmq-url`
 
 ### Notes
 
@@ -455,14 +499,22 @@ Enable audit trail with these flags:
 
 ## Workflow
 
-1. **Log Processing**: Reads and parses incoming log entries from the Ceph RGW log file.
-2. **Dedicated Storage**: Updates dedicated storage maps based on enabled metric types with proper tenant separation.
-3. **Latency Recording**: Records request latencies from the `total_time` field directly into Prometheus histograms.
-4. **Audit Trail Publishing** *(optional)*: Converts ops log entries to CADF format and publishes to RabbitMQ asynchronously.
-5. **Publishing to NATS**: Raw log events and aggregated metrics are sent to specified NATS subjects.
-6. **Prometheus Metrics**: Exposes metrics via an HTTP server for Prometheus scraping.
-7. **File Rotation Handling**: Monitors log file size and age, triggering rotation when needed.
-8. **Log Rotation on Start** *(optional)*: Backs up and clears the log file at startup to avoid re-processing.
+1. **Log Processing**: Reads and parses log entries incoming from the Ceph RGW
+   log file.
+2. **Dedicated Storage**: Updates dedicated storage maps based on enabled
+   metric types with proper tenant separation.
+3. **Latency Recording**: Records request latencies from the `total_time` field
+   directly into Prometheus histograms.
+4. **Audit Trail Publishing** *(optional)*: Converts ops log entries to CADF
+   format and publishes to RabbitMQ asynchronously.
+5. **Publishing to NATS**: Raw log events and aggregated metrics are sent to
+   specified NATS subjects.
+6. **Prometheus Metrics**: Exposes metrics via an HTTP server for Prometheus
+   scraping.
+7. **File Rotation Handling**: Monitors log file size and age, triggering
+   rotation when needed.
+8. **Log Rotation on Start** *(optional)*: Backs up and clears the log file at
+   startup to avoid re-processing.
 
 ## Example Workflows
 
@@ -518,11 +570,16 @@ prysm local-producer ops-log \
 
 ### Performance Considerations
 
-- **Use `--track-everything` carefully**: While convenient, it creates many metrics which can impact performance
-- **Selective tracking**: Enable only the metrics you actually need for monitoring
-- **Latency tracking**: Start with `--track-latency-per-method` and add more granular tracking as needed
-- **Anonymous requests**: Use `--ignore-anonymous-requests` to reduce noise in multi-tenant environments
-- **Memory efficiency**: Each metric type uses dedicated storage, so only enabled metrics consume memory
+- **Use `--track-everything` carefully**: While convenient, it creates many
+  metrics which can impact performance
+- **Selective tracking**: Enable only the metrics you actually need for
+  monitoring
+- **Latency tracking**: Start with `--track-latency-per-method` and add more
+  granular tracking as needed
+- **Anonymous requests**: Use `--ignore-anonymous-requests` to reduce noise in
+  multi-tenant environments
+- **Memory efficiency**: Each metric type uses dedicated storage, so only
+  enabled metrics consume memory
 
 ### Recommended Configurations
 
@@ -544,15 +601,18 @@ prysm local-producer ops-log \
 ## Error Monitoring Best Practices
 
 ### Zero-Value Error Metrics
-All error metrics now report 0 when no errors occur, ensuring they remain visible in Prometheus and Grafana dashboards. This improvement:
+All error metrics now report 0 when no errors occur, ensuring they remain
+visible in Prometheus and Grafana dashboards. This improvement:
 - Eliminates the "No data" issue in dashboards
 - Allows for proper rate calculations even when errors are intermittent
 - Ensures alerting rules work correctly with absent metrics
 
 ### Timeout Error Detection for OSD Issues
-The new `radosgw_timeout_errors` metric specifically tracks timeout-related HTTP status codes:
+The new `radosgw_timeout_errors` metric specifically tracks timeout-related
+HTTP status codes:
 - **408 (Request Timeout)**: Client took too long to send request
-- **504 (Gateway Timeout)**: Upstream server timeout (often indicates OSD issues)
+- **504 (Gateway Timeout)**: Upstream server timeout (often indicates OSD
+  issues)
 - **598 (Network Read Timeout)**: Network-level timeout
 - **499 (Client Closed Request)**: Client disconnected before response
 
@@ -580,17 +640,29 @@ rate(radosgw_errors_by_category{category="connection"}[5m]) > 0.1
 
 ## Notes
 
-- Ensure that the Ceph RGW log format is JSON-based to be compatible with this tool.
+- Ensure that the Ceph RGW log format is JSON-based to be compatible with this
+  tool.
 - If using NATS, ensure the server is running and accessible from the producer.
-- If using RabbitMQ audit trail, ensure the RabbitMQ server is accessible and the queue exists.
+- If using RabbitMQ audit trail, ensure the RabbitMQ server is accessible and
+  the queue exists.
 - Prometheus should be configured to scrape the exposed metrics endpoint.
-- **Multi-tenant environments**: The tool automatically extracts tenant information from user identifiers and ensures proper separation of metrics across tenants.
-- **Bucket name collision handling**: Buckets with identical names from different tenants are properly isolated in all metrics.
-- **Latency units**: All latency histograms use seconds as the unit, converted from the millisecond `total_time` field in log entries.
-- **Memory efficiency**: The dedicated storage architecture ensures minimal memory usage by storing only enabled metric types.
-- **Error visibility**: Error metrics always maintain visibility by reporting 0 when no errors occur, essential for proper monitoring.
-- **Audit trail**: CADF events are published asynchronously and never block ops log processing. Falls back to NullAuditor if RabbitMQ is unavailable.
-- **Keystone scope**: Full Keystone authentication scope (including application credentials) is required in ops log entries for complete audit tracking.
-- Sidecar injection is supported via a mutating webhook (see related documentation for Kubernetes usage).
+- **Multi-tenant environments**: The tool automatically extracts tenant
+  information from user identifiers and ensures proper separation of metrics
+  across tenants.
+- **Bucket name collision handling**: Buckets with identical names from
+  different tenants are properly isolated in all metrics.
+- **Latency units**: All latency histograms use seconds as the unit, converted
+  from the millisecond `total_time` field in log entries.
+- **Memory efficiency**: The dedicated storage architecture ensures minimal
+  memory usage by storing only enabled metric types.
+- **Error visibility**: Error metrics always maintain visibility by reporting 0
+  when no errors occur, essential for proper monitoring.
+- **Audit trail**: CADF events are published asynchronously and never block ops
+  log processing. Falls back to NullAuditor if RabbitMQ is unavailable.
+- **Keystone scope**: Full Keystone authentication scope (including application
+  credentials) is required in ops log entries for complete audit tracking.
+- Sidecar injection is supported via a mutating webhook (see related
+  documentation for Kubernetes usage).
 
-> This README will be updated as new features and improvements are introduced. Contributions and feedback are welcome!
+> This README will be updated as new features and improvements are introduced.
+> Contributions and feedback are welcome!
