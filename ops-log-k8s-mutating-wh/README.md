@@ -1,22 +1,32 @@
 # Prysm Kubernetes Mutating Webhook for RADOSGW Sidecar Injection
 
-This is a Kubernetes **Mutating Admission Webhook** designed to automatically inject a **Prysm sidecar** into **RADOSGW deployments** managed by Rook-Ceph. The sidecar container scans **RGW operation logs** and exposes **Prometheus metrics**.
+This is a Kubernetes **Mutating Admission Webhook** designed to automatically
+inject a **Prysm sidecar** into **RADOSGW deployments** managed by Rook-Ceph.
+The sidecar container scans **RGW operation logs** and exposes **Prometheus
+metrics**.
 
 ## Features
 
-- **Automatic Sidecar Injection**: Detects `rook-ceph-rgw` deployments and injects a **Prysm sidecar**.
-- **Prometheus Metrics**: Extracts metrics from `rgw-ops-logs` and serves them on port **9090**.
-- **Dynamic Image Configuration**: Supports configuring the sidecar image via the `SIDECAR_IMAGE` environment variable.
-- **Cert-Manager Integration**: Uses `cert-manager` to generate TLS certificates, with **automatic CA bundle injection**.
+- **Automatic Sidecar Injection**: Detects `rook-ceph-rgw` deployments and
+  injects a **Prysm sidecar**.
+- **Prometheus Metrics**: Extracts metrics from `rgw-ops-logs` and serves them
+  on port **9090**.
+- **Dynamic Image Configuration**: Supports configuring the sidecar image via
+  the `SIDECAR_IMAGE` environment variable.
+- **Cert-Manager Integration**: Uses `cert-manager` to generate TLS
+  certificates, with **automatic CA bundle injection**.
 - **Secure Webhook**: Runs on port **8443** and validates incoming deployments.
 
 ---
 
 ## **Automatic Sidecar Injection**
-The webhook **automatically detects** RADOSGW (`rook-ceph-rgw`) deployments and injects a **Prysm sidecar** container. It ensures that only specific RADOSGW instances are modified by checking **a predefined set of labels**.
+The webhook **automatically detects** RADOSGW (`rook-ceph-rgw`) deployments and
+injects a **Prysm sidecar** container. It ensures that only specific RADOSGW
+instances are modified by checking **a predefined set of labels**.
 
 ### **Label Requirements**
-To be **eligible for mutation**, a deployment **must have the following labels**:
+To be **eligible for mutation**, a deployment **must have the following
+labels**:
 
 | Label | Description |
 |-------|-------------|
@@ -43,9 +53,12 @@ spec:
 If this label is not set, the webhook will not modify the deployment.
 
 #### **Sidecar Injection Process**
-1.	The webhook listens for CREATE and UPDATE operations on Deployment resources.
-2.	When a new or updated deployment matches the required labels, the webhook inspects its pod specification.
-3.  If the **Prysm sidecar is missing**, it is **automatically injected** with the following configuration:
+1.	The webhook listens for CREATE and UPDATE operations on Deployment
+	resources.
+2.	When a new or updated deployment matches the required labels, the
+	webhook inspects its pod specification.
+3.  If the **Prysm sidecar is missing**, it is **automatically injected** with
+    the following configuration:
   - **Container Name**: `prysm-sidecar`
   - **Image**: Defined by `SIDECAR_IMAGE` environment variable.
   - **Args**:
@@ -61,16 +74,20 @@ If this label is not set, the webhook will not modify the deployment.
     - `/var/lib/ceph/crash` (Crash logs)
   - **Environment Variables**:
     - `POD_NAME`: Auto-populated with the pod’s name.
-4.  If a **Prysm sidecar already exists**, the webhook **updates it** to ensure consistency with the latest configuration.
+4.  If a **Prysm sidecar already exists**, the webhook **updates it** to ensure
+    consistency with the latest configuration.
 5.	The modified deployment is then approved and applied to the cluster.
 
-This ensures consistent, automated sidecar injection into selected rook-ceph-rgw instances, allowing **real-time monitoring of RGW operations**.
+This ensures consistent, automated sidecar injection into selected
+rook-ceph-rgw instances, allowing **real-time monitoring of RGW operations**.
 
 ---
 
 ## Configure Sidecar via Secret or ConfigMap
 
-The webhook supports injecting **environment variables** into the Prysm sidecar using either a **Secret** or a **ConfigMap**.  This allows each RADOSGW deployment to customize the sidecar's behavior independently.
+The webhook supports injecting **environment variables** into the Prysm sidecar
+using either a **Secret** or a **ConfigMap**.  This allows each RADOSGW
+deployment to customize the sidecar's behavior independently.
 
 ### Option 1: Use a Secret
 
@@ -134,11 +151,13 @@ data:
 ```
 ### You Can Use Both
 
-If both annotations are set, the sidecar will receive **both** sources via envFrom, in the order:
+If both annotations are set, the sidecar will receive **both** sources via
+envFrom, in the order:
 1.	Secret (if specified)
 2.	ConfigMap (if specified)
 
-This allows sensitive data to be stored in Secrets, while general config can go in a ConfigMap.
+This allows sensitive data to be stored in Secrets, while general config can go
+in a ConfigMap.
 
 ### Benefits
 
@@ -148,7 +167,8 @@ This allows sensitive data to be stored in Secrets, while general config can go 
 
 ---
 ### Important Notes
-> The referenced Secret or ConfigMap must exist before the deployment is created, or pod startup may fail.
+> The referenced Secret or ConfigMap must exist before the deployment is
+> created, or pod startup may fail.
 
 ---
 
@@ -160,8 +180,10 @@ This allows sensitive data to be stored in Secrets, while general config can go 
 | `SIDECAR_IMAGE` | The Prysm sidecar image (use a specific version tag) | _None_  |
 
 ### **Best Practice: Use Explicit Version Tags**
-It is **strongly recommended** to use a **specific version tag** instead of `latest` to ensure:
-- **Predictability**: Prevents unexpected changes due to automatic image updates.
+It is **strongly recommended** to use a **specific version tag** instead of
+`latest`. This ensures:
+- **Predictability**: Prevents unexpected changes due to automatic image
+  updates.
 - **Security**: Avoids potential vulnerabilities in newly pushed images.
 - **Stability**: Ensures compatibility with the webhook’s configuration.
 
@@ -172,7 +194,8 @@ env:
     value: "ghcr.io/cobaltcore-dev/prysm:v1.2.3"
 ```
 
-This ensures that **every deployment uses the same tested and verified version** of the Prysm sidecar.
+This ensures that **every deployment uses the same tested and verified
+version** of the Prysm sidecar.
 
 ⸻
 
@@ -180,7 +203,8 @@ This ensures that **every deployment uses the same tested and verified version**
 
 #### **Deploy cert-manager Resources**
 
-The webhook **uses cert-manager** to **generate TLS certificates** and **automatically inject the CA bundle** into the MutatingWebhookConfiguration.
+The webhook **uses cert-manager** to **generate TLS certificates** and
+**automatically inject the CA bundle** into the MutatingWebhookConfiguration.
 ```yaml
 apiVersion: cert-manager.io/v1
 kind: Issuer
