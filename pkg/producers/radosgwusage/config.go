@@ -8,9 +8,6 @@ type RadosGWUsageConfig struct {
 	AdminURL                string
 	AccessKey               string
 	SecretKey               string
-	NatsURL                 string // For exporting metrics
-	NatsSubject             string // For exporting metrics
-	UseNats                 bool   // Indicates if NATS is used for metrics export
 	Prometheus              bool
 	PrometheusPort          int
 	NodeName                string

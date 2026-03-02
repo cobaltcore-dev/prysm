@@ -93,10 +93,12 @@ func fetchUserUsageGlobal(co *rgwadmin.API, userUsageData nats.KeyValue) error {
 
 	// var userData []rgwadmin.KVUser
 	var usageProcessed, usageFailed int
+	var usageBucketWriteFailed int
+	seenUsageKeys := make(map[string]struct{})
 
 	for data := range usageDataCh {
 		// userData = append(userData, data)
-		storeUserUsageInKV(data, userUsageData)
+		usageBucketWriteFailed += storeUserUsageInKV(data, userUsageData, seenUsageKeys)
 		usageProcessed++
 	}
 
@@ -107,7 +109,16 @@ func fetchUserUsageGlobal(co *rgwadmin.API, userUsageData nats.KeyValue) error {
 	log.Debug().
 		Int("usageProcessed", usageProcessed).
 		Int("usageFailed", usageFailed).
+		Int("usageBucketWriteFailed", usageBucketWriteFailed).
 		Msg("Completed usage data collection")
+	if usageFailed == 0 && usageBucketWriteFailed == 0 {
+		reconcileKVKeys(userUsageData, seenUsageKeys, "user_usage_data")
+	} else {
+		log.Warn().
+			Int("usage_failed", usageFailed).
+			Int("usage_bucket_write_failed", usageBucketWriteFailed).
+			Msg("Skipping user_usage_data KV reconciliation due to partial sync failures")
+	}
 
 	return nil
 }
@@ -141,7 +152,7 @@ func fetchUsageDetails(co *rgwadmin.API, userID string, usageDataCh chan rgwadmi
 	}
 }
 
-func storeUserUsageInKV(userUsage rgwadmin.Usage, userUsageData nats.KeyValue) error {
+func storeUserUsageInKV(userUsage rgwadmin.Usage, userUsageData nats.KeyValue, seenUsageKeys map[string]struct{}) int {
 	bucketsFailed := 0
 	skippedBuckets := 0
 
@@ -174,8 +185,9 @@ func storeUserUsageInKV(userUsage rgwadmin.Usage, userUsageData nats.KeyValue) e
 			}
 
 			// Build a key using a helper that encodes components safely.
-			user, tenant := SplitUserTenant(entry.User) // Example helper: splits user string into user & tenant parts.
+			user, tenant := NormalizeUserTenant(entry.User, "")
 			bucketKey := BuildUserTenantBucketKey(user, tenant, bucketName)
+			seenUsageKeys[bucketKey] = struct{}{}
 
 			// Write the serialized data to the KV store.
 			if _, err := userUsageData.Put(bucketKey, bucketDataJSON); err != nil {
@@ -194,5 +206,5 @@ func storeUserUsageInKV(userUsage rgwadmin.Usage, userUsageData nats.KeyValue) e
 		Int("bucketsFailed", bucketsFailed).
 		Int("skippedBuckets", skippedBuckets).
 		Msg("Completed storing bucket usage in KV")
-	return nil
+	return bucketsFailed
 }

@@ -5,17 +5,15 @@
 The **RadosGW Usage Exporter (Prysm Remote Producer)** is a tool designed to
 collect and export detailed usage metrics from RadosGW (Rados Gateway)
 instances. This exporter gathers data on operations, byte metrics, bucket
-usage, quotas, and can publish these metrics to a NATS server or expose them
-for Prometheus, providing comprehensive visibility into the usage and
-performance of your RadosGW environment.
+usage, quotas, and exposes metrics for Prometheus, providing comprehensive
+visibility into the usage and performance of your RadosGW environment.
 
 ## Key Features
 
 - **Comprehensive Metric Collection**: Gathers a wide range of metrics
   including operations, bytes sent/received, bucket usage, quotas, and more.
-- **NATS Integration**: Publishes collected usage data to a specified NATS
-  subject, enabling real-time processing and integration with other
-  observability tools.
+- **NATS KV Sync Control**: Uses NATS JetStream Key-Value buckets for sync and
+  aggregation state.
 - **Prometheus Metrics**: Exposes usage metrics in Prometheus format, allowing
   easy integration with monitoring dashboards.
 - **Configurable**: Offers flexibility in configuration via command-line flags
@@ -36,10 +34,6 @@ prysm remote-producer radosgw-usage [flags]
 - `--secret-key "your-secret-key"`: Secret key for the RadosGW admin.
 - `--interval 10`: Interval in seconds between usage collections (default is 10
   seconds).
-- `--nats-url "nats://localhost:4222"`: NATS server URL for publishing usage
-  data.
-- `--nats-subject "rgw.usage"`: NATS subject to publish usage data (default is
-  “rgw.usage”).
 - `--rgw-cluster-id`: RGW Cluster ID added to metrics.
 - `--prometheus`: Enable Prometheus metrics.
 - `--prometheus-port 8080`: Port for Prometheus metrics (default is 8080).
@@ -51,8 +45,6 @@ Configuration can also be set through environment variables:
 - `ADMIN_URL`: Admin URL for the RadosGW instance.
 - `ACCESS_KEY`: Access key for the RadosGW admin.
 - `SECRET_KEY`: Secret key for the RadosGW admin.
-- `NATS_URL`: NATS server URL.
-- `NATS_SUBJECT`: NATS subject to publish usage data.
 - `NODE_NAME`: Name of the node.
 - `INSTANCE_ID`: Instance ID.
 - `PROMETHEUS_ENABLED`: Enable Prometheus metrics.
@@ -95,12 +87,11 @@ The RadosGW Usage Exporter collects and exposes the following metrics:
 - Start the exporter with the desired configuration:
 
 ```bash
-prysm remote-producer radosgw-usage --admin-url "http://rgw-admin-url" --access-key "your-access-key" --secret-key "your-secret-key" --rgw-cluster-id "rgw-cluster-id" --nats-url "nats://localhost:4222" --prometheus --prometheus-port 8080
+prysm remote-producer radosgw-usage --admin-url "http://rgw-admin-url" --access-key "your-access-key" --secret-key "your-secret-key" --rgw-cluster-id "rgw-cluster-id" --prometheus --prometheus-port 8080
 ```
 
 - Metrics such as operations, bytes sent/received, and bucket usage will be
-  collected every 10 seconds (default) and can be monitored through Prometheus
-  or forwarded to a NATS server for further processing.
+  collected every 10 seconds (default) and can be monitored through Prometheus.
 
 ## Acknowledgment
 

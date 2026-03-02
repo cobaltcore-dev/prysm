@@ -12,10 +12,10 @@ import (
 
 // UsageEntry represents a user's usage data and associated buckets.
 type UsageEntry struct {
-	ClusterID string                 `json:"rgw_custer_id"` // The RGW cluster ID backend used for the bucket.
-	Stats     admin.UserStat         `json:"stats"`         // Statistical information about the user's usage.
-	UserLevel RadosGWUserMetrics     `json:"user_level"`    // Metrics related to the user level.
-	Buckets   []RadosGWBucketMetrics `json:"bucket_levels"` // Metrics related to the bucket level.
+	ClusterID string                 `json:"rgw_cluster_id"` // The RGW cluster ID backend used for the bucket.
+	Stats     admin.UserStat         `json:"stats"`          // Statistical information about the user's usage.
+	UserLevel RadosGWUserMetrics     `json:"user_level"`     // Metrics related to the user level.
+	Buckets   []RadosGWBucketMetrics `json:"bucket_levels"`  // Metrics related to the bucket level.
 }
 
 // BucketUsage represents detailed information about a bucket, including usage and quotas.

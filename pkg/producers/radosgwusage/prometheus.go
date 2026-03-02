@@ -6,6 +6,7 @@ package radosgwusage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -109,7 +110,7 @@ func populateStatus(status *PrysmStatus) {
 	log.Trace().Msg("Completed populating prysmStatus")
 }
 
-func populateMetricsFromKV(userMetrics, bucketMetrics, clusterMetrics nats.KeyValue, cfg RadosGWUsageConfig) {
+func populateMetricsFromKV(userMetrics, bucketMetrics nats.KeyValue, cfg RadosGWUsageConfig) {
 	log.Info().Msg("Starting to populate metrics from KV")
 
 	// Process user metrics
@@ -131,6 +132,10 @@ func populateUserMetricsFromKV(userMetrics nats.KeyValue, cfg RadosGWUsageConfig
 	for _, key := range keys {
 		entry, err := userMetrics.Get(key)
 		if err != nil {
+			if errors.Is(err, nats.ErrKeyNotFound) {
+				log.Debug().Str("key", key).Err(err).Msg("User metric missing in KV")
+				continue
+			}
 			log.Warn().Str("key", key).Err(err).Msg("Failed to fetch user metric")
 			continue
 		}
@@ -183,6 +188,10 @@ func populateBucketMetricsFromKV(bucketMetrics nats.KeyValue, cfg RadosGWUsageCo
 	for _, key := range keys {
 		entry, err := bucketMetrics.Get(key)
 		if err != nil {
+			if errors.Is(err, nats.ErrKeyNotFound) {
+				log.Debug().Str("key", key).Err(err).Msg("Bucket metric missing in KV")
+				continue
+			}
 			log.Warn().Str("key", key).Err(err).Msg("Failed to fetch bucket metric")
 			continue
 		}

@@ -6,6 +6,7 @@ package radosgwusage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ func (m *UserLevelMetrics) GetUserIdentification() string {
 
 func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats.KeyValue) error {
 	log.Debug().Msg("Starting user-level metrics aggregation")
+	_ = userUsageData
 
 	bucketKeyMap := make(map[string]uint64)
 	bucketKeys, err := bucketData.Keys()
@@ -49,17 +51,6 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 	for _, key := range bucketKeys {
 		prefix := key[:strings.LastIndex(key, ".")]
 		bucketKeyMap[prefix]++ // Count this bucket for its owner.
-	}
-
-	usageKeyMap := make(map[string][]string)
-	usageKeys, err := userUsageData.Keys()
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to fetch usage keys from KV")
-		return fmt.Errorf("failed to fetch keys from usage data: %w", err)
-	}
-	for _, key := range usageKeys {
-		prefix := key[:strings.LastIndex(key, ".")]
-		usageKeyMap[prefix] = append(usageKeyMap[prefix], key)
 	}
 
 	userKeys, err := userData.Keys()
@@ -78,7 +69,7 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 		go func() {
 			defer wg.Done()
 			for key := range userCh {
-				processUserMetrics(key, userData, userUsageData, userMetrics, bucketKeyMap, usageKeyMap)
+				processUserMetrics(key, userData, userMetrics, bucketKeyMap)
 			}
 		}()
 	}
@@ -94,9 +85,13 @@ func updateUserMetricsInKV(userData, userUsageData, bucketData, userMetrics nats
 	return nil
 }
 
-func processUserMetrics(key string, userData, userUsageData, userMetrics nats.KeyValue, bucketKeyMap map[string]uint64, usageKeyMap map[string][]string) {
+func processUserMetrics(key string, userData, userMetrics nats.KeyValue, bucketKeyMap map[string]uint64) {
 	entry, err := userData.Get(key)
 	if err != nil {
+		if errors.Is(err, nats.ErrKeyNotFound) {
+			log.Debug().Str("key", key).Err(err).Msg("User data missing in KV")
+			return
+		}
 		log.Warn().Str("key", key).Err(err).Msg("Failed to fetch user data from KV")
 		return
 	}
@@ -113,13 +108,10 @@ func processUserMetrics(key string, userData, userUsageData, userMetrics nats.Ke
 		Msg("Processing user metrics")
 
 	// Initialize metrics.
-	userID := user.ID
-	if strings.Index(userID, "$") > 0 { // if tenant is part of owner with devider $
-		userID = userID[:strings.Index(userID, "$")]
-	}
+	userID, tenant := NormalizeUserTenant(user.ID, user.Tenant)
 	metrics := UserLevelMetrics{
 		User:                userID,
-		Tenant:              user.Tenant,
+		Tenant:              tenant,
 		DisplayName:         user.DisplayName,
 		Email:               user.Email,
 		DefaultStorageClass: user.DefaultStorageClass,
@@ -135,23 +127,8 @@ func processUserMetrics(key string, userData, userUsageData, userMetrics nats.Ke
 	}
 
 	// Use the pre-indexed bucket count.
-	metrics.BucketsTotal = bucketKeyMap[key]
-
-	// Aggregate usage data.
-	userUsageKeyPrefix := BuildUserTenantKey(user.ID, user.Tenant)
-
-	for _, usageKey := range usageKeyMap[userUsageKeyPrefix] {
-		usageEntry, err := userUsageData.Get(usageKey)
-		if err != nil {
-			log.Warn().Str("key", usageKey).Err(err).Msg("Failed to fetch usage data")
-			continue
-		}
-		var usage rgwadmin.UsageEntryBucket
-		if err := json.Unmarshal(usageEntry.Value(), &usage); err != nil {
-			log.Warn().Str("key", usageKey).Err(err).Msg("Failed to unmarshal usage data")
-			continue
-		}
-	}
+	userKey := BuildUserTenantKey(userID, tenant)
+	metrics.BucketsTotal = bucketKeyMap[userKey]
 
 	// Calculate derived metrics.
 
@@ -163,7 +140,7 @@ func processUserMetrics(key string, userData, userUsageData, userMetrics nats.Ke
 	}
 
 	// Prepare the metrics key.
-	metricsKey := BuildUserTenantKey(user.ID, user.Tenant)
+	metricsKey := userKey
 
 	// Serialize and store metrics.
 	metricsData, err := json.Marshal(metrics)

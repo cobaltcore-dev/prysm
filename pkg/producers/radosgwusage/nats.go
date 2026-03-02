@@ -12,24 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func publishToNATS(nc *nats.Conn, subject string, usages []UsageEntry) {
-	usageJSON, err := json.Marshal(usages)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Msg("error marshalling usage to JSON")
-		return
-	}
-
-	err = nc.Publish(subject, usageJSON)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("subject", subject).
-			Msg("error publishing usage to NATS")
-	}
-}
-
 // ensureStream ensures that the JetStream stream exists with proper configuration
 func ensureStream(js nats.JetStreamContext, streamName string) error {
 	stream, err := js.StreamInfo(streamName)

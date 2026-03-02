@@ -34,6 +34,17 @@ func SplitUserTenant(s string) (user, tenant string) {
 	return s, ""
 }
 
+// NormalizeUserTenant returns a canonical user/tenant pair.
+// If user carries tenant information as "user$tenant" and explicit tenant is empty,
+// the tenant extracted from user is used.
+func NormalizeUserTenant(user, tenant string) (string, string) {
+	normalizedUser, tenantFromUser := SplitUserTenant(user)
+	if tenant == "" && tenantFromUser != "" {
+		tenant = tenantFromUser
+	}
+	return normalizedUser, tenant
+}
+
 // BuildUserTenantKey builds a KV key in the format "<user>.<tenant>".
 // If tenant is an empty string, it substitutes the MissingTenantPlaceholder.
 func BuildUserTenantKey(user, tenant string) string {

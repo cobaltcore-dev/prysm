@@ -17,9 +17,6 @@ var (
 	rgwuAdminURL                string
 	rgwuAccessKey               string
 	rgwuSecretKey               string
-	rgwuNatsURL                 string
-	rgwuNatsSubject             string
-	rgwuUseNats                 bool
 	rgwuPrometheus              bool
 	rgwuPrometheusPort          int
 	rgwuNodeName                string
@@ -40,9 +37,6 @@ var radosGWUsageCmd = &cobra.Command{
 			AdminURL:                rgwuAdminURL,
 			AccessKey:               rgwuAccessKey,
 			SecretKey:               rgwuSecretKey,
-			NatsURL:                 rgwuNatsURL,
-			NatsSubject:             rgwuNatsSubject,
-			UseNats:                 rgwuUseNats,
 			Prometheus:              rgwuPrometheus,
 			PrometheusPort:          rgwuPrometheusPort,
 			NodeName:                rgwuNodeName,
@@ -56,14 +50,8 @@ var radosGWUsageCmd = &cobra.Command{
 		}
 
 		config = mergeRadosGWUsageConfigWithEnv(config)
-		config.UseNats = config.NatsURL != ""
 
 		event := log.Info()
-		event.Bool("use_nats", config.UseNats)
-		if config.UseNats {
-			event.Str("nats_url", config.NatsURL)
-			event.Str("nats_subject", config.NatsSubject)
-		}
 
 		event.Bool("prometheus_enabled", config.Prometheus)
 		if config.Prometheus {
@@ -97,8 +85,6 @@ func mergeRadosGWUsageConfigWithEnv(cfg radosgwusage.RadosGWUsageConfig) radosgw
 	cfg.AdminURL = getEnv("ADMIN_URL", cfg.AdminURL)
 	cfg.AccessKey = getEnv("ACCESS_KEY", cfg.AccessKey)
 	cfg.SecretKey = getEnv("SECRET_KEY", cfg.SecretKey)
-	cfg.NatsURL = getEnv("NATS_URL", cfg.NatsURL)
-	cfg.NatsSubject = getEnv("NATS_SUBJECT", cfg.NatsSubject)
 	cfg.NodeName = getEnv("NODE_NAME", cfg.NodeName)
 	cfg.InstanceID = getEnv("INSTANCE_ID", cfg.InstanceID)
 	cfg.Prometheus = getEnvBool("PROMETHEUS_ENABLED", cfg.Prometheus)
@@ -118,8 +104,6 @@ func init() {
 	radosGWUsageCmd.Flags().StringVar(&rgwuAdminURL, "admin-url", "", "Admin URL for the RadosGW instance")
 	radosGWUsageCmd.Flags().StringVar(&rgwuAccessKey, "access-key", "", "Access key for the RadosGW admin")
 	radosGWUsageCmd.Flags().StringVar(&rgwuSecretKey, "secret-key", "", "Secret key for the RadosGW admin")
-	radosGWUsageCmd.Flags().StringVar(&rgwuNatsURL, "nats-url", "", "NATS server URL")
-	radosGWUsageCmd.Flags().StringVar(&rgwuNatsSubject, "nats-subject", "rgw.usage", "NATS subject to publish usage")
 	radosGWUsageCmd.Flags().StringVar(&rgwuClusterID, "rgw-cluster-id", "", "RGW Cluster ID added to metrics")
 	radosGWUsageCmd.Flags().StringVar(&rgwuNodeName, "node-name", "", "Name of the node")
 	radosGWUsageCmd.Flags().StringVar(&rgwuInstanceID, "instance-id", "", "Instance ID")
@@ -160,7 +144,10 @@ func validateRadosGWUsageConfig(config radosgwusage.RadosGWUsageConfig) {
 	}
 
 	// Validate sync control configuration
-	if config.SyncControlNats {
+	if !config.SyncControlNats {
+		fmt.Println("Warning: --sync-control-nats=false is not supported by radosgw-usage yet")
+		missingParams = true
+	} else {
 		if config.SyncExternalNats && config.SyncControlURL == "" {
 			fmt.Println("Warning: --sync-control-url must be set when using an external NATS server")
 			missingParams = true

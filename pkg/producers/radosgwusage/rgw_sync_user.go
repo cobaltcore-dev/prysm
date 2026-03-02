@@ -65,10 +65,17 @@ func fetchAllUsers(co *rgwadmin.API, userData nats.KeyValue) error {
 
 	// var userData []rgwadmin.KVUser
 	var usersProcessed, usersFailed int
+	seenUserKeys := make(map[string]struct{}, len(userIDs))
 
 	for data := range userDataCh {
 		// userData = append(userData, data)
-		storeUserInKV(data, userData)
+		normalizedUser, normalizedTenant := NormalizeUserTenant(data.ID, data.Tenant)
+		userKey := BuildUserTenantKey(normalizedUser, normalizedTenant)
+		seenUserKeys[userKey] = struct{}{}
+		if err := storeUserInKV(data, userData); err != nil {
+			usersFailed++
+			continue
+		}
 		usersProcessed++
 	}
 
@@ -80,6 +87,13 @@ func fetchAllUsers(co *rgwadmin.API, userData nats.KeyValue) error {
 		Int("usersProcessed", usersProcessed).
 		Int("usersFailed", usersFailed).
 		Msg("Completed user data collection")
+	if usersFailed == 0 {
+		reconcileKVKeys(userData, seenUserKeys, "user_data")
+	} else {
+		log.Warn().
+			Int("users_failed", usersFailed).
+			Msg("Skipping user_data KV reconciliation due to partial sync failures")
+	}
 
 	return nil
 }
@@ -117,14 +131,17 @@ func storeUserInKV(user rgwadmin.KVUser, userData nats.KeyValue) error {
 			Str("user", user.ID).
 			Err(err).
 			Msg("Error serializing user data")
+		return err
 	}
 
-	userKey := BuildUserTenantKey(user.ID, user.Tenant)
+	normalizedUser, normalizedTenant := NormalizeUserTenant(user.ID, user.Tenant)
+	userKey := BuildUserTenantKey(normalizedUser, normalizedTenant)
 	if _, err := userData.Put(userKey, userDataJSON); err != nil {
 		log.Warn().
 			Str("user", userKey).
 			Err(err).
 			Msg("Failed to update KV for user")
+		return err
 	}
 
 	log.Debug().Str("user", user.ID).Msg("Successfully stored user in KV")

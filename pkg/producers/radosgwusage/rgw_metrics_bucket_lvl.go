@@ -6,8 +6,8 @@ package radosgwusage
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/cobaltcore-dev/prysm/pkg/producers/radosgwusage/rgwadmin"
@@ -75,6 +75,10 @@ func processBucketMetrics(key string, bucketData, userUsageData, bucketMetrics n
 	// Fetch bucket metadata
 	entry, err := bucketData.Get(key)
 	if err != nil {
+		if errors.Is(err, nats.ErrKeyNotFound) {
+			log.Debug().Str("bucket_key", key).Err(err).Msg("Bucket data missing in KV")
+			return
+		}
 		log.Warn().Str("bucket_key", key).Err(err).Msg("Failed to fetch bucket data from KV")
 		return
 	}
@@ -91,14 +95,11 @@ func processBucketMetrics(key string, bucketData, userUsageData, bucketMetrics n
 		Msg("Processing bucket metrics")
 
 	// Initialize metrics.
-	userID := bucket.Owner
-	if strings.Index(userID, "$") > 0 { // if tenant is part of owner with devider $
-		userID = userID[:strings.Index(userID, "$")]
-	}
+	userID, tenant := NormalizeUserTenant(bucket.Owner, bucket.Tenant)
 	metrics := UserBucketMetrics{
 		BucketID:     bucket.Bucket,
 		User:         userID,
-		Tenant:       bucket.Tenant,
+		Tenant:       tenant,
 		CreationTime: bucket.Mtime, // Using Mtime as a substitute for creation time.
 		Zonegroup:    bucket.Zonegroup,
 	}
@@ -111,17 +112,9 @@ func processBucketMetrics(key string, bucketData, userUsageData, bucketMetrics n
 		metrics.BucketSize = *bucket.Usage.RgwMain.SizeActual
 	}
 
-	usageEntry, err := userUsageData.Get(key)
-	if err != nil {
-		log.Warn().Str("usage_key", key).Err(err).Msg("Failed to fetch usage data")
-		return
-	}
-
-	var usage rgwadmin.UsageEntryBucket
-	if err := json.Unmarshal(usageEntry.Value(), &usage); err != nil {
-		log.Warn().Str("usage_key", key).Err(err).Msg("Failed to unmarshal usage data")
-		return
-	}
+	// Keep bucket metrics independent from usage KV availability.
+	// Usage records can legitimately be missing for some buckets.
+	_ = userUsageData
 
 	// Set quota information.
 	metrics.QuotaEnabled = false

@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -80,10 +79,17 @@ func fetchAllBuckets(co *rgwadmin.API, bucketData nats.KeyValue) error {
 	// Step 4: Collect results from channels
 	// var bucketData []rgwadmin.Bucket
 	var bucketsProcessed, bucketsFailed int
+	seenBucketKeys := make(map[string]struct{}, len(bucketNames))
 
 	for bucket := range bucketDataCh {
 		// bucketData = append(bucketData, bucket)
-		storeBucketInKV(bucket, bucketData)
+		user, tenant := NormalizeUserTenant(bucket.Owner, bucket.Tenant)
+		bucketKey := BuildUserTenantBucketKey(user, tenant, bucket.Bucket)
+		seenBucketKeys[bucketKey] = struct{}{}
+		if err := storeBucketInKV(bucket, bucketData); err != nil {
+			bucketsFailed++
+			continue
+		}
 		bucketsProcessed++
 	}
 
@@ -97,6 +103,13 @@ func fetchAllBuckets(co *rgwadmin.API, bucketData nats.KeyValue) error {
 		Int("buckets_processed", bucketsProcessed).
 		Int("buckets_failed", bucketsFailed).
 		Msg("Bucket data collection completed")
+	if bucketsFailed == 0 {
+		reconcileKVKeys(bucketData, seenBucketKeys, "bucket_data")
+	} else {
+		log.Warn().
+			Int("buckets_failed", bucketsFailed).
+			Msg("Skipping bucket_data KV reconciliation due to partial sync failures")
+	}
 
 	return nil
 }
@@ -139,11 +152,8 @@ func storeBucketInKV(bucket rgwadmin.Bucket, bucketData nats.KeyValue) error {
 		return err
 	}
 
-	user := bucket.Owner
-	if strings.Index(user, "$") > 0 { // if tenant is part of owner with devider $
-		user = user[:strings.Index(user, "$")]
-	}
-	bucketKey := BuildUserTenantBucketKey(user, bucket.Tenant, bucket.Bucket)
+	user, tenant := NormalizeUserTenant(bucket.Owner, bucket.Tenant)
+	bucketKey := BuildUserTenantBucketKey(user, tenant, bucket.Bucket)
 	if _, err := bucketData.Put(bucketKey, bucketDataJSON); err != nil {
 		log.Warn().
 			Str("bucket", bucket.Bucket).
