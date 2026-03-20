@@ -257,7 +257,7 @@ func updateAttributeFromValue(smartAttrs map[string]SmartAttribute, attrName str
 		smartAttrs[attrName] = attr
 	} else {
 		// Log a warning if the attribute was not found in smartAttrs
-		log.Warn().Str("attribute_name", attrName).Msg("Unrecognized SMART attribute")
+		log.Debug().Str("attribute_name", attrName).Msg("Unrecognized SMART attribute")
 	}
 }
 

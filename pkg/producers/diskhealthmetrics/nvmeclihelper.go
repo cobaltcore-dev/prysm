@@ -97,9 +97,9 @@ func enhanceNVMeData(smartData *SmartCtlOutput, nvmeController *NVMeIDController
 			log.Debug().Str("subnqn", nvmeController.SubsystemNQN).Msg("SubsystemNQN added for rebranding detection")
 		}
 
-		// Store IEEE OUI information
-		if nvmeController.IEEE != "" {
-			smartData.LogicalUnitID = nvmeController.IEEE
+		// Store IEEE OUI information (may be string "0x580068" or number 5765346)
+		if nvmeController.IEEE.String() != "" && nvmeController.IEEE.String() != "0" {
+			smartData.LogicalUnitID = nvmeController.IEEE.String()
 		}
 	}
 
@@ -142,11 +142,14 @@ func processNVMeSpecificAttributes(smartAttrs map[string]SmartAttribute, nvmeCon
 			updateAttributeFromValue(smartAttrs, "nvme_subsystem_nqn", int64(len(nvmeController.SubsystemNQN)), int64(len(nvmeController.SubsystemNQN)), -1, -1, "chars")
 		}
 
-		// Store IEEE OUI information
-		if nvmeController.IEEE != "" {
-			log.Debug().Str("ieee", nvmeController.IEEE).Msg("Processing NVMe IEEE OUI")
-			// Convert hex string to int64 for storage
-			if oui, err := strconv.ParseInt(strings.Replace(nvmeController.IEEE, "0x", "", -1), 16, 64); err == nil {
+		// Store IEEE OUI information (may be string "0x580068" or number 5765346)
+		if nvmeController.IEEE.String() != "" && nvmeController.IEEE.String() != "0" {
+			ieeeStr := nvmeController.IEEE.String()
+			log.Debug().Str("ieee", ieeeStr).Msg("Processing NVMe IEEE OUI")
+			// Try as integer first (some firmware returns a number), then as hex string
+			if oui, err := nvmeController.IEEE.Int64(); err == nil {
+				updateAttributeFromValue(smartAttrs, "nvme_ieee_oui", oui, oui, -1, -1, "hex")
+			} else if oui, err := strconv.ParseInt(strings.ReplaceAll(ieeeStr, "0x", ""), 16, 64); err == nil {
 				updateAttributeFromValue(smartAttrs, "nvme_ieee_oui", oui, oui, -1, -1, "hex")
 			}
 		}

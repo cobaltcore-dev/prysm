@@ -4,6 +4,8 @@
 
 package diskhealthmetrics
 
+import "encoding/json"
+
 // NVMeIDControllerOutput represents the JSON output from nvme id-ctrl -o json
 type NVMeIDControllerOutput struct {
 	VendorID            int64  `json:"vid"`
@@ -12,7 +14,7 @@ type NVMeIDControllerOutput struct {
 	SerialNumber        string `json:"sn"`
 	FirmwareRevision    string `json:"fr"`
 	SubsystemNQN        string `json:"subnqn"`
-	IEEE                string `json:"ieee"`
+	IEEE                json.Number `json:"ieee"`
 	TotalCapacity       int64  `json:"tnvmcap"`
 	UnallocatedCapacity int64  `json:"unvmcap"`
 }

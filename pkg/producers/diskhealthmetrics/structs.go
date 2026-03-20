@@ -151,9 +151,17 @@ func GetSmartAttributes() map[string]SmartAttribute {
 		"nvme_fabric_warnings":      {"NVMe Fabric Warnings", "count", -1, -1, -1, -1},
 		"nvme_sparse_errors":        {"NVMe Sparse Errors", "count", -1, -1, -1, -1},
 		"nvme_change_notifications": {"NVMe Change Notifications", "count", -1, -1, -1, -1},
-		"nvme_media_errors":         {"NVMe Media Errors", "count", -1, -1, -1, -1},
-		"nvme_aborted_commands":     {"NVMe Aborted Commands", "count", -1, -1, -1, -1},
-		"nvme_timeout_errors":       {"NVMe Timeout Errors", "count", -1, -1, -1, -1},
+		"nvme_media_errors":                {"NVMe Media Errors", "count", -1, -1, -1, -1},
+		"nvme_aborted_commands":            {"NVMe Aborted Commands", "count", -1, -1, -1, -1},
+		"nvme_timeout_errors":              {"NVMe Timeout Errors", "count", -1, -1, -1, -1},
+		"unsafe_shutdowns":                 {"Unsafe Shutdowns", "count", -1, -1, -1, -1},
+		"host_read_commands":               {"Host Read Commands", "commands", -1, -1, -1, -1},
+		"host_write_commands":              {"Host Write Commands", "commands", -1, -1, -1, -1},
+		"controller_busy_time":             {"Controller Busy Time", "minutes", -1, -1, -1, -1},
+		"error_information_log_entries":    {"Error Information Log Entries", "count", -1, -1, -1, -1},
+		"available_spare":                  {"Available Spare", "percent", -1, -1, -1, -1},
+		"available_spare_threshold":        {"Available Spare Threshold", "percent", -1, -1, -1, -1},
+		"media_and_data_integrity_errors":  {"Media and Data Integrity Errors", "count", -1, -1, -1, -1},
 	}
 
 	return smartAttrs
@@ -171,4 +179,5 @@ func CleanupSmartAttributes(smartAttrs map[string]SmartAttribute) {
 // Alias map to handle different names for the same attribute
 var aliasMap = map[string]string{
 	"current_drive_temperature": "temperature_celsius",
+	"unsafe_shutdown_count":     "unsafe_shutdowns",
 }
