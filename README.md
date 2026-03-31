@@ -107,14 +107,14 @@ Key Responsibilities:
 [Kernel Metrics](pkg/producers/kernelmetrics/README.md)  
 [Resource Usage](pkg/producers/resourceusage/README.md)
 
-## Usage
+## Documentation
 
-Prysm can be employed across a wide range of observability scenarios, from
-monitoring the health of Ceph storage clusters and RadosGW instances to
-ensuring the reliability of hardware components through SMART attribute
-analysis. Whether you need to integrate with Prometheus, send real-time alerts
-via NATS, or simply log and visualize system performance, Prysm offers the
-tools and flexibility to meet your needs.
+Step-by-step deployment guides for Kubernetes:
+
+- [Getting Started](docs/getting-started.md) -- requirements, images, configuration, Prometheus setup
+- [RadosGW Usage Producer](docs/radosgw-usage.md) -- collect bucket/user/quota metrics from the RadosGW Admin API
+- [Disk Health Producer](docs/disk-health.md) -- monitor SMART/NVMe attributes on Ceph OSD nodes
+- [Ops Log Producer](docs/ops-log.md) -- parse RGW operation logs, expose metrics, publish CADF audit events
 
 ## Support, Feedback, Contributing
 
