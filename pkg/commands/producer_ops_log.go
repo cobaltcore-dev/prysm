@@ -39,6 +39,7 @@ var (
 
 	// Shortcut config
 	opsTrackEverything bool
+	opsTrackBucketSLO  bool
 
 	// Request metrics flags
 	opsTrackRequestsDetailed  bool
@@ -78,13 +79,13 @@ var (
 	opsTrackBytesReceivedPerTenant bool
 
 	// Error metrics flags
-	opsTrackErrorsDetailed  bool
-	opsTrackErrorsPerUser   bool
-	opsTrackErrorsPerBucket bool
-	opsTrackErrorsPerTenant bool
-	opsTrackErrorsPerStatus bool
-	opsTrackErrorsByIP      bool
-	opsTrackTimeoutErrors   bool
+	opsTrackErrorsDetailed   bool
+	opsTrackErrorsPerUser    bool
+	opsTrackErrorsPerBucket  bool
+	opsTrackErrorsPerTenant  bool
+	opsTrackErrorsPerStatus  bool
+	opsTrackErrorsByIP       bool
+	opsTrackTimeoutErrors    bool
 	opsTrackErrorsByCategory bool
 
 	// IP-based metrics flags
@@ -148,6 +149,7 @@ Following this configuration change, the RadosGW will log operations to the file
 			MetricsConfig: opslog.MetricsConfig{
 				// Shortcut config
 				TrackEverything: opsTrackEverything,
+				TrackBucketSLO:  opsTrackBucketSLO,
 
 				// Request metrics
 				TrackRequestsDetailed:  opsTrackRequestsDetailed,
@@ -187,13 +189,13 @@ Following this configuration change, the RadosGW will log operations to the file
 				TrackBytesReceivedPerTenant: opsTrackBytesReceivedPerTenant,
 
 				// Error metrics
-				TrackErrorsDetailed:    opsTrackErrorsDetailed,
-				TrackErrorsPerUser:     opsTrackErrorsPerUser,
-				TrackErrorsPerBucket:   opsTrackErrorsPerBucket,
-				TrackErrorsPerTenant:   opsTrackErrorsPerTenant,
-				TrackErrorsPerStatus:   opsTrackErrorsPerStatus,
-				TrackTimeoutErrors:     opsTrackTimeoutErrors,
-				TrackErrorsByCategory:  opsTrackErrorsByCategory,
+				TrackErrorsDetailed:   opsTrackErrorsDetailed,
+				TrackErrorsPerUser:    opsTrackErrorsPerUser,
+				TrackErrorsPerBucket:  opsTrackErrorsPerBucket,
+				TrackErrorsPerTenant:  opsTrackErrorsPerTenant,
+				TrackErrorsPerStatus:  opsTrackErrorsPerStatus,
+				TrackTimeoutErrors:    opsTrackTimeoutErrors,
+				TrackErrorsByCategory: opsTrackErrorsByCategory,
 
 				// IP-based metrics
 				TrackRequestsByIPDetailed:           opsTrackRequestsByIPDetailed,
@@ -291,6 +293,11 @@ func debugTrackingConfig(event *zerolog.Event, config opslog.MetricsConfig) {
 	if config.TrackEverything {
 		event.Str("memory_usage", "high").Str("note", "all metrics enabled")
 		return // Don't add individual flags if everything is enabled
+	}
+
+	if config.TrackBucketSLO {
+		event.Bool("track_bucket_slo", true)
+		totalEnabled++
 	}
 
 	// Request tracking
@@ -564,6 +571,7 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 
 	// Shortcut config
 	cfg.MetricsConfig.TrackEverything = getEnvBool("TRACK_EVERYTHING", cfg.MetricsConfig.TrackEverything)
+	cfg.MetricsConfig.TrackBucketSLO = getEnvBool("TRACK_BUCKET_SLO", cfg.MetricsConfig.TrackBucketSLO)
 
 	// Request metrics environment variables
 	cfg.MetricsConfig.TrackRequestsDetailed = getEnvBool("TRACK_REQUESTS_DETAILED", cfg.MetricsConfig.TrackRequestsDetailed)
@@ -662,6 +670,7 @@ func init() {
 
 	// Shortcut flag
 	opsLogCmd.Flags().BoolVar(&opsTrackEverything, "track-everything", false, "Enable detailed tracking for all metric types (efficient mode)")
+	opsLogCmd.Flags().BoolVar(&opsTrackBucketSLO, "track-bucket-slo", false, "Track low-cardinality bucket GET/LIST SLI metrics for Prometheus SLOs")
 
 	// Essential request metrics (most commonly used)
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsDetailed, "track-requests-detailed", false, "Track detailed requests with full labels")

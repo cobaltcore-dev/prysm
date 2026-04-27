@@ -51,6 +51,11 @@ func initPrometheusSettings(cfg *OpsLogConfig) {
 	// Register latency metrics and set up LatencyObs function
 	registerLatencyMetrics(metricsConfig)
 
+	// Register dedicated low-cardinality SLI metrics for bucket GET/LIST SLOs
+	if metricsConfig.TrackBucketSLO {
+		registerSLIMetrics()
+	}
+
 	// Set up the global LatencyObs function
 	LatencyObs = latencyObs
 }

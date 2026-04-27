@@ -4,6 +4,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -259,6 +261,60 @@ func TestMetricsUpdate_BasicFunctionality(t *testing.T) {
 
 	// Verify latency observation was called
 	assert.Equal(t, 1, latencyCallCount, "LatencyObs should be called once")
+}
+
+func TestClassifyBucketSLOOperation(t *testing.T) {
+	testCases := []struct {
+		name      string
+		operation string
+		expected  SLOperation
+		ok        bool
+	}{
+		{name: "get object", operation: "get_obj", expected: SLOperationGet, ok: true},
+		{name: "head object", operation: "head_obj", expected: SLOperationGet, ok: true},
+		{name: "list bucket", operation: "list_bucket", expected: SLOperationList, ok: true},
+		{name: "list buckets", operation: "list_buckets", expected: SLOperationList, ok: true},
+		{name: "bucket info", operation: "get_bucket_info", expected: SLOperationList, ok: true},
+		{name: "unsupported", operation: "put_obj", expected: "", ok: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual, ok := classifyBucketSLOOperation(tc.operation)
+			assert.Equal(t, tc.ok, ok)
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
+	config := &MetricsConfig{TrackBucketSLO: true}
+	logEntry := S3OperationLog{
+		Bucket:     "bucket-a",
+		User:       "alice$tenant-a",
+		Operation:  "get_obj",
+		HTTPStatus: "200",
+		TotalTime:  150,
+	}
+
+	before := readCounterValue(t, sliRequestsTotal, "tenant-a", "bucket-a", "get", "2xx")
+	assert.NotPanics(t, func() {
+		NewMetrics().Update(logEntry, config)
+	})
+	after := readCounterValue(t, sliRequestsTotal, "tenant-a", "bucket-a", "get", "2xx")
+
+	assert.Equal(t, before+1, after)
+}
+
+func readCounterValue(t *testing.T, counter *prometheus.CounterVec, labelValues ...string) float64 {
+	t.Helper()
+
+	metric, err := counter.GetMetricWithLabelValues(labelValues...)
+	assert.NoError(t, err)
+
+	dtoMetric := &dto.Metric{}
+	assert.NoError(t, metric.Write(dtoMetric))
+	return dtoMetric.GetCounter().GetValue()
 }
 
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {

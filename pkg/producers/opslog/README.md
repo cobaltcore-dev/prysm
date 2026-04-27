@@ -65,6 +65,8 @@ prysm local-producer ops-log [flags]
   existing data.
 - `--track-everything` - Enable detailed tracking for all metric types
   (efficient mode).
+- `--track-bucket-slo` - Enable low-cardinality bucket GET/LIST SLI metrics for
+  Prometheus SLOs.
 - `--track-timeout-errors` - Enable tracking of timeout errors (408, 504, 598,
   499) for OSD issue detection.
 - `--track-errors-by-category` - Enable error categorization (timeout,
@@ -141,6 +143,7 @@ prysm local-producer ops-log \
 | `IGNORE_ANONYMOUS_REQUESTS`  | Ignore anonymous requests in metrics.           |
 | `TRUNCATE_LOG_ON_START`      | Whether to rotate the log file on startup.      |
 | `TRACK_EVERYTHING`           | Enable detailed tracking for all metric types.  |
+| `TRACK_BUCKET_SLO`           | Enable low-cardinality bucket GET/LIST SLI metrics. |
 | `AUDIT_ENABLED`              | Enable RabbitMQ audit trail publishing.         |
 | `AUDIT_RABBITMQ_URL`         | RabbitMQ connection URL.                        |
 | `AUDIT_QUEUE_NAME`           | RabbitMQ queue name for audit events.           |
@@ -236,6 +239,12 @@ prysm local-producer ops-log \
 | `TRACK_LATENCY_PER_TENANT`                    | Track latency aggregated per tenant.                          |
 | `TRACK_LATENCY_PER_METHOD`                    | Track latency aggregated per HTTP method.                     |
 | `TRACK_LATENCY_PER_BUCKET_AND_METHOD`         | Track latency by bucket and method combination.               |
+
+#### SLI Tracking Environment Variables:
+
+| Variable                                      | Description                                                    |
+|-----------------------------------------------|----------------------------------------------------------------|
+| `TRACK_BUCKET_SLO`                            | Track low-cardinality bucket GET/LIST request SLI metrics for Prometheus SLOs. |
 
 ## Metrics Collected
 
@@ -338,6 +347,13 @@ prysm local-producer ops-log \
 | `radosgw_requests_duration_per_tenant`               | Histogram | `tenant`, `method`                                   | Histogram for request latencies aggregated per tenant (all users and buckets combined). |
 | `radosgw_requests_duration_per_method`               | Histogram | `method`                                             | Histogram for request latencies aggregated per method (global).   |
 | `radosgw_requests_duration_per_bucket_and_method`    | Histogram | `tenant`, `bucket`, `method`                         | Histogram for request latencies aggregated per bucket and method (all users combined). |
+
+### Bucket SLI Metrics
+
+| Metric Name                                   | Type      | Labels                                      | Description                                                        |
+|-----------------------------------------------|-----------|---------------------------------------------|--------------------------------------------------------------------|
+| `radosgw_bucket_sli_requests_total`           | Counter   | `tenant`, `bucket`, `operation`, `status_class` | Low-cardinality bucket SLI request counter for GET/LIST-style operations, labeled by response class such as `2xx` or `5xx`. |
+| `radosgw_bucket_sli_request_duration_seconds` | Histogram | `tenant`, `bucket`, `operation`             | Latency histogram in seconds for bucket GET/LIST SLI operations, intended for Prometheus SLO evaluation. |
 
 > **Note**: Histogram metrics do **not** include the `pod` label to reduce
 > cardinality. Each histogram automatically provides `_bucket`, `_count`, and
