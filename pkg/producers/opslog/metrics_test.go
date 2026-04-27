@@ -287,6 +287,26 @@ func TestClassifyBucketSLOOperation(t *testing.T) {
 	}
 }
 
+func TestStatusClass(t *testing.T) {
+	testCases := []struct {
+		name     string
+		status   string
+		expected string
+	}{
+		{name: "success", status: "200", expected: "2xx"},
+		{name: "server error", status: "503", expected: "5xx"},
+		{name: "empty", status: "", expected: "unknown"},
+		{name: "alpha", status: "ok", expected: "unknown"},
+		{name: "leading whitespace", status: " 200", expected: "unknown"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, statusClass(tc.status))
+		})
+	}
+}
+
 func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
 	config := &MetricsConfig{TrackBucketSLO: true}
 	logEntry := S3OperationLog{

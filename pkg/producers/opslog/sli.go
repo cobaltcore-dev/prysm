@@ -28,6 +28,9 @@ func statusClass(status string) string {
 	if len(status) == 0 {
 		return "unknown"
 	}
+	if status[0] < '0' || status[0] > '9' {
+		return "unknown"
+	}
 	return status[:1] + "xx"
 }
 
