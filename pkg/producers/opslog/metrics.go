@@ -262,11 +262,11 @@ func (m *Metrics) ToJSON(metricsConfig *MetricsConfig) ([]byte, error) {
 	if metricsConfig.TrackErrorsByIP {
 		data["errors_per_ip"] = loadSyncMap(&m.ErrorsPerIP)
 	}
-	
+
 	if metricsConfig.TrackTimeoutErrors {
 		data["timeout_errors"] = loadSyncMap(&m.TimeoutErrors)
 	}
-	
+
 	if metricsConfig.TrackErrorsByCategory {
 		data["errors_by_category"] = loadSyncMap(&m.ErrorsByCategory)
 	}
@@ -282,6 +282,11 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 
 	method := ExtractHTTPMethod(logEntry.URI)
 	userStr, tenantStr := extractUserAndTenant(logEntry.User)
+
+	if metricsConfig.TrackBucketSLO {
+		observeBucketSLI(logEntry, tenantStr)
+	}
+
 	if metricsConfig.TrackRequestsDetailed {
 		key := logEntry.User + "|" + logEntry.Bucket + "|" + method + "|" + logEntry.HTTPStatus
 		incrementSyncMap(&m.RequestsDetailed, key)
