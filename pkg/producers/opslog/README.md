@@ -65,7 +65,7 @@ prysm local-producer ops-log [flags]
   existing data.
 - `--track-everything` - Enable detailed tracking for all metric types
   (efficient mode).
-- `--track-bucket-slo` - Enable low-cardinality bucket GET/LIST SLI metrics for
+- `--track-bucket-slo` - Track low-cardinality bucket GET/LIST SLI metrics for
   Prometheus SLOs.
 - `--track-timeout-errors` - Enable tracking of timeout errors (408, 504, 598,
   499) for OSD issue detection.
@@ -143,7 +143,7 @@ prysm local-producer ops-log \
 | `IGNORE_ANONYMOUS_REQUESTS`  | Ignore anonymous requests in metrics.           |
 | `TRUNCATE_LOG_ON_START`      | Whether to rotate the log file on startup.      |
 | `TRACK_EVERYTHING`           | Enable detailed tracking for all metric types.  |
-| `TRACK_BUCKET_SLO`           | Enable low-cardinality bucket GET/LIST SLI metrics. |
+| `TRACK_BUCKET_SLO`           | Track low-cardinality bucket GET/LIST SLI metrics.  |
 | `AUDIT_ENABLED`              | Enable RabbitMQ audit trail publishing.         |
 | `AUDIT_RABBITMQ_URL`         | RabbitMQ connection URL.                        |
 | `AUDIT_QUEUE_NAME`           | RabbitMQ queue name for audit events.           |
