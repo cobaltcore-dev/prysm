@@ -340,6 +340,26 @@ func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
 	assert.Equal(t, beforeHist+1, afterHist, "SLI histogram should record a sample")
 }
 
+func TestMetricsUpdate_TrackBucketSLO_ZeroLatency(t *testing.T) {
+	config := &MetricsConfig{TrackBucketSLO: true}
+	logEntry := S3OperationLog{
+		Bucket:     "bucket-slo-zero",
+		User:       "alice$tenant-slo-zero",
+		Operation:  "get_obj",
+		HTTPStatus: "200",
+		TotalTime:  0, // sub-ms or missing timing
+	}
+
+	beforeCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-zero", "bucket-slo-zero", "get", "2xx")
+	beforeHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-zero", "bucket-slo-zero", "get")
+	NewMetrics().Update(logEntry, config)
+	afterCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-zero", "bucket-slo-zero", "get", "2xx")
+	afterHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-zero", "bucket-slo-zero", "get")
+
+	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment even with zero latency")
+	assert.Equal(t, beforeHist+1, afterHist, "SLI histogram should record a sample even with zero latency")
+}
+
 func readCounterValue(t *testing.T, counter *prometheus.CounterVec, labelValues ...string) float64 {
 	t.Helper()
 

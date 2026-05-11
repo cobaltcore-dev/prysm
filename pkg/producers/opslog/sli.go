@@ -53,11 +53,9 @@ func observeBucketSLI(logEntry S3OperationLog, tenant string) {
 		statusClass(logEntry.HTTPStatus),
 	).Inc()
 
-	if logEntry.TotalTime > 0 {
-		sliRequestDuration.WithLabelValues(
-			tenant,
-			logEntry.Bucket,
-			string(sloOperation),
-		).Observe(float64(logEntry.TotalTime) / 1000.0)
-	}
+	sliRequestDuration.WithLabelValues(
+		tenant,
+		logEntry.Bucket,
+		string(sloOperation),
+	).Observe(float64(logEntry.TotalTime) / 1000.0)
 }
