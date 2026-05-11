@@ -294,10 +294,21 @@ func TestStatusClass(t *testing.T) {
 		expected string
 	}{
 		{name: "success", status: "200", expected: "2xx"},
+		{name: "client error", status: "404", expected: "4xx"},
 		{name: "server error", status: "503", expected: "5xx"},
+		{name: "informational", status: "100", expected: "1xx"},
+		{name: "redirect", status: "301", expected: "3xx"},
 		{name: "empty", status: "", expected: "unknown"},
 		{name: "alpha", status: "ok", expected: "unknown"},
 		{name: "leading whitespace", status: " 200", expected: "unknown"},
+		{name: "too short", status: "20", expected: "unknown"},
+		{name: "single digit", status: "2", expected: "unknown"},
+		{name: "too long", status: "2000", expected: "unknown"},
+		{name: "leading zero", status: "099", expected: "unknown"},
+		{name: "six hundred", status: "600", expected: "unknown"},
+		{name: "nine hundred", status: "999", expected: "unknown"},
+		{name: "non-digit second char", status: "2x0", expected: "unknown"},
+		{name: "non-digit third char", status: "20x", expected: "unknown"},
 	}
 
 	for _, tc := range testCases {

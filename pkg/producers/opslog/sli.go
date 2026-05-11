@@ -25,13 +25,13 @@ func classifyBucketSLOOperation(operation string) (SLOperation, bool) {
 }
 
 func statusClass(status string) string {
-	if len(status) == 0 {
-		return "unknown"
+	if len(status) == 3 &&
+		status[0] >= '1' && status[0] <= '5' &&
+		status[1] >= '0' && status[1] <= '9' &&
+		status[2] >= '0' && status[2] <= '9' {
+		return string(status[0]) + "xx"
 	}
-	if status[0] < '0' || status[0] > '9' {
-		return "unknown"
-	}
-	return status[:1] + "xx"
+	return "unknown"
 }
 
 func observeBucketSLI(logEntry S3OperationLog, tenant string) {
