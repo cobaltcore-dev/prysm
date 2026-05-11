@@ -658,7 +658,7 @@ func init() {
 	opsLogCmd.Flags().Int64Var(&opsMaxLogFileSize, "max-log-file-size", 10, "Maximum log file size in MB before rotation (e.g., 10 for 10 MB)")
 	opsLogCmd.Flags().BoolVar(&opsPromEnabled, "prometheus", false, "Enable Prometheus metrics")
 	opsLogCmd.Flags().IntVar(&opsPromPort, "prometheus-port", 8080, "Prometheus metrics port")
-	opsLogCmd.Flags().BoolVar(&opsIgnoreAnonymousRequests, "ignore-anonymous-requests", true, "Ignore anonymous requests")
+	opsLogCmd.Flags().BoolVar(&opsIgnoreAnonymousRequests, "ignore-anonymous-requests", true, "Ignore anonymous requests (must remain enabled when --track-bucket-slo is used to prevent tenant='none' from polluting SLI metrics)")
 	opsLogCmd.Flags().IntVar(&opsPromIntervalSeconds, "prometheus-interval", 60, "Prometheus metrics update interval in seconds")
 
 	// Audit flags

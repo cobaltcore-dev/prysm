@@ -34,6 +34,12 @@ func statusClass(status string) string {
 	return "unknown"
 }
 
+// observeBucketSLI records per-bucket SLI metrics (request count and latency)
+// for GET/LIST operations, keyed by tenant. Anonymous requests carry tenant="none"
+// which would pollute per-tenant SLO rules. Operators enabling --track-bucket-slo on
+// traffic that includes anonymous requests must also keep --ignore-anonymous-requests
+// enabled (the default) so that anonymous entries are filtered upstream before
+// reaching this function.
 func observeBucketSLI(logEntry S3OperationLog, tenant string) {
 	sloOperation, ok := classifyBucketSLOOperation(logEntry.Operation)
 	if !ok || logEntry.Bucket == "" {
