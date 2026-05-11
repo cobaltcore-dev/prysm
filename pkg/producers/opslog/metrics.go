@@ -284,6 +284,11 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 	userStr, tenantStr := extractUserAndTenant(logEntry.User)
 
 	if metricsConfig.TrackBucketSLO {
+		// observeBucketSLI writes directly to Prometheus CounterVec/HistogramVec rather than
+		// accumulating in a sync.Map. This is intentional: SLI metrics use native Prometheus
+		// histograms for latency distribution which cannot be represented as simple uint64
+		// counters in a sync.Map. The Prometheus vector types are already goroutine-safe, so
+		// no additional synchronization is needed.
 		observeBucketSLI(logEntry, tenantStr)
 	}
 
