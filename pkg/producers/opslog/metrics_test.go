@@ -310,20 +310,23 @@ func TestStatusClass(t *testing.T) {
 func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
 	config := &MetricsConfig{TrackBucketSLO: true}
 	logEntry := S3OperationLog{
-		Bucket:     "bucket-a",
-		User:       "alice$tenant-a",
+		Bucket:     "bucket-slo-test",
+		User:       "alice$tenant-slo-test",
 		Operation:  "get_obj",
 		HTTPStatus: "200",
 		TotalTime:  150,
 	}
 
-	before := readCounterValue(t, sliRequestsTotal, "tenant-a", "bucket-a", "get", "2xx")
+	beforeCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-test", "bucket-slo-test", "get", "2xx")
+	beforeHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-test", "bucket-slo-test", "get")
 	assert.NotPanics(t, func() {
 		NewMetrics().Update(logEntry, config)
 	})
-	after := readCounterValue(t, sliRequestsTotal, "tenant-a", "bucket-a", "get", "2xx")
+	afterCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-test", "bucket-slo-test", "get", "2xx")
+	afterHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-test", "bucket-slo-test", "get")
 
-	assert.Equal(t, before+1, after)
+	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment")
+	assert.Equal(t, beforeHist+1, afterHist, "SLI histogram should record a sample")
 }
 
 func readCounterValue(t *testing.T, counter *prometheus.CounterVec, labelValues ...string) float64 {
@@ -335,6 +338,21 @@ func readCounterValue(t *testing.T, counter *prometheus.CounterVec, labelValues 
 	dtoMetric := &dto.Metric{}
 	assert.NoError(t, metric.Write(dtoMetric))
 	return dtoMetric.GetCounter().GetValue()
+}
+
+func readHistogramSampleCount(t *testing.T, hist *prometheus.HistogramVec, labelValues ...string) uint64 {
+	t.Helper()
+
+	observer, err := hist.GetMetricWithLabelValues(labelValues...)
+	assert.NoError(t, err)
+
+	// prometheus.Histogram implements prometheus.Metric
+	metric, ok := observer.(prometheus.Metric)
+	assert.True(t, ok, "observer should implement prometheus.Metric")
+
+	dtoMetric := &dto.Metric{}
+	assert.NoError(t, metric.Write(dtoMetric))
+	return dtoMetric.GetHistogram().GetSampleCount()
 }
 
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {
