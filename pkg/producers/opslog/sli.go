@@ -42,7 +42,7 @@ func statusClass(status string) string {
 // reaching this function.
 func observeBucketSLI(logEntry S3OperationLog, tenant string) {
 	sloOperation, ok := classifyBucketSLOOperation(logEntry.Operation)
-	if !ok || logEntry.Bucket == "" {
+	if tenant == "none" || !ok || logEntry.Bucket == "" {
 		return
 	}
 

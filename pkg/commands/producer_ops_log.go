@@ -672,6 +672,17 @@ func init() {
 	opsLogCmd.Flags().BoolVar(&opsTrackEverything, "track-everything", false, "Enable detailed tracking for all metric types (efficient mode)")
 	opsLogCmd.Flags().BoolVar(&opsTrackBucketSLO, "track-bucket-slo", false, "Track low-cardinality bucket GET/LIST SLI metrics for Prometheus SLOs")
 
+	existingOpsLogPreRunE := opsLogCmd.PreRunE
+	opsLogCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if opsTrackBucketSLO && !opsPrometheus {
+			return fmt.Errorf("--track-bucket-slo requires --prometheus")
+		}
+		if existingOpsLogPreRunE != nil {
+			return existingOpsLogPreRunE(cmd, args)
+		}
+		return nil
+	}
+
 	// Essential request metrics (most commonly used)
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsDetailed, "track-requests-detailed", false, "Track detailed requests with full labels")
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsPerUser, "track-requests-per-user", false, "Track requests aggregated per user")
