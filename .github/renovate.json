@@ -31,7 +31,6 @@
       "matchPackageNames": [
         "/^github\\.com\\/sapcc\\/.*/"
       ],
-      "matchUpdateTypes": ["minor", "patch"],
       "automerge": true,
       "groupName": "github.com/sapcc"
     },
@@ -39,7 +38,6 @@
       "matchPackageNames": [
         "/^github\\.com\\/cobaltcore-dev\\/.*/"
       ],
-      "matchUpdateTypes": ["minor", "patch"],
       "automerge": true,
       "groupName": "github.com/cobaltcore-dev"
     },
