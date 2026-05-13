@@ -674,7 +674,7 @@ func init() {
 
 	existingOpsLogPreRunE := opsLogCmd.PreRunE
 	opsLogCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		if opsTrackBucketSLO && !opsPrometheus {
+		if opsTrackBucketSLO && !opsPromEnabled {
 			return fmt.Errorf("--track-bucket-slo requires --prometheus")
 		}
 		if existingOpsLogPreRunE != nil {
