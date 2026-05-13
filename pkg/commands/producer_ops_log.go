@@ -39,6 +39,7 @@ var (
 
 	// Shortcut config
 	opsTrackEverything bool
+	opsTrackBucketSLO  bool
 
 	// Request metrics flags
 	opsTrackRequestsDetailed  bool
@@ -78,13 +79,13 @@ var (
 	opsTrackBytesReceivedPerTenant bool
 
 	// Error metrics flags
-	opsTrackErrorsDetailed  bool
-	opsTrackErrorsPerUser   bool
-	opsTrackErrorsPerBucket bool
-	opsTrackErrorsPerTenant bool
-	opsTrackErrorsPerStatus bool
-	opsTrackErrorsByIP      bool
-	opsTrackTimeoutErrors   bool
+	opsTrackErrorsDetailed   bool
+	opsTrackErrorsPerUser    bool
+	opsTrackErrorsPerBucket  bool
+	opsTrackErrorsPerTenant  bool
+	opsTrackErrorsPerStatus  bool
+	opsTrackErrorsByIP       bool
+	opsTrackTimeoutErrors    bool
 	opsTrackErrorsByCategory bool
 
 	// IP-based metrics flags
@@ -148,6 +149,7 @@ Following this configuration change, the RadosGW will log operations to the file
 			MetricsConfig: opslog.MetricsConfig{
 				// Shortcut config
 				TrackEverything: opsTrackEverything,
+				TrackBucketSLO:  opsTrackBucketSLO,
 
 				// Request metrics
 				TrackRequestsDetailed:  opsTrackRequestsDetailed,
@@ -187,13 +189,13 @@ Following this configuration change, the RadosGW will log operations to the file
 				TrackBytesReceivedPerTenant: opsTrackBytesReceivedPerTenant,
 
 				// Error metrics
-				TrackErrorsDetailed:    opsTrackErrorsDetailed,
-				TrackErrorsPerUser:     opsTrackErrorsPerUser,
-				TrackErrorsPerBucket:   opsTrackErrorsPerBucket,
-				TrackErrorsPerTenant:   opsTrackErrorsPerTenant,
-				TrackErrorsPerStatus:   opsTrackErrorsPerStatus,
-				TrackTimeoutErrors:     opsTrackTimeoutErrors,
-				TrackErrorsByCategory:  opsTrackErrorsByCategory,
+				TrackErrorsDetailed:   opsTrackErrorsDetailed,
+				TrackErrorsPerUser:    opsTrackErrorsPerUser,
+				TrackErrorsPerBucket:  opsTrackErrorsPerBucket,
+				TrackErrorsPerTenant:  opsTrackErrorsPerTenant,
+				TrackErrorsPerStatus:  opsTrackErrorsPerStatus,
+				TrackTimeoutErrors:    opsTrackTimeoutErrors,
+				TrackErrorsByCategory: opsTrackErrorsByCategory,
 
 				// IP-based metrics
 				TrackRequestsByIPDetailed:           opsTrackRequestsByIPDetailed,
@@ -291,6 +293,11 @@ func debugTrackingConfig(event *zerolog.Event, config opslog.MetricsConfig) {
 	if config.TrackEverything {
 		event.Str("memory_usage", "high").Str("note", "all metrics enabled")
 		return // Don't add individual flags if everything is enabled
+	}
+
+	if config.TrackBucketSLO {
+		event.Bool("track_bucket_slo", true)
+		totalEnabled++
 	}
 
 	// Request tracking
@@ -564,6 +571,7 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 
 	// Shortcut config
 	cfg.MetricsConfig.TrackEverything = getEnvBool("TRACK_EVERYTHING", cfg.MetricsConfig.TrackEverything)
+	cfg.MetricsConfig.TrackBucketSLO = getEnvBool("TRACK_BUCKET_SLO", cfg.MetricsConfig.TrackBucketSLO)
 
 	// Request metrics environment variables
 	cfg.MetricsConfig.TrackRequestsDetailed = getEnvBool("TRACK_REQUESTS_DETAILED", cfg.MetricsConfig.TrackRequestsDetailed)
@@ -650,7 +658,7 @@ func init() {
 	opsLogCmd.Flags().Int64Var(&opsMaxLogFileSize, "max-log-file-size", 10, "Maximum log file size in MB before rotation (e.g., 10 for 10 MB)")
 	opsLogCmd.Flags().BoolVar(&opsPromEnabled, "prometheus", false, "Enable Prometheus metrics")
 	opsLogCmd.Flags().IntVar(&opsPromPort, "prometheus-port", 8080, "Prometheus metrics port")
-	opsLogCmd.Flags().BoolVar(&opsIgnoreAnonymousRequests, "ignore-anonymous-requests", true, "Ignore anonymous requests")
+	opsLogCmd.Flags().BoolVar(&opsIgnoreAnonymousRequests, "ignore-anonymous-requests", true, "Ignore anonymous requests (must remain enabled when --track-bucket-slo is used to prevent tenant='none' from polluting SLI metrics)")
 	opsLogCmd.Flags().IntVar(&opsPromIntervalSeconds, "prometheus-interval", 60, "Prometheus metrics update interval in seconds")
 
 	// Audit flags
@@ -662,6 +670,18 @@ func init() {
 
 	// Shortcut flag
 	opsLogCmd.Flags().BoolVar(&opsTrackEverything, "track-everything", false, "Enable detailed tracking for all metric types (efficient mode)")
+	opsLogCmd.Flags().BoolVar(&opsTrackBucketSLO, "track-bucket-slo", false, "Track low-cardinality bucket GET/LIST SLI metrics for Prometheus SLOs")
+
+	existingOpsLogPreRunE := opsLogCmd.PreRunE
+	opsLogCmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if opsTrackBucketSLO && !opsPrometheus {
+			return fmt.Errorf("--track-bucket-slo requires --prometheus")
+		}
+		if existingOpsLogPreRunE != nil {
+			return existingOpsLogPreRunE(cmd, args)
+		}
+		return nil
+	}
 
 	// Essential request metrics (most commonly used)
 	opsLogCmd.Flags().BoolVar(&opsTrackRequestsDetailed, "track-requests-detailed", false, "Track detailed requests with full labels")

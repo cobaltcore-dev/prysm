@@ -4,6 +4,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -259,6 +261,129 @@ func TestMetricsUpdate_BasicFunctionality(t *testing.T) {
 
 	// Verify latency observation was called
 	assert.Equal(t, 1, latencyCallCount, "LatencyObs should be called once")
+}
+
+func TestClassifyBucketSLOOperation(t *testing.T) {
+	testCases := []struct {
+		name      string
+		operation string
+		expected  SLOperation
+		ok        bool
+	}{
+		{name: "get object", operation: "get_obj", expected: SLOperationGet, ok: true},
+		{name: "head object", operation: "head_obj", expected: SLOperationGet, ok: true},
+		{name: "list bucket", operation: "list_bucket", expected: SLOperationList, ok: true},
+		{name: "list buckets", operation: "list_buckets", expected: SLOperationList, ok: true},
+		{name: "bucket info", operation: "get_bucket_info", expected: SLOperationList, ok: true},
+		{name: "unsupported", operation: "put_obj", expected: "", ok: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual, ok := classifyBucketSLOOperation(tc.operation)
+			assert.Equal(t, tc.ok, ok)
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestStatusClass(t *testing.T) {
+	testCases := []struct {
+		name     string
+		status   string
+		expected string
+	}{
+		{name: "success", status: "200", expected: "2xx"},
+		{name: "client error", status: "404", expected: "4xx"},
+		{name: "server error", status: "503", expected: "5xx"},
+		{name: "informational", status: "100", expected: "1xx"},
+		{name: "redirect", status: "301", expected: "3xx"},
+		{name: "empty", status: "", expected: "unknown"},
+		{name: "alpha", status: "ok", expected: "unknown"},
+		{name: "leading whitespace", status: " 200", expected: "unknown"},
+		{name: "too short", status: "20", expected: "unknown"},
+		{name: "single digit", status: "2", expected: "unknown"},
+		{name: "too long", status: "2000", expected: "unknown"},
+		{name: "leading zero", status: "099", expected: "unknown"},
+		{name: "six hundred", status: "600", expected: "unknown"},
+		{name: "nine hundred", status: "999", expected: "unknown"},
+		{name: "non-digit second char", status: "2x0", expected: "unknown"},
+		{name: "non-digit third char", status: "20x", expected: "unknown"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, statusClass(tc.status))
+		})
+	}
+}
+
+func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
+	config := &MetricsConfig{TrackBucketSLO: true}
+	logEntry := S3OperationLog{
+		Bucket:     "bucket-slo-test",
+		User:       "alice$tenant-slo-test",
+		Operation:  "get_obj",
+		HTTPStatus: "200",
+		TotalTime:  150,
+	}
+
+	beforeCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-test", "bucket-slo-test", "get", "2xx")
+	beforeHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-test", "bucket-slo-test", "get")
+	assert.NotPanics(t, func() {
+		NewMetrics().Update(logEntry, config)
+	})
+	afterCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-test", "bucket-slo-test", "get", "2xx")
+	afterHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-test", "bucket-slo-test", "get")
+
+	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment")
+	assert.Equal(t, beforeHist+1, afterHist, "SLI histogram should record a sample")
+}
+
+func TestMetricsUpdate_TrackBucketSLO_ZeroLatency(t *testing.T) {
+	config := &MetricsConfig{TrackBucketSLO: true}
+	logEntry := S3OperationLog{
+		Bucket:     "bucket-slo-zero",
+		User:       "alice$tenant-slo-zero",
+		Operation:  "get_obj",
+		HTTPStatus: "200",
+		TotalTime:  0, // sub-ms or missing timing
+	}
+
+	beforeCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-zero", "bucket-slo-zero", "get", "2xx")
+	beforeHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-zero", "bucket-slo-zero", "get")
+	NewMetrics().Update(logEntry, config)
+	afterCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-zero", "bucket-slo-zero", "get", "2xx")
+	afterHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-zero", "bucket-slo-zero", "get")
+
+	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment even with zero latency")
+	assert.Equal(t, beforeHist+1, afterHist, "SLI histogram should record a sample even with zero latency")
+}
+
+func readCounterValue(t *testing.T, counter *prometheus.CounterVec, labelValues ...string) float64 {
+	t.Helper()
+
+	metric, err := counter.GetMetricWithLabelValues(labelValues...)
+	assert.NoError(t, err)
+
+	dtoMetric := &dto.Metric{}
+	assert.NoError(t, metric.Write(dtoMetric))
+	return dtoMetric.GetCounter().GetValue()
+}
+
+func readHistogramSampleCount(t *testing.T, hist *prometheus.HistogramVec, labelValues ...string) uint64 {
+	t.Helper()
+
+	observer, err := hist.GetMetricWithLabelValues(labelValues...)
+	assert.NoError(t, err)
+
+	// prometheus.Histogram implements prometheus.Metric
+	metric, ok := observer.(prometheus.Metric)
+	assert.True(t, ok, "observer should implement prometheus.Metric")
+
+	dtoMetric := &dto.Metric{}
+	assert.NoError(t, metric.Write(dtoMetric))
+	return dtoMetric.GetHistogram().GetSampleCount()
 }
 
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {
