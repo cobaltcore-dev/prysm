@@ -50,7 +50,7 @@ jobs:
       # Build and push Prysm (Main Image)
       - name: Build and push Prysm
         id: push_prysm
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -75,7 +75,7 @@ jobs:
       # Build and push Webhook (ops-log-k8s-mutating-wh)
       - name: Build and push Webhook
         id: push_webhook
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ops-log-k8s-mutating-wh
           platforms: linux/amd64,linux/arm64
