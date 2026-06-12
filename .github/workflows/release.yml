@@ -88,7 +88,7 @@ jobs:
 
       # Generate artifact attestation for Prysm
       - name: Generate artifact attestation (Prysm)
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push_prysm.outputs.digest }}
@@ -96,7 +96,7 @@ jobs:
 
       # Generate artifact attestation for Webhook
       - name: Generate artifact attestation (Webhook)
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webhook
           subject-digest: ${{ steps.push_webhook.outputs.digest }}
