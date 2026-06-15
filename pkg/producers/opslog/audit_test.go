@@ -68,4 +68,9 @@ func TestBuildRabbitMQConnectionURL(t *testing.T) {
 		_, err := buildRabbitMQConnectionURL("://not a url", "u", "p")
 		require.Error(t, err)
 	})
+
+	t.Run("password without username is rejected", func(t *testing.T) {
+		_, err := buildRabbitMQConnectionURL("amqp://rabbitmq.example:5672/", "", "s3cr3t")
+		require.Error(t, err)
+	})
 }

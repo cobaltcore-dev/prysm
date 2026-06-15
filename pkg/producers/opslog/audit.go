@@ -79,6 +79,10 @@ func buildRabbitMQConnectionURL(rawURL, username, password string) (string, erro
 		return rawURL, nil
 	}
 
+	if username == "" && password != "" {
+		return "", fmt.Errorf("invalid RabbitMQ credentials: password provided without username")
+	}
+
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid RabbitMQ URL: %w", err)
