@@ -33,6 +33,8 @@ var (
 	// Audit flags
 	opsAuditEnabled           bool
 	opsAuditRabbitMQURL       string
+	opsAuditRabbitMQUsername  string
+	opsAuditRabbitMQPassword  string
 	opsAuditQueueName         string
 	opsAuditInternalQueueSize int
 	opsAuditDebug             bool
@@ -224,6 +226,8 @@ Following this configuration change, the RadosGW will log operations to the file
 			AuditSink: opslog.AuditSinkConfig{
 				Enabled:           opsAuditEnabled,
 				RabbitMQURL:       opsAuditRabbitMQURL,
+				RabbitMQUsername:  opsAuditRabbitMQUsername,
+				RabbitMQPassword:  opsAuditRabbitMQPassword,
 				QueueName:         opsAuditQueueName,
 				InternalQueueSize: opsAuditInternalQueueSize,
 				Debug:             opsAuditDebug,
@@ -642,6 +646,17 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.MetricsConfig.TrackLatencyPerMethod = getEnvBool("TRACK_LATENCY_PER_METHOD", cfg.MetricsConfig.TrackLatencyPerMethod)
 	cfg.MetricsConfig.TrackLatencyPerBucketAndMethod = getEnvBool("TRACK_LATENCY_PER_BUCKET_AND_METHOD", cfg.MetricsConfig.TrackLatencyPerBucketAndMethod)
 
+	// Audit sink (RabbitMQ) configuration. These mirror the --audit-* flags so
+	// the sink can be enabled via env vars injected by the mutating webhook
+	// (Secret/ConfigMap) without editing the sidecar command line.
+	cfg.AuditSink.Enabled = getEnvBool("AUDIT_ENABLED", cfg.AuditSink.Enabled)
+	cfg.AuditSink.RabbitMQURL = getEnv("AUDIT_RABBITMQ_URL", cfg.AuditSink.RabbitMQURL)
+	cfg.AuditSink.RabbitMQUsername = getEnv("AUDIT_RABBITMQ_USERNAME", cfg.AuditSink.RabbitMQUsername)
+	cfg.AuditSink.RabbitMQPassword = getEnv("AUDIT_RABBITMQ_PASSWORD", cfg.AuditSink.RabbitMQPassword)
+	cfg.AuditSink.QueueName = getEnv("AUDIT_QUEUE_NAME", cfg.AuditSink.QueueName)
+	cfg.AuditSink.InternalQueueSize = getEnvInt("AUDIT_QUEUE_SIZE", cfg.AuditSink.InternalQueueSize)
+	cfg.AuditSink.Debug = getEnvBool("AUDIT_DEBUG", cfg.AuditSink.Debug)
+
 	return cfg
 }
 
@@ -663,7 +678,9 @@ func init() {
 
 	// Audit flags
 	opsLogCmd.Flags().BoolVar(&opsAuditEnabled, "audit-enabled", false, "Enable audit event publishing to RabbitMQ")
-	opsLogCmd.Flags().StringVar(&opsAuditRabbitMQURL, "audit-rabbitmq-url", "", "RabbitMQ connection URL (amqp://user:pass@host:port)")
+	opsLogCmd.Flags().StringVar(&opsAuditRabbitMQURL, "audit-rabbitmq-url", "", "RabbitMQ connection URL (amqp://host:port); credentials may be embedded or supplied via --audit-rabbitmq-username/--audit-rabbitmq-password")
+	opsLogCmd.Flags().StringVar(&opsAuditRabbitMQUsername, "audit-rabbitmq-username", "", "RabbitMQ username; overrides any userinfo in --audit-rabbitmq-url (e.g. sourced from a Vault entry)")
+	opsLogCmd.Flags().StringVar(&opsAuditRabbitMQPassword, "audit-rabbitmq-password", "", "RabbitMQ password; overrides any userinfo in --audit-rabbitmq-url (e.g. sourced from a Vault entry)")
 	opsLogCmd.Flags().StringVar(&opsAuditQueueName, "audit-queue-name", "keystone.notifications.info", "RabbitMQ queue name for audit events")
 	opsLogCmd.Flags().IntVar(&opsAuditInternalQueueSize, "audit-queue-size", 20, "Internal queue size for audit events")
 	opsLogCmd.Flags().BoolVar(&opsAuditDebug, "audit-debug", false, "Log published audit events for debugging")

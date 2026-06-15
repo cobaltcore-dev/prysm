@@ -6,6 +6,7 @@ package opslog
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -31,13 +32,19 @@ func InitAuditor(ctx context.Context, cfg AuditSinkConfig, registry prometheus.R
 		return audittools.NewNullAuditor()
 	}
 
+	connectionURL, err := buildRabbitMQConnectionURL(cfg.RabbitMQURL, cfg.RabbitMQUsername, cfg.RabbitMQPassword)
+	if err != nil {
+		log.Error().Err(err).Msg("Invalid RabbitMQ connection URL, falling back to NullAuditor")
+		return audittools.NewNullAuditor()
+	}
+
 	queueSize := cfg.InternalQueueSize
 	if queueSize == 0 {
 		queueSize = 20 // Default from audittools
 	}
 
 	auditor, err := audittools.NewAuditor(ctx, audittools.AuditorOpts{
-		ConnectionURL: cfg.RabbitMQURL,
+		ConnectionURL: connectionURL,
 		QueueName:     cfg.QueueName,
 		Observer: audittools.Observer{
 			TypeURI: "service/storage/object",
@@ -59,6 +66,35 @@ func InitAuditor(ctx context.Context, cfg AuditSinkConfig, registry prometheus.R
 		Msg("Audit trail initialized successfully")
 
 	return auditor
+}
+
+// buildRabbitMQConnectionURL injects an explicit username/password into the
+// userinfo of an AMQP connection URL. Explicit credentials override any
+// already present in the URL. When both username and password are empty, the
+// URL is returned unchanged. This allows the credentials to be supplied as two
+// independent values (e.g. two Vault entries synced into a Secret) rather than
+// embedded in a single connection string.
+func buildRabbitMQConnectionURL(rawURL, username, password string) (string, error) {
+	if username == "" && password == "" {
+		return rawURL, nil
+	}
+
+	if username == "" && password != "" {
+		return "", fmt.Errorf("invalid RabbitMQ credentials: password provided without username")
+	}
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid RabbitMQ URL: %w", err)
+	}
+
+	if password != "" {
+		u.User = url.UserPassword(username, password)
+	} else {
+		u.User = url.User(username)
+	}
+
+	return u.String(), nil
 }
 
 // ToAuditEvent converts an S3OperationLog to an audittools.Event.
