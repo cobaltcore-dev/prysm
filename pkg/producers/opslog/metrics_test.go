@@ -3,6 +3,7 @@ package opslog
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -259,6 +260,179 @@ func TestMetricsUpdate_BasicFunctionality(t *testing.T) {
 
 	// Verify latency observation was called
 	assert.Equal(t, 1, latencyCallCount, "LatencyObs should be called once")
+}
+
+func TestClassifySLIOperation(t *testing.T) {
+	testCases := []struct {
+		name      string
+		operation string
+		expected  SLIOperation
+		ok        bool
+	}{
+		{name: "get object", operation: "get_obj", expected: SLIOperationGet, ok: true},
+		{name: "head object", operation: "head_obj", expected: SLIOperationHead, ok: true},
+		{name: "list bucket", operation: "list_bucket", expected: SLIOperationList, ok: true},
+		{name: "list buckets", operation: "list_buckets", expected: SLIOperationList, ok: true},
+		{name: "bucket info", operation: "get_bucket_info", expected: SLIOperationList, ok: true},
+		{name: "put object", operation: "put_obj", expected: SLIOperationPut, ok: true},
+		{name: "delete object", operation: "delete_obj", expected: SLIOperationDelete, ok: true},
+		{name: "multipart init", operation: "init_multipart", expected: SLIOperationMultipart, ok: true},
+		{name: "swift get", operation: "swift_get_obj", expected: SLIOperationGet, ok: true},
+		{name: "swift put", operation: "swift_put_obj", expected: SLIOperationPut, ok: true},
+		{name: "unsupported", operation: "create_bucket", expected: "", ok: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual, ok := classifySLIOperation(tc.operation)
+			assert.Equal(t, tc.ok, ok)
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestDetectProtocol(t *testing.T) {
+	testCases := []struct {
+		name      string
+		operation string
+		expected  SLIProtocol
+	}{
+		{name: "s3 get", operation: "get_obj", expected: SLIProtocolS3},
+		{name: "s3 put", operation: "put_obj", expected: SLIProtocolS3},
+		{name: "swift get", operation: "swift_get_obj", expected: SLIProtocolSwift},
+		{name: "swift put", operation: "swift_put_obj", expected: SLIProtocolSwift},
+		{name: "swift list", operation: "swift_list_bucket", expected: SLIProtocolSwift},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := detectProtocol(tc.operation)
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestStatusClass(t *testing.T) {
+	testCases := []struct {
+		name     string
+		status   string
+		expected string
+	}{
+		{name: "success", status: "200", expected: "2xx"},
+		{name: "client error", status: "404", expected: "4xx"},
+		{name: "server error", status: "503", expected: "5xx"},
+		{name: "informational", status: "100", expected: "1xx"},
+		{name: "redirect", status: "301", expected: "3xx"},
+		{name: "empty", status: "", expected: "unknown"},
+		{name: "alpha", status: "ok", expected: "unknown"},
+		{name: "leading whitespace", status: " 200", expected: "unknown"},
+		{name: "too short", status: "20", expected: "unknown"},
+		{name: "single digit", status: "2", expected: "unknown"},
+		{name: "too long", status: "2000", expected: "unknown"},
+		{name: "leading zero", status: "099", expected: "unknown"},
+		{name: "six hundred", status: "600", expected: "unknown"},
+		{name: "nine hundred", status: "999", expected: "unknown"},
+		{name: "non-digit second char", status: "2x0", expected: "unknown"},
+		{name: "non-digit third char", status: "20x", expected: "unknown"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, statusClass(tc.status))
+		})
+	}
+}
+
+func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
+	// Set up a test collector (bypass prometheus registration)
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL: 24 * time.Hour,
+	})
+
+	config := &MetricsConfig{TrackBucketSLO: true}
+	logEntry := S3OperationLog{
+		Bucket:     "bucket-slo-test",
+		User:       "alice$tenant-slo-test",
+		Operation:  "get_obj",
+		HTTPStatus: "200",
+		TotalTime:  150,
+	}
+
+	// Counter is now keyed by tenant+protocol+operation+status_class (no bucket)
+	beforeCounter := globalSLICollector.counterValue("tenant-slo-test", "s3", "get", "2xx")
+	assert.NotPanics(t, func() {
+		NewMetrics().Update(logEntry, config)
+	})
+	afterCounter := globalSLICollector.counterValue("tenant-slo-test", "s3", "get", "2xx")
+
+	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment")
+}
+
+func TestMetricsUpdate_TrackBucketSLO_ZeroLatency(t *testing.T) {
+	// Set up a test collector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL: 24 * time.Hour,
+	})
+
+	config := &MetricsConfig{TrackBucketSLO: true}
+	logEntry := S3OperationLog{
+		Bucket:     "bucket-slo-zero",
+		User:       "alice$tenant-slo-zero",
+		Operation:  "get_obj",
+		HTTPStatus: "200",
+		TotalTime:  0, // sub-ms or missing timing
+	}
+
+	beforeCounter := globalSLICollector.counterValue("tenant-slo-zero", "s3", "get", "2xx")
+	NewMetrics().Update(logEntry, config)
+	afterCounter := globalSLICollector.counterValue("tenant-slo-zero", "s3", "get", "2xx")
+
+	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment even with zero latency")
+}
+
+func TestSLICollector_StaleSeriesNotEmitted(t *testing.T) {
+	collector := newSLICollector(SLICollectorConfig{
+		StaleTTL: 1 * time.Millisecond, // very short for testing
+	})
+	globalSLICollector = collector
+
+	// Observe a request
+	collector.observeCounter("t1", "s3", "get", "2xx")
+
+	// Verify series exists before going stale
+	countersBefore := collector.collectCounterMetrics()
+	sliBefore := findCounterByLabels(countersBefore, "t1", "s3", "get", "2xx")
+	assert.NotNil(t, sliBefore, "SLI counter should be emitted while active")
+
+	// Wait for the series to become stale
+	time.Sleep(5 * time.Millisecond)
+
+	// Collect — stale series should not be emitted
+	countersAfter := collector.collectCounterMetrics()
+	sliAfter := findCounterByLabels(countersAfter, "t1", "s3", "get", "2xx")
+	assert.Nil(t, sliAfter, "Stale SLI counter should not be emitted")
+}
+
+func TestSLICollector_Reap(t *testing.T) {
+	collector := newSLICollector(SLICollectorConfig{
+		StaleTTL: 1 * time.Millisecond,
+	})
+	globalSLICollector = collector
+
+	// Observe requests for multiple operations
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	collector.observeCounter("t1", "swift", "list", "2xx")
+
+	counters := collector.seriesCount()
+	assert.Equal(t, 2, counters, "Should have 2 counter series")
+
+	// Wait for series to become stale, then reap
+	time.Sleep(5 * time.Millisecond)
+	collector.reap()
+
+	counters = collector.seriesCount()
+	assert.Equal(t, 0, counters, "Reaped counters should be 0")
+	assert.Equal(t, uint64(2), collector.reapedTotal.Load(), "Should report 2 reaped series")
 }
 
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {

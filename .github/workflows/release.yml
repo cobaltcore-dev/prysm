@@ -61,6 +61,32 @@ jobs:
             GIT_TAG=${{ github.ref_name }}
             GIT_COMMIT=${{ github.sha }}
 
+      # Metadata for Prysm PG Probe (Ceph-enabled Image)
+      - name: Docker meta (PG Probe)
+        id: meta_pgprobe
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pgprobe
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      # Build and push PG Probe (Ceph-enabled, runtime-ceph target)
+      - name: Build and push PG Probe
+        id: push_pgprobe
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: runtime-ceph
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta_pgprobe.outputs.tags }}
+          labels: ${{ steps.meta_pgprobe.outputs.labels }}
+          build-args: |
+            GIT_TAG=${{ github.ref_name }}
+            GIT_COMMIT=${{ github.sha }}
+
       # Metadata for ops-log-k8s-mutating-wh (Webhook Image)
       - name: Docker meta (Webhook)
         id: meta_webhook
@@ -92,6 +118,14 @@ jobs:
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push_prysm.outputs.digest }}
+          push-to-registry: true
+
+      # Generate artifact attestation for PG Probe
+      - name: Generate artifact attestation (PG Probe)
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-pgprobe
+          subject-digest: ${{ steps.push_pgprobe.outputs.digest }}
           push-to-registry: true
 
       # Generate artifact attestation for Webhook
