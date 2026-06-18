@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: 2025 SAP SE or an SAP affiliate company and prysm contributors
+#
+# SPDX-License-Identifier: Apache-2.0
+
+version: 2
+updates:
+  # Go modules - main module
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - go
+
+  # Go modules - ops-log-k8s-mutating-wh submodule
+  - package-ecosystem: gomod
+    directory: "/ops-log-k8s-mutating-wh"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - go
+
+  # Dockerfile (root)
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - docker
+
+  # Dockerfile (webhook)
+  - package-ecosystem: docker
+    directory: "/ops-log-k8s-mutating-wh"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - docker
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions

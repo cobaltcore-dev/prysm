@@ -6,8 +6,15 @@ package opslog
 
 // AuditSinkConfig defines the RabbitMQ audit sink configuration.
 type AuditSinkConfig struct {
-	Enabled           bool   `mapstructure:"enabled"`
-	RabbitMQURL       string `mapstructure:"rabbitmq_url"`
+	Enabled     bool   `mapstructure:"enabled"`
+	RabbitMQURL string `mapstructure:"rabbitmq_url"`
+	// RabbitMQUsername and RabbitMQPassword, when set, are composed into the
+	// RabbitMQURL userinfo at runtime, overriding any credentials embedded in
+	// the URL. This lets the username and password be supplied as two separate
+	// values (e.g. two Vault entries synced into a Secret) instead of being
+	// baked into a single connection string.
+	RabbitMQUsername  string `mapstructure:"rabbitmq_username"`
+	RabbitMQPassword  string `mapstructure:"rabbitmq_password"`
 	QueueName         string `mapstructure:"queue_name"`
 	InternalQueueSize int    `mapstructure:"internal_queue_size"` // Optional, defaults to 20
 	Debug             bool   `mapstructure:"debug"`               // Log published events

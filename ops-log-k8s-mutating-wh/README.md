@@ -175,6 +175,101 @@ in a ConfigMap.
 - Keeps configuration clean and modular
 - Avoids hardcoding environment variables into the webhook
 
+### Audit Trail (RabbitMQ)
+
+The sidecar can publish CADF audit events to RabbitMQ. All audit settings are
+configurable via environment variables, so they can be supplied through the
+Secret above without changing the webhook or the sidecar command line. Because
+the connection URL contains credentials, store these in a **Secret** (not a
+ConfigMap).
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prysm-sidecar-env
+  namespace: rook-ceph
+type: Opaque
+stringData:
+  AUDIT_ENABLED: "true"
+  AUDIT_RABBITMQ_URL: "amqp://user:password@rabbitmq.example:5672/"
+  AUDIT_QUEUE_NAME: "keystone.notifications.info"   # optional, this is the default
+  AUDIT_QUEUE_SIZE: "20"                            # optional, internal buffer size
+  AUDIT_DEBUG: "false"                              # optional, log published events
+```
+
+| Variable                  | Description                                          | Default                          |
+|---------------------------|------------------------------------------------------|----------------------------------|
+| `AUDIT_ENABLED`           | Publish CADF audit events to RabbitMQ               | `false`                          |
+| `AUDIT_RABBITMQ_URL`      | AMQP connection URL (`amqp://host:port/`)           | _empty_                          |
+| `AUDIT_RABBITMQ_USERNAME` | Username; overrides any userinfo in the URL          | _empty_                          |
+| `AUDIT_RABBITMQ_PASSWORD` | Password; overrides any userinfo in the URL          | _empty_                          |
+| `AUDIT_QUEUE_NAME`        | Target queue                                         | `keystone.notifications.info`    |
+| `AUDIT_QUEUE_SIZE`        | Internal event buffer size                           | `20`                             |
+| `AUDIT_DEBUG`             | Log every published event (verbose)                  | `false`                          |
+
+> If `AUDIT_ENABLED=true` but `AUDIT_RABBITMQ_URL` is empty, the sidecar logs a
+> warning and falls back to a no-op auditor — log processing is never blocked.
+
+#### Separate username / password (e.g. from Vault)
+
+The username and password can be supplied independently of the URL via
+`AUDIT_RABBITMQ_USERNAME` / `AUDIT_RABBITMQ_PASSWORD`. When set, they are
+composed into the URL's userinfo at runtime and **override** any credentials
+embedded in `AUDIT_RABBITMQ_URL`. This lets the two values come from two
+separate sources (such as two Vault entries) without string-building a
+connection URL:
+
+```yaml
+stringData:
+  AUDIT_ENABLED: "true"
+  AUDIT_RABBITMQ_URL: "amqp://rabbitmq.example:5672/"   # no credentials in the URL
+  AUDIT_RABBITMQ_USERNAME: "audit"
+  AUDIT_RABBITMQ_PASSWORD: "s3cr3t"
+```
+
+##### Sourcing the credentials from HashiCorp Vault
+
+The sidecar itself does **not** talk to Vault — keep it Vault-unaware. Instead,
+use an operator such as the
+[External Secrets Operator](https://external-secrets.io/) (or the HashiCorp
+Vault Secrets Operator) to project your two Vault entries into the Secret that
+the webhook injects. Example `ExternalSecret`:
+
+```yaml
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: prysm-sidecar-env
+  namespace: rook-ceph
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: SecretStore
+  target:
+    name: prysm-sidecar-env   # the Secret referenced by the sidecar-env-secret annotation
+    template:
+      type: Opaque
+      data:
+        AUDIT_ENABLED: "true"
+        AUDIT_RABBITMQ_URL: "amqp://rabbitmq.example:5672/"
+        AUDIT_RABBITMQ_USERNAME: "{{ .username }}"
+        AUDIT_RABBITMQ_PASSWORD: "{{ .password }}"
+  data:
+    - secretKey: username
+      remoteRef:
+        key: secret/data/rabbitmq/audit
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: secret/data/rabbitmq/audit
+        property: password
+```
+
+The operator renders a native `Secret`; the webhook injects it via `envFrom`
+exactly as above. Credentials never land in the Deployment spec or the webhook.
+
 ---
 ### Important Notes
 > The referenced Secret or ConfigMap must exist before the deployment is
