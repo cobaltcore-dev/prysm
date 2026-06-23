@@ -194,12 +194,22 @@ stringData:
 | `AUDIT_RABBITMQ_URL`      | AMQP connection URL (`amqp://host:port/`)           | _empty_                          |
 | `AUDIT_RABBITMQ_USERNAME` | Username; overrides any userinfo in the URL          | _empty_                          |
 | `AUDIT_RABBITMQ_PASSWORD` | Password; overrides any userinfo in the URL          | _empty_                          |
-| `AUDIT_QUEUE_NAME`        | Target queue                                         | `keystone.notifications.info`    |
+| `AUDIT_QUEUE_NAME`        | Target queue (see durability note below)             | `keystone.notifications.info`    |
 | `AUDIT_QUEUE_SIZE`        | Internal event buffer size                           | `20`                             |
 | `AUDIT_DEBUG`             | Log every published event (verbose)                  | `false`                          |
 
 > If `AUDIT_ENABLED=true` but `AUDIT_RABBITMQ_URL` is empty, the sidecar logs a
 > warning and falls back to a no-op auditor — log processing is never blocked.
+
+> **Durable queue / log-router:** the underlying `go-bits/audittools` library
+> declares the queue **durable** only when `AUDIT_QUEUE_NAME` is exactly
+> **`dataplane.audit`**; any other name is a transient queue. The dataplane
+> audit log-router consumes `dataplane.audit` and requires a durable queue, so
+> set `AUDIT_QUEUE_NAME: "dataplane.audit"` for it to connect. Note: a durable
+> queue survives a broker restart, but the messages themselves are still
+> published transient (not persisted). If the queue already exists with a
+> different durability flag, delete it first — RabbitMQ rejects a redeclare with
+> `406 PRECONDITION_FAILED`.
 
 #### Separate username / password (e.g. from Vault)
 
