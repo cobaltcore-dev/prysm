@@ -365,10 +365,17 @@ Each S3 operation produces a CADF event with:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `AUDIT_ENABLED` | Publish to RabbitMQ | `false` |
-| `AUDIT_RABBITMQ_URL` | Connection URL (`amqp://user:pass@host:port`) | |
-| `AUDIT_QUEUE_NAME` | Queue name | `keystone.notifications.info` |
+| `AUDIT_RABBITMQ_URL` | Connection URL (`amqp://host:port`) | |
+| `AUDIT_RABBITMQ_USERNAME` | Username; overrides URL userinfo (e.g. from Vault) | |
+| `AUDIT_RABBITMQ_PASSWORD` | Password; overrides URL userinfo | |
+| `AUDIT_QUEUE_NAME` | Queue name (`dataplane.audit` → durable queue) | `keystone.notifications.info` |
 | `AUDIT_QUEUE_SIZE` | Internal event buffer size | `20` |
 | `AUDIT_DEBUG` | Log published events | `false` |
+| `AUDIT_REQUIRE_TENANT` | Drop events lacking `project_id`/`domain_id` (counted in `prysm_audit_events_dropped_total`) | `true` |
+| `AUDIT_OBSERVER_NAME` | CADF observer name (storage service) | `radosgw` |
+| `AUDIT_REGION` | Static region stamped on events (empty = off) | |
+| `AUDIT_INCLUDE_READS` | Audit reads (get/head/list) too; false = mutations-only | `true` |
+| `AUDIT_SKIP_BUCKETS` | Buckets excluded from audit (comma-list, loop prevention) | `hermes` |
 
 ### Metrics tracking
 

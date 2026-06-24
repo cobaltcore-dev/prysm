@@ -197,6 +197,14 @@ stringData:
 | `AUDIT_QUEUE_NAME`        | Target queue (see durability note below)             | `keystone.notifications.info`    |
 | `AUDIT_QUEUE_SIZE`        | Internal event buffer size                           | `20`                             |
 | `AUDIT_DEBUG`             | Log every published event (verbose)                  | `false`                          |
+| `AUDIT_REQUIRE_TENANT`    | Drop events lacking a project_id/domain_id (counted) | `true`                           |
+| `AUDIT_OBSERVER_NAME`     | CADF observer name (storage service)                 | `radosgw`                        |
+| `AUDIT_REGION`            | Static region stamped on events (empty = off)        | _empty_                          |
+| `AUDIT_INCLUDE_READS`     | Audit reads (get/head/list) too; false = mutations-only | `true`                        |
+| `AUDIT_SKIP_BUCKETS`      | Buckets excluded from audit (comma-list, loop prevention) | `hermes`                    |
+
+> These are non-sensitive — put them in the ConfigMap (`sidecarEnvConfig.config`),
+> not the Secret. Only the RabbitMQ credentials belong in the Secret.
 
 > If `AUDIT_ENABLED=true` but `AUDIT_RABBITMQ_URL` is empty, the sidecar logs a
 > warning and falls back to a no-op auditor — log processing is never blocked.

@@ -304,8 +304,32 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 
 		// Publish audit event if auditor is configured
 		if auditor != nil && cfg.AuditSink.Enabled {
-			auditEvent, err := logEntry.ToAuditEvent()
-			if err != nil {
+			// Audit gates, most critical first. Each drop is counted (not
+			// silent); only the audit publish is skipped — NATS/stdout still
+			// receive the entry.
+			if isSkippedBucket(logEntry.Bucket, cfg.AuditSink.SkipBuckets) {
+				// Loop prevention: Hermes writes audit events into this bucket;
+				// auditing those writes would re-trigger events. Counted.
+				auditEventsDropped.WithLabelValues("skip_bucket").Inc()
+				log.Debug().
+					Str("bucket", logEntry.Bucket).
+					Str("operation", logEntry.Operation).
+					Msg("Skipping audit for excluded bucket (loop prevention)")
+			} else if cfg.AuditSink.RequireTenant && !hasUsableTenant(logEntry) {
+				auditEventsDropped.WithLabelValues("no_tenant").Inc()
+				log.Debug().
+					Str("user", logEntry.User).
+					Str("operation", logEntry.Operation).
+					Str("bucket", logEntry.Bucket).
+					Msg("Dropping audit event without project_id or domain_id")
+			} else if !cfg.AuditSink.IncludeReads && isReadOperation(logEntry.Operation) {
+				// Mutations-only: the customer audit trail records changes, not
+				// reads (like CloudTrail). Counted, not silent.
+				auditEventsDropped.WithLabelValues("read").Inc()
+				log.Debug().
+					Str("operation", logEntry.Operation).
+					Msg("Dropping read operation from audit (mutations-only)")
+			} else if auditEvent, err := logEntry.ToAuditEvent(cfg.AuditSink.Region); err != nil {
 				log.Warn().Err(err).Msg("Failed to convert ops log entry to audit event")
 			} else {
 				auditor.Record(auditEvent)

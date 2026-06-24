@@ -38,6 +38,11 @@ var (
 	opsAuditQueueName         string
 	opsAuditInternalQueueSize int
 	opsAuditDebug             bool
+	opsAuditRequireTenant     bool
+	opsAuditRegion            string
+	opsAuditObserverName      string
+	opsAuditIncludeReads      bool
+	opsAuditSkipBuckets       string
 
 	// Shortcut config
 	opsTrackEverything bool
@@ -231,6 +236,11 @@ Following this configuration change, the RadosGW will log operations to the file
 				QueueName:         opsAuditQueueName,
 				InternalQueueSize: opsAuditInternalQueueSize,
 				Debug:             opsAuditDebug,
+				RequireTenant:     opsAuditRequireTenant,
+				Region:            opsAuditRegion,
+				ObserverName:      opsAuditObserverName,
+				IncludeReads:      opsAuditIncludeReads,
+				SkipBuckets:       opsAuditSkipBuckets,
 			},
 		}
 
@@ -654,6 +664,11 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.AuditSink.RabbitMQUsername = getEnv("AUDIT_RABBITMQ_USERNAME", cfg.AuditSink.RabbitMQUsername)
 	cfg.AuditSink.RabbitMQPassword = getEnv("AUDIT_RABBITMQ_PASSWORD", cfg.AuditSink.RabbitMQPassword)
 	cfg.AuditSink.QueueName = getEnv("AUDIT_QUEUE_NAME", cfg.AuditSink.QueueName)
+	cfg.AuditSink.RequireTenant = getEnvBool("AUDIT_REQUIRE_TENANT", cfg.AuditSink.RequireTenant)
+	cfg.AuditSink.Region = getEnv("AUDIT_REGION", cfg.AuditSink.Region)
+	cfg.AuditSink.ObserverName = getEnv("AUDIT_OBSERVER_NAME", cfg.AuditSink.ObserverName)
+	cfg.AuditSink.IncludeReads = getEnvBool("AUDIT_INCLUDE_READS", cfg.AuditSink.IncludeReads)
+	cfg.AuditSink.SkipBuckets = getEnv("AUDIT_SKIP_BUCKETS", cfg.AuditSink.SkipBuckets)
 	cfg.AuditSink.InternalQueueSize = getEnvInt("AUDIT_QUEUE_SIZE", cfg.AuditSink.InternalQueueSize)
 	cfg.AuditSink.Debug = getEnvBool("AUDIT_DEBUG", cfg.AuditSink.Debug)
 
@@ -684,6 +699,11 @@ func init() {
 	opsLogCmd.Flags().StringVar(&opsAuditQueueName, "audit-queue-name", "keystone.notifications.info", "RabbitMQ queue name for audit events")
 	opsLogCmd.Flags().IntVar(&opsAuditInternalQueueSize, "audit-queue-size", 20, "Internal queue size for audit events")
 	opsLogCmd.Flags().BoolVar(&opsAuditDebug, "audit-debug", false, "Log published audit events for debugging")
+	opsLogCmd.Flags().BoolVar(&opsAuditRequireTenant, "audit-require-tenant", true, "Drop audit events that have neither a project_id nor a domain_id (the audit consumer rejects them)")
+	opsLogCmd.Flags().StringVar(&opsAuditRegion, "audit-region", "", "Static region stamped onto each audit event (the ops log has none); empty = not stamped")
+	opsLogCmd.Flags().StringVar(&opsAuditObserverName, "audit-observer-name", "radosgw", "CADF observer name identifying the storage service in audit events (e.g. radosgw/ceph/swift)")
+	opsLogCmd.Flags().BoolVar(&opsAuditIncludeReads, "audit-include-reads", true, "Audit read operations (get/head/list); default true for object-storage data-access auditing. Set false for mutations-only")
+	opsLogCmd.Flags().StringVar(&opsAuditSkipBuckets, "audit-skip-buckets", "hermes", "Comma-separated, case-insensitive bucket names excluded from audit (loop prevention for the Hermes audit bucket)")
 
 	// Shortcut flag
 	opsLogCmd.Flags().BoolVar(&opsTrackEverything, "track-everything", false, "Enable detailed tracking for all metric types (efficient mode)")
