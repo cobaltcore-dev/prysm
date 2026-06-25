@@ -20,30 +20,26 @@ const (
 
 // PGProbeConfig holds all configuration for the PG probe producer.
 type PGProbeConfig struct {
-	// RADOS connection
-	CephConfigPath string // Path to ceph.conf
-	CephUser       string // Ceph auth user
+	CephConfigPath string
+	CephUser       string
 
-	// Probe targets — multiple index pools (one per zone), same probe bucket in each.
-	// Example: ["default.rgw.buckets.index", "us-east.rgw.buckets.index"]
-	IndexPools  []string // List of index pool names to probe
-	ProbeBucket string   // Name of the dedicated probe bucket
+	// Multiple index pools supported (one per zone), same probe bucket in each.
+	IndexPools  []string
+	ProbeBucket string
 
-	// RGW Admin API (credentials via ACCESS_KEY/SECRET_KEY env vars only)
-	AdminURL  string // RGW Admin API endpoint
-	AccessKey string // RGW admin access key (env-only, not exposed via CLI)
-	SecretKey string // RGW admin secret key (env-only, not exposed via CLI)
+	// Credentials sourced exclusively from env vars (ACCESS_KEY/SECRET_KEY)
+	// to avoid exposure in ps aux.
+	AdminURL  string
+	AccessKey string
+	SecretKey string
 
-	// Probe behavior
-	Interval               int // Probe interval in seconds
-	MappingRefreshInterval int // How often to refresh probe targets in seconds
-	ProbeTimeoutMs         int // Per-probe timeout in milliseconds
+	Interval               int
+	MappingRefreshInterval int
+	ProbeTimeoutMs         int
 
-	// Prometheus
 	Prometheus     bool
 	PrometheusPort int
 
-	// Identity
 	NodeName   string
 	InstanceID string
 }
