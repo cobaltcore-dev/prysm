@@ -90,7 +90,14 @@ func init() {
 }
 
 // PublishToPrometheus updates all Prometheus metrics from probe results.
+// Resets per-PG gauges before each cycle to prevent stale label combinations
+// from accumulating after PG splits or pool reconfigurations.
 func PublishToPrometheus(results []ProbeResult, targets *ProbeTargets, cfg PGProbeConfig) {
+	// Reset per-PG gauges to evict stale pgid labels from previous cycles.
+	// Without this, removed/split PGs would linger indefinitely.
+	pgProbeSuccess.Reset()
+	pgProbeLatency.Reset()
+
 	successCount := 0
 	var totalLatency float64
 
