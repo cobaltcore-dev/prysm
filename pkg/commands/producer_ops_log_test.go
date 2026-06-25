@@ -23,6 +23,7 @@ func TestMergeOpsLogConfigWithEnv_AuditSink(t *testing.T) {
 			QueueName:         "keystone.notifications.info",
 			InternalQueueSize: 20,
 			Debug:             false,
+			RequireTenant:     true,
 		},
 	}
 
@@ -34,6 +35,11 @@ func TestMergeOpsLogConfigWithEnv_AuditSink(t *testing.T) {
 		t.Setenv("AUDIT_QUEUE_NAME", "custom.audit.queue")
 		t.Setenv("AUDIT_QUEUE_SIZE", "100")
 		t.Setenv("AUDIT_DEBUG", "true")
+		t.Setenv("AUDIT_REQUIRE_TENANT", "false")
+		t.Setenv("AUDIT_REGION", "qa-de-1")
+		t.Setenv("AUDIT_OBSERVER_NAME", "ceph")
+		t.Setenv("AUDIT_INCLUDE_READS", "true")
+		t.Setenv("AUDIT_SKIP_BUCKETS", "hermes,_default")
 
 		cfg := mergeOpsLogConfigWithEnv(base)
 
@@ -44,6 +50,11 @@ func TestMergeOpsLogConfigWithEnv_AuditSink(t *testing.T) {
 		assert.Equal(t, "custom.audit.queue", cfg.AuditSink.QueueName)
 		assert.Equal(t, 100, cfg.AuditSink.InternalQueueSize)
 		assert.True(t, cfg.AuditSink.Debug)
+		assert.False(t, cfg.AuditSink.RequireTenant)
+		assert.Equal(t, "qa-de-1", cfg.AuditSink.Region)
+		assert.Equal(t, "ceph", cfg.AuditSink.ObserverName)
+		assert.True(t, cfg.AuditSink.IncludeReads)
+		assert.Equal(t, "hermes,_default", cfg.AuditSink.SkipBuckets)
 	})
 
 	t.Run("unset env vars preserve flag defaults", func(t *testing.T) {
@@ -56,5 +67,10 @@ func TestMergeOpsLogConfigWithEnv_AuditSink(t *testing.T) {
 		assert.Equal(t, "keystone.notifications.info", cfg.AuditSink.QueueName)
 		assert.Equal(t, 20, cfg.AuditSink.InternalQueueSize)
 		assert.False(t, cfg.AuditSink.Debug)
+		assert.True(t, cfg.AuditSink.RequireTenant)
+		assert.Equal(t, "", cfg.AuditSink.Region)
+		assert.Equal(t, "", cfg.AuditSink.ObserverName)
+		assert.False(t, cfg.AuditSink.IncludeReads)
+		assert.Equal(t, "", cfg.AuditSink.SkipBuckets)
 	})
 }

@@ -18,6 +18,24 @@ type AuditSinkConfig struct {
 	QueueName         string `mapstructure:"queue_name"`
 	InternalQueueSize int    `mapstructure:"internal_queue_size"` // Optional, defaults to 20
 	Debug             bool   `mapstructure:"debug"`               // Log published events
+	// RequireTenant drops audit events that carry neither a project_id nor a
+	// domain_id before publishing (the audit consumer rejects such events).
+	RequireTenant bool `mapstructure:"require_tenant"`
+	// Region is a static per-cluster value stamped onto each audit event's
+	// target (the ops log has no region). Empty means not stamped.
+	Region string `mapstructure:"region"`
+	// ObserverName is the CADF observer name identifying the storage service in
+	// emitted events (e.g. radosgw/ceph/swift). Empty defaults to "radosgw".
+	ObserverName string `mapstructure:"observer_name"`
+	// IncludeReads controls whether read operations (get/head/list) are audited.
+	// Default true: object-storage audit includes data-access events (reads) as
+	// well as mutations (cf. GCS data-access logs). Set false for mutations-only.
+	IncludeReads bool `mapstructure:"include_reads"`
+	// SkipBuckets is a comma-separated, case-insensitive list of bucket names
+	// excluded from audit. It breaks the Hermes loop: Hermes writes audit events
+	// into a (WORM) bucket, and auditing those writes would re-trigger events.
+	// Defaults to "hermes" via the flag; empty disables the filter.
+	SkipBuckets string `mapstructure:"skip_buckets"`
 }
 
 type OpsLogConfig struct {

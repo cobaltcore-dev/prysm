@@ -19,6 +19,21 @@ import (
 	"github.com/sapcc/go-bits/audittools"
 )
 
+// buildObserver constructs the CADF observer that identifies the storage
+// service reporting the event (the service, not the resource or the tool).
+// The name is configurable and defaults to "radosgw".
+func buildObserver(cfg AuditSinkConfig) audittools.Observer {
+	name := cfg.ObserverName
+	if name == "" {
+		name = "radosgw"
+	}
+	return audittools.Observer{
+		TypeURI: "service/storage",
+		Name:    name,
+		ID:      audittools.GenerateUUID(),
+	}
+}
+
 // InitAuditor initializes the audit trail based on configuration.
 // Returns a NullAuditor if audit sink is not configured or disabled.
 func InitAuditor(ctx context.Context, cfg AuditSinkConfig, registry prometheus.Registerer) audittools.Auditor {
@@ -46,12 +61,8 @@ func InitAuditor(ctx context.Context, cfg AuditSinkConfig, registry prometheus.R
 	auditor, err := audittools.NewAuditor(ctx, audittools.AuditorOpts{
 		ConnectionURL: connectionURL,
 		QueueName:     cfg.QueueName,
-		Observer: audittools.Observer{
-			TypeURI: "service/storage/object",
-			Name:    "prysm-ops-log",
-			ID:      audittools.GenerateUUID(),
-		},
-		Registry: registry,
+		Observer:      buildObserver(cfg),
+		Registry:      registry,
 	})
 
 	if err != nil {
@@ -97,8 +108,37 @@ func buildRabbitMQConnectionURL(rawURL, username, password string) (string, erro
 	return u.String(), nil
 }
 
-// ToAuditEvent converts an S3OperationLog to an audittools.Event.
-func (opLog *S3OperationLog) ToAuditEvent() (audittools.Event, error) {
+// regionTarget decorates a Target with a static region attachment. Region is
+// a per-cluster deployment fact (the ops log has none), so it is supplied via
+// config rather than derived per request. Implemented as a decorator so the
+// placement can be changed easily if the audit consumer expects it elsewhere.
+type regionTarget struct {
+	inner  audittools.Target
+	region string
+}
+
+func (t regionTarget) Render() cadf.Resource {
+	resource := t.inner.Render()
+	resource.Attachments = append(resource.Attachments, cadf.Attachment{
+		Name:    "region",
+		TypeURI: "xs:string",
+		Content: t.region,
+	})
+	return resource
+}
+
+// withRegion wraps a Target so its rendered resource carries the region. An
+// empty region returns the target unchanged (no attachment added).
+func withRegion(target audittools.Target, region string) audittools.Target {
+	if region == "" {
+		return target
+	}
+	return regionTarget{inner: target, region: region}
+}
+
+// ToAuditEvent converts an S3OperationLog to an audittools.Event. The region is
+// a static per-cluster value stamped onto the target (empty = not stamped).
+func (opLog *S3OperationLog) ToAuditEvent(region string) (audittools.Event, error) {
 	// Parse timestamp
 	eventTime, err := time.Parse("2006-01-02T15:04:05.999999Z", opLog.Time)
 	if err != nil {
@@ -126,7 +166,7 @@ func (opLog *S3OperationLog) ToAuditEvent() (audittools.Event, error) {
 		User:       buildUserInfo(opLog),
 		ReasonCode: reasonCode,
 		Action:     mapOperationToAction(opLog.Operation),
-		Target:     buildTarget(opLog),
+		Target:     withRegion(buildTarget(opLog), region),
 	}, nil
 }
 
@@ -170,6 +210,34 @@ func buildHTTPRequest(opLog *S3OperationLog) (*http.Request, error) {
 	return req, nil
 }
 
+// isSkippedBucket reports whether operations on the given bucket must be
+// excluded from audit. This breaks the Hermes loop: Hermes writes audit events
+// into a per-customer WORM bucket, and those writes would otherwise generate
+// new audit events. Matching is case-insensitive over a comma-separated list;
+// an empty list disables the filter.
+func isSkippedBucket(bucket, skipBuckets string) bool {
+	if bucket == "" || skipBuckets == "" {
+		return false
+	}
+	b := strings.ToLower(strings.TrimSpace(bucket))
+	for _, name := range strings.Split(skipBuckets, ",") {
+		if b == strings.ToLower(strings.TrimSpace(name)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isReadOperation reports whether an RGW operation is a read (get/head/list).
+// Read classification is by operation name and is independent of the CADF
+// action mapping, so it is robust regardless of how actions are finalized.
+// Reads are excluded from the customer audit trail by default (mutations-only).
+func isReadOperation(operation string) bool {
+	return strings.HasPrefix(operation, "get_") ||
+		strings.HasPrefix(operation, "head_") ||
+		strings.HasPrefix(operation, "list_")
+}
+
 // mapOperationToAction converts RadosGW operation names to CADF actions.
 func mapOperationToAction(operation string) cadf.Action {
 	switch operation {
@@ -206,12 +274,36 @@ func buildTarget(opLog *S3OperationLog) audittools.Target {
 			Bucket: opLog.Bucket,
 		}
 	} else {
-		// Account-level operation (e.g., list_buckets)
-		projectID := extractProjectID(opLog.User)
+		// Account-level operation (e.g., list_buckets). Prefer the Keystone
+		// project ID (same source as the initiator) so target and initiator
+		// agree; fall back to the parsed user when no Keystone scope exists.
+		projectID, _ := resolveTenant(opLog)
 		return &AccountTarget{
 			ProjectID: projectID,
 		}
 	}
+}
+
+// resolveTenant returns the project ID and domain ID that would populate the
+// CADF initiator for this entry, using the same precedence as buildUserInfo:
+// the Keystone scope when present, otherwise the project parsed from the user.
+func resolveTenant(opLog *S3OperationLog) (projectID, domainID string) {
+	if opLog.KeystoneScope != nil {
+		return opLog.KeystoneScope.Project.ID, opLog.KeystoneScope.Project.Domain.ID
+	}
+	return extractProjectID(opLog.User), ""
+}
+
+// hasUsableTenant reports whether the entry yields a project_id or domain_id
+// for the CADF initiator. The audit consumer rejects events that carry
+// neither, so AUDIT_REQUIRE_TENANT uses this to drop them before publishing.
+// The anonymous sentinel is treated as no tenant.
+func hasUsableTenant(opLog *S3OperationLog) bool {
+	projectID, domainID := resolveTenant(opLog)
+	if domainID != "" {
+		return true
+	}
+	return projectID != "" && projectID != "anonymous"
 }
 
 // extractProjectID extracts the project ID from the user field.

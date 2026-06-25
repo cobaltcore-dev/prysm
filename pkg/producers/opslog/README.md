@@ -77,11 +77,29 @@ prysm local-producer ops-log [flags]
   connection, client, server).
 - `--audit-enabled` - Enable RabbitMQ audit trail publishing.
 - `--audit-rabbitmq-url` - RabbitMQ connection URL (e.g.,
-  `amqp://user:pass@host:port`).
+  `amqp://host:port`; credentials may be embedded or supplied separately).
+- `--audit-rabbitmq-username` - RabbitMQ username; overrides any userinfo in
+  the URL (e.g. sourced from a Vault entry).
+- `--audit-rabbitmq-password` - RabbitMQ password; overrides any userinfo in
+  the URL.
 - `--audit-queue-name` - RabbitMQ queue name for audit events (default:
-  `keystone.notifications.info`).
+  `keystone.notifications.info`). Set to `dataplane.audit` to get a durable
+  queue (see note below).
 - `--audit-queue-size` - Internal audit event queue size (default: 20).
 - `--audit-debug` - Enable debug logging for published audit events.
+- `--audit-require-tenant` - Drop audit events that have neither a `project_id`
+  nor a `domain_id` (default: true; the customer audit consumer rejects them).
+- `--audit-observer-name` - CADF observer name identifying the storage service
+  in audit events (default: `radosgw`).
+- `--audit-region` - Static region stamped onto each audit event (the ops log
+  has none; default: empty = not stamped).
+- `--audit-include-reads` - Audit read operations (get/head/list) in addition
+  to mutations (default: true, for object-storage data-access auditing). Set
+  false for mutations-only.
+- `--audit-skip-buckets` - Comma-separated, case-insensitive bucket names
+  excluded from audit (default: `hermes`). Breaks the Hermes loop: Hermes writes
+  audit events into this bucket, and auditing those writes would re-trigger
+  events. Empty disables the filter.
 
 ### Latency Tracking Examples:
 
@@ -150,9 +168,16 @@ prysm local-producer ops-log \
 | `TRACK_BUCKET_SLO`           | Enable low-cardinality bucket GET/LIST SLI metrics. |
 | `AUDIT_ENABLED`              | Enable RabbitMQ audit trail publishing.         |
 | `AUDIT_RABBITMQ_URL`         | RabbitMQ connection URL.                        |
-| `AUDIT_QUEUE_NAME`           | RabbitMQ queue name for audit events.           |
+| `AUDIT_RABBITMQ_USERNAME`    | RabbitMQ username; overrides URL userinfo.      |
+| `AUDIT_RABBITMQ_PASSWORD`    | RabbitMQ password; overrides URL userinfo.      |
+| `AUDIT_QUEUE_NAME`           | RabbitMQ queue name (`dataplane.audit` = durable). |
 | `AUDIT_QUEUE_SIZE`           | Internal audit event queue size.                |
 | `AUDIT_DEBUG`                | Enable debug logging for audit events.          |
+| `AUDIT_REQUIRE_TENANT`       | Drop events without a project_id/domain_id (default true). |
+| `AUDIT_OBSERVER_NAME`        | CADF observer (storage service) name (default radosgw). |
+| `AUDIT_REGION`               | Static region stamped on events (empty = off).  |
+| `AUDIT_INCLUDE_READS`        | Audit reads (get/head/list) too (default true). |
+| `AUDIT_SKIP_BUCKETS`         | Buckets excluded from audit, comma-list (default `hermes`). |
 
 #### Request Tracking Environment Variables:
 
@@ -427,6 +452,49 @@ These events are consumed by Hermes and other audit processing systems.
   (development/testing)
 - **Buffered Channel**: 20-event internal queue with automatic retry on
   failures
+- **Tenant Enforcement**: With `AUDIT_REQUIRE_TENANT=true` (default), events
+  without a `project_id` or `domain_id` are dropped before publishing — the
+  customer audit consumer (Hermes) requires a tenant. Dropped events are
+  counted in `prysm_audit_events_dropped_total{reason="no_tenant"}`, not
+  silently discarded.
+
+### Event filtering
+
+Audit emission is gated before publishing. Each drop is counted (not silent) in
+`prysm_audit_events_dropped_total{reason}`:
+
+- **`skip_bucket`** — operations on a bucket listed in `AUDIT_SKIP_BUCKETS`
+  (default `hermes`) are excluded. This breaks the Hermes loop: Hermes writes
+  audit events into a per-customer (WORM) bucket, and auditing those writes
+  would re-trigger events indefinitely. Bucket-name matching is correct here
+  because the audit bucket lives inside each customer's project — only Hermes
+  can write to it (WORM), so nothing legitimate is lost.
+- **`no_tenant`** — events without a `project_id`/`domain_id` (see Tenant
+  Enforcement above).
+- **`read`** — read operations (get/head/list) when `AUDIT_INCLUDE_READS=false`.
+  Reads are audited by default (object-storage data-access events); set the flag
+  false for a mutations-only trail.
+
+### Durable queue
+
+The underlying `go-bits/audittools` library declares the RabbitMQ queue
+**durable** only when `AUDIT_QUEUE_NAME` is exactly `dataplane.audit`; any other
+name is transient. The dataplane audit log-router consumes `dataplane.audit` and
+requires a durable queue, so set `AUDIT_QUEUE_NAME=dataplane.audit` for it to
+connect. Note: the queue survives a broker restart, but messages are still
+published transient. If the queue already exists with a different durability
+flag, delete it first — RabbitMQ rejects a redeclare with `406
+PRECONDITION_FAILED`.
+
+### Observer and region
+
+- **Observer**: events identify the storage service via
+  `observer = { typeURI: "service/storage", name: <AUDIT_OBSERVER_NAME> }`
+  (default name `radosgw`).
+- **Region**: the ops log carries no region, so it can be supplied statically
+  via `AUDIT_REGION` and is stamped onto the target as a `region` attachment.
+  Leave empty to omit. (Placement may change pending audit-consumer
+  confirmation.)
 
 ### CADF Event Structure
 

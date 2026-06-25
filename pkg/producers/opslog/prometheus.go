@@ -58,6 +58,9 @@ func initPrometheusSettings(cfg *OpsLogConfig) {
 		registerSLIMetrics(sliCfg)
 	}
 
+	// Register audit drop counters
+	registerAuditMetrics()
+
 	// Set up the global LatencyObs function
 	LatencyObs = latencyObs
 }
