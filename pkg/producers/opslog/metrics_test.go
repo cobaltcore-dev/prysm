@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -347,9 +345,11 @@ func TestStatusClass(t *testing.T) {
 
 func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
 	// Set up a test collector (bypass prometheus registration)
+	prev := globalSLICollector
 	globalSLICollector = newSLICollector(SLICollectorConfig{
 		StaleTTL: 24 * time.Hour,
 	})
+	t.Cleanup(func() { globalSLICollector = prev })
 
 	config := &MetricsConfig{TrackBucketSLO: true}
 	logEntry := S3OperationLog{
@@ -372,9 +372,11 @@ func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
 
 func TestMetricsUpdate_TrackBucketSLO_ZeroLatency(t *testing.T) {
 	// Set up a test collector
+	prev := globalSLICollector
 	globalSLICollector = newSLICollector(SLICollectorConfig{
 		StaleTTL: 24 * time.Hour,
 	})
+	t.Cleanup(func() { globalSLICollector = prev })
 
 	config := &MetricsConfig{TrackBucketSLO: true}
 	logEntry := S3OperationLog{
@@ -396,7 +398,9 @@ func TestSLICollector_StaleSeriesNotEmitted(t *testing.T) {
 	collector := newSLICollector(SLICollectorConfig{
 		StaleTTL: 1 * time.Millisecond, // very short for testing
 	})
+	prev := globalSLICollector
 	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
 
 	// Observe a request
 	collector.observeCounter("t1", "s3", "get", "2xx")
@@ -419,7 +423,9 @@ func TestSLICollector_Reap(t *testing.T) {
 	collector := newSLICollector(SLICollectorConfig{
 		StaleTTL: 1 * time.Millisecond,
 	})
+	prev := globalSLICollector
 	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
 
 	// Observe requests for multiple operations
 	collector.observeCounter("t1", "s3", "get", "2xx")

@@ -302,7 +302,10 @@ func discoverProbeTargets(ioctx *rados.IOContext, conn *rados.Conn, pool string,
 		shardToPG[shardIdx] = pgID
 	}
 
-	totalPGs := getPoolPGCount(conn, pool)
+	totalPGs, err := getPoolPGCount(conn, pool)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pg_num for pool %s: %w", pool, err)
+	}
 
 	return &ProbeTargets{
 		Pool:         pool,
@@ -436,7 +439,7 @@ func getObjectPG(conn *rados.Conn, pool, objName string) (string, error) {
 }
 
 // getPoolPGCount returns the number of PGs in a pool via mon command.
-func getPoolPGCount(conn *rados.Conn, poolName string) int {
+func getPoolPGCount(conn *rados.Conn, poolName string) (int, error) {
 	cmd, err := json.Marshal(map[string]string{
 		"prefix": "osd pool get",
 		"pool":   poolName,
@@ -444,23 +447,24 @@ func getPoolPGCount(conn *rados.Conn, poolName string) int {
 		"format": "json",
 	})
 	if err != nil {
-		log.Error().Err(err).Msg("failed to marshal pg_num command")
-		return 0
+		return 0, fmt.Errorf("failed to marshal pg_num command: %w", err)
 	}
 
 	buf, _, err := conn.MonCommand(cmd)
 	if err != nil {
-		log.Error().Err(err).Str("pool", poolName).Msg("failed to get pool pg_num")
-		return 0
+		return 0, fmt.Errorf("mon command failed: %w", err)
 	}
 
 	var resp struct {
 		PGNum int `json:"pg_num"`
 	}
 	if err := json.Unmarshal(buf, &resp); err != nil {
-		log.Error().Err(err).Msg("failed to parse pg_num response")
-		return 0
+		return 0, fmt.Errorf("failed to parse pg_num response: %w", err)
 	}
 
-	return resp.PGNum
+	if resp.PGNum <= 0 {
+		return 0, fmt.Errorf("invalid pg_num %d for pool %s", resp.PGNum, poolName)
+	}
+
+	return resp.PGNum, nil
 }

@@ -110,8 +110,10 @@ func observeSLI(logEntry S3OperationLog, tenant string) {
 		statusClass(logEntry.HTTPStatus),
 	)
 
-	// Observe latency if available
-	if logEntry.TotalTime > 0 {
+	// Observe latency — TotalTime is in milliseconds; sub-ms requests report 0
+	// which is valid and lands in the le=0.05 bucket. Only skip negative values
+	// (which would indicate a corrupted log entry).
+	if logEntry.TotalTime >= 0 {
 		latencySec := float64(logEntry.TotalTime) / 1000.0
 		globalSLICollector.observeLatency(
 			tenant,
