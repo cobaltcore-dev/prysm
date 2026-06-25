@@ -22,8 +22,6 @@ var (
 	pgpIndexPools             string // comma-separated list of index pools
 	pgpProbeBucket            string
 	pgpAdminURL               string
-	pgpAccessKey              string
-	pgpSecretKey              string
 	pgpInterval               int
 	pgpMappingRefreshInterval int
 	pgpProbeTimeoutMs         int
@@ -65,8 +63,6 @@ Prerequisites:
 			IndexPools:             pools,
 			ProbeBucket:            pgpProbeBucket,
 			AdminURL:               pgpAdminURL,
-			AccessKey:              pgpAccessKey,
-			SecretKey:              pgpSecretKey,
 			Interval:               pgpInterval,
 			MappingRefreshInterval: pgpMappingRefreshInterval,
 			ProbeTimeoutMs:         pgpProbeTimeoutMs,
@@ -144,9 +140,7 @@ func init() {
 	pgProbeCmd.Flags().StringVar(&pgpCephUser, "ceph-user", "client.admin", "Ceph auth user")
 	pgProbeCmd.Flags().StringVar(&pgpIndexPools, "index-pools", "", "Comma-separated list of RGW bucket index pool names (required)")
 	pgProbeCmd.Flags().StringVar(&pgpProbeBucket, "probe-bucket", "prysm-probe", "Name of the pre-sharded probe bucket (same bucket in all pools)")
-	pgProbeCmd.Flags().StringVar(&pgpAdminURL, "admin-url", "", "RGW Admin API URL")
-	pgProbeCmd.Flags().StringVar(&pgpAccessKey, "access-key", "", "RGW admin access key")
-	pgProbeCmd.Flags().StringVar(&pgpSecretKey, "secret-key", "", "RGW admin secret key")
+	pgProbeCmd.Flags().StringVar(&pgpAdminURL, "admin-url", "", "RGW Admin API URL (credentials via ACCESS_KEY/SECRET_KEY env vars)")
 	pgProbeCmd.Flags().IntVar(&pgpInterval, "interval", 15, "Probe interval in seconds")
 	pgProbeCmd.Flags().IntVar(&pgpMappingRefreshInterval, "mapping-refresh-interval", 3600, "Probe target refresh interval in seconds")
 	pgProbeCmd.Flags().IntVar(&pgpProbeTimeoutMs, "probe-timeout-ms", 5000, "Per-probe timeout in milliseconds")
