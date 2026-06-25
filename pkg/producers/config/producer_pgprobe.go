@@ -22,14 +22,14 @@ func startPGProbe(producer ProducerConfig, globalConfig GlobalConfig) {
 	accessKey := GetStringSetting(producer.Settings, "access_key", globalConfig.AccessKey)
 	secretKey := GetStringSetting(producer.Settings, "secret_key", globalConfig.SecretKey)
 	indexPools := GetStringSliceSetting(producer.Settings, "index_pools", []string{})
-	probeBucket := GetStringSetting(producer.Settings, "probe_bucket", "prysm-probe")
-	cephConfigPath := GetStringSetting(producer.Settings, "ceph_config_path", "/etc/ceph/ceph.conf")
-	cephUser := GetStringSetting(producer.Settings, "ceph_user", "client.admin")
-	interval := GetIntSetting(producer.Settings, "interval", 15)
-	mappingRefresh := GetIntSetting(producer.Settings, "mapping_refresh_interval", 3600)
-	probeTimeout := GetIntSetting(producer.Settings, "probe_timeout_ms", 5000)
+	probeBucket := GetStringSetting(producer.Settings, "probe_bucket", pgprobe.DefaultProbeBucket)
+	cephConfigPath := GetStringSetting(producer.Settings, "ceph_config_path", pgprobe.DefaultCephConfigPath)
+	cephUser := GetStringSetting(producer.Settings, "ceph_user", pgprobe.DefaultCephUser)
+	interval := GetIntSetting(producer.Settings, "interval", pgprobe.DefaultInterval)
+	mappingRefresh := GetIntSetting(producer.Settings, "mapping_refresh_interval", pgprobe.DefaultMappingRefreshInterval)
+	probeTimeout := GetIntSetting(producer.Settings, "probe_timeout_ms", pgprobe.DefaultProbeTimeoutMs)
 	prometheus := GetBoolSetting(producer.Settings, "prometheus", true)
-	prometheusPort := GetIntSetting(producer.Settings, "prometheus_port", 9120)
+	prometheusPort := GetIntSetting(producer.Settings, "prometheus_port", pgprobe.DefaultPrometheusPort)
 
 	settings := pgprobe.PGProbeConfig{
 		CephConfigPath:         cephConfigPath,

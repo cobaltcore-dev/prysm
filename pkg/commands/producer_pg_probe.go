@@ -136,16 +136,16 @@ func parsePoolList(s string) []string {
 func init() {
 	localProducerCmd.AddCommand(pgProbeCmd)
 
-	pgProbeCmd.Flags().StringVar(&pgpCephConfigPath, "ceph-config", "/etc/ceph/ceph.conf", "Path to ceph.conf")
-	pgProbeCmd.Flags().StringVar(&pgpCephUser, "ceph-user", "client.admin", "Ceph auth user")
+	pgProbeCmd.Flags().StringVar(&pgpCephConfigPath, "ceph-config", pgprobe.DefaultCephConfigPath, "Path to ceph.conf")
+	pgProbeCmd.Flags().StringVar(&pgpCephUser, "ceph-user", pgprobe.DefaultCephUser, "Ceph auth user")
 	pgProbeCmd.Flags().StringVar(&pgpIndexPools, "index-pools", "", "Comma-separated list of RGW bucket index pool names (required)")
-	pgProbeCmd.Flags().StringVar(&pgpProbeBucket, "probe-bucket", "prysm-probe", "Name of the pre-sharded probe bucket (same bucket in all pools)")
+	pgProbeCmd.Flags().StringVar(&pgpProbeBucket, "probe-bucket", pgprobe.DefaultProbeBucket, "Name of the pre-sharded probe bucket (same bucket in all pools)")
 	pgProbeCmd.Flags().StringVar(&pgpAdminURL, "admin-url", "", "RGW Admin API URL (credentials via ACCESS_KEY/SECRET_KEY env vars)")
-	pgProbeCmd.Flags().IntVar(&pgpInterval, "interval", 15, "Probe interval in seconds")
-	pgProbeCmd.Flags().IntVar(&pgpMappingRefreshInterval, "mapping-refresh-interval", 3600, "Probe target refresh interval in seconds")
-	pgProbeCmd.Flags().IntVar(&pgpProbeTimeoutMs, "probe-timeout-ms", 5000, "Per-probe timeout in milliseconds")
+	pgProbeCmd.Flags().IntVar(&pgpInterval, "interval", pgprobe.DefaultInterval, "Probe interval in seconds")
+	pgProbeCmd.Flags().IntVar(&pgpMappingRefreshInterval, "mapping-refresh-interval", pgprobe.DefaultMappingRefreshInterval, "Probe target refresh interval in seconds")
+	pgProbeCmd.Flags().IntVar(&pgpProbeTimeoutMs, "probe-timeout-ms", pgprobe.DefaultProbeTimeoutMs, "Per-probe timeout in milliseconds")
 	pgProbeCmd.Flags().BoolVar(&pgpPromEnabled, "prometheus", true, "Enable Prometheus metrics")
-	pgProbeCmd.Flags().IntVar(&pgpPromPort, "prometheus-port", 9120, "Prometheus metrics port")
+	pgProbeCmd.Flags().IntVar(&pgpPromPort, "prometheus-port", pgprobe.DefaultPrometheusPort, "Prometheus metrics port")
 	pgProbeCmd.Flags().StringVar(&pgpNodeName, "node-name", "", "Node name for metric labels")
 	pgProbeCmd.Flags().StringVar(&pgpInstanceID, "instance-id", "", "Instance ID for metric labels")
 }

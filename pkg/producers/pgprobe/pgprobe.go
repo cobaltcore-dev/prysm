@@ -51,21 +51,21 @@ type PoolProbeState struct {
 // It connects to the RADOS cluster, builds probe targets for all configured
 // index pools, and runs the probe loop.
 func StartMonitoring(cfg PGProbeConfig) {
-	// Apply defaults
+	// Apply defaults from constants (single source of truth in config.go)
 	if cfg.CephConfigPath == "" {
-		cfg.CephConfigPath = "/etc/ceph/ceph.conf"
+		cfg.CephConfigPath = DefaultCephConfigPath
 	}
 	if cfg.CephUser == "" {
-		cfg.CephUser = "client.admin"
+		cfg.CephUser = DefaultCephUser
 	}
 	if cfg.Interval <= 0 {
-		cfg.Interval = 15
+		cfg.Interval = DefaultInterval
 	}
 	if cfg.MappingRefreshInterval <= 0 {
-		cfg.MappingRefreshInterval = 3600
+		cfg.MappingRefreshInterval = DefaultMappingRefreshInterval
 	}
 	if cfg.ProbeTimeoutMs <= 0 {
-		cfg.ProbeTimeoutMs = 5000
+		cfg.ProbeTimeoutMs = DefaultProbeTimeoutMs
 	}
 
 	if len(cfg.IndexPools) == 0 {
