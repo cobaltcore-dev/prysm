@@ -222,6 +222,7 @@ func discoverProbeTargets(ioctx *rados.IOContext, conn *rados.Conn, pool string,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create object iterator: %w", err)
 	}
+	defer iter.Close()
 
 	for iter.Next() {
 		objName := iter.Value()
@@ -237,7 +238,6 @@ func discoverProbeTargets(ioctx *rados.IOContext, conn *rados.Conn, pool string,
 	if err := iter.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating pool objects: %w", err)
 	}
-	iter.Close()
 
 	if len(shardObjects) == 0 {
 		return nil, fmt.Errorf("no .dir.* objects found in pool %s", pool)
