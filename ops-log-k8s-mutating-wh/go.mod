@@ -5,7 +5,7 @@ go 1.26
 require (
 	github.com/gorilla/mux v1.8.1
 	k8s.io/api v0.35.2
-	k8s.io/klog/v2 v2.130.1
+	k8s.io/klog/v2 v2.140.0
 )
 
 require (
