@@ -315,6 +315,14 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 					Str("bucket", logEntry.Bucket).
 					Str("operation", logEntry.Operation).
 					Msg("Skipping audit for excluded bucket (loop prevention)")
+			} else if !isDomainAudited(logEntry, cfg.AuditSink) {
+				// Domain scoping: only publish audit for selected Keystone
+				// domains (allow/deny by domain ID or name). Counted.
+				auditEventsDropped.WithLabelValues("domain_filtered").Inc()
+				log.Debug().
+					Str("operation", logEntry.Operation).
+					Str("bucket", logEntry.Bucket).
+					Msg("Dropping audit event outside selected domain(s)")
 			} else if cfg.AuditSink.RequireTenant && !hasUsableTenant(logEntry) {
 				auditEventsDropped.WithLabelValues("no_tenant").Inc()
 				log.Debug().

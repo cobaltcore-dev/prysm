@@ -202,6 +202,8 @@ stringData:
 | `AUDIT_REGION`            | Static region stamped on events (empty = off)        | _empty_                          |
 | `AUDIT_INCLUDE_READS`     | Audit reads (get/head/list) too; false = mutations-only | `true`                        |
 | `AUDIT_SKIP_BUCKETS`      | Buckets excluded from audit (comma-list, loop prevention) | `hermes`                    |
+| `AUDIT_ALLOW_DOMAINS`     | Keystone domains (ID or name, comma-list) to audit; only these published when set | _empty_ |
+| `AUDIT_DENY_DOMAINS`      | Keystone domains (ID or name, comma-list) excluded; precedes allow-list | _empty_          |
 
 > These are non-sensitive — put them in the ConfigMap (`sidecarEnvConfig.config`),
 > not the Secret. Only the RabbitMQ credentials belong in the Secret.

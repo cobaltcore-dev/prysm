@@ -227,3 +227,78 @@ func TestIsSkippedBucket(t *testing.T) {
 		})
 	}
 }
+
+// scopedEntry builds an ops-log entry carrying a Keystone project domain.
+func scopedEntry(domainID, domainName string) *S3OperationLog {
+	return &S3OperationLog{
+		KeystoneScope: &KeystoneScope{
+			Project: KeystoneProject{
+				Domain: KeystoneDomain{ID: domainID, Name: domainName},
+			},
+		},
+	}
+}
+
+// TestMatchesAny verifies the case-insensitive, comma-separated token matcher
+// used by the domain filter (a domain matches by its ID or its name).
+func TestMatchesAny(t *testing.T) {
+	tests := []struct {
+		name       string
+		candidates []string
+		list       string
+		want       bool
+	}{
+		{"match by name", []string{"id-1", "btp_fp"}, "btp_fp", true},
+		{"match by id", []string{"1186c5f4", "btp_fp"}, "1186c5f4", true},
+		{"case-insensitive candidate", []string{"BTP_FP"}, "btp_fp", true},
+		{"case-insensitive token", []string{"btp_fp"}, "BTP_FP", true},
+		{"list member with spaces", []string{"btp_fp"}, "foo, btp_fp , bar", true},
+		{"no match", []string{"other"}, "btp_fp,foo", false},
+		{"empty list", []string{"btp_fp"}, "", false},
+		{"empty candidates", []string{"", ""}, "btp_fp", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, matchesAny(tt.candidates, tt.list))
+		})
+	}
+}
+
+// TestIsDomainAudited verifies the domain scoping gate: deny wins over allow, a
+// non-empty allow list restricts to its members (by domain ID or name), and an
+// entry without a Keystone scope fails a non-empty allow list but passes when
+// only a deny list (or neither) is set.
+func TestIsDomainAudited(t *testing.T) {
+	const (
+		id   = "1186c5f4f6bc4977bc3446b9a0acdd0e"
+		name = "btp_fp"
+	)
+	tests := []struct {
+		name  string
+		entry *S3OperationLog
+		allow string
+		deny  string
+		want  bool
+	}{
+		{"no lists audits all", scopedEntry(id, name), "", "", true},
+		{"allow by id", scopedEntry(id, name), id, "", true},
+		{"allow by name", scopedEntry(id, name), name, "", true},
+		{"multi-domain allow, member matches", scopedEntry(id, name), "dom-a," + name + ",dom-b", "", true},
+		{"multi-domain allow, non-member drops", scopedEntry("other-id", "other"), "dom-a," + name + ",dom-b", "", false},
+		{"multi-domain deny, member dropped", scopedEntry(id, name), "", "dom-a," + id + ",dom-b", false},
+		{"allow excludes others", scopedEntry("other-id", "other"), name, "", false},
+		{"deny by id", scopedEntry(id, name), "", id, false},
+		{"deny by name", scopedEntry(id, name), "", name, false},
+		{"deny beats allow", scopedEntry(id, name), name, name, false},
+		{"deny only, other domain passes", scopedEntry("other-id", "other"), "", name, true},
+		{"nil scope with allow list drops", &S3OperationLog{}, name, "", false},
+		{"nil scope with deny only passes", &S3OperationLog{}, "", name, true},
+		{"nil scope with no lists passes", &S3OperationLog{}, "", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := AuditSinkConfig{AllowDomains: tt.allow, DenyDomains: tt.deny}
+			assert.Equal(t, tt.want, isDomainAudited(tt.entry, cfg))
+		})
+	}
+}
