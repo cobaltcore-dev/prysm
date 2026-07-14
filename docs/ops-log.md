@@ -376,6 +376,8 @@ Each S3 operation produces a CADF event with:
 | `AUDIT_REGION` | Static region stamped on events (empty = off) | |
 | `AUDIT_INCLUDE_READS` | Audit reads (get/head/list) too; false = mutations-only | `true` |
 | `AUDIT_SKIP_BUCKETS` | Buckets excluded from audit (comma-list, loop prevention) | `hermes` |
+| `AUDIT_ALLOW_DOMAINS` | Keystone domains (ID or name, comma-list) to audit; if set, only these are published (counted as `domain_filtered`) | |
+| `AUDIT_DENY_DOMAINS` | Keystone domains (ID or name, comma-list) excluded from audit; takes precedence over `AUDIT_ALLOW_DOMAINS` | |
 
 ### Metrics tracking
 

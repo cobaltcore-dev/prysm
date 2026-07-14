@@ -36,6 +36,15 @@ type AuditSinkConfig struct {
 	// into a (WORM) bucket, and auditing those writes would re-trigger events.
 	// Defaults to "hermes" via the flag; empty disables the filter.
 	SkipBuckets string `mapstructure:"skip_buckets"`
+	// AllowDomains and DenyDomains scope the audit trail to specific Keystone
+	// domains, reducing the volume published to RabbitMQ. Both are
+	// comma-separated, case-insensitive lists; each token is matched against the
+	// entry's project domain ID *and* name (so either form works). Matching is on
+	// KeystoneScope.Project.Domain. Precedence: an entry whose domain is in
+	// DenyDomains is always dropped; then, if AllowDomains is non-empty, only
+	// entries whose domain is in it are kept. Both empty = audit all domains.
+	AllowDomains string `mapstructure:"allow_domains"`
+	DenyDomains  string `mapstructure:"deny_domains"`
 }
 
 type OpsLogConfig struct {

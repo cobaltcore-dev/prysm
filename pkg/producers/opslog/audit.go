@@ -228,6 +228,59 @@ func isSkippedBucket(bucket, skipBuckets string) bool {
 	return false
 }
 
+// matchesAny reports whether any candidate is present in the comma-separated,
+// case-insensitive token list. Empty/blank candidates never match; an empty
+// list never matches. Used by the domain filter to test a domain's ID and name
+// against a single AllowDomains/DenyDomains list.
+func matchesAny(candidates []string, list string) bool {
+	if list == "" {
+		return false
+	}
+	for _, name := range strings.Split(list, ",") {
+		token := strings.ToLower(strings.TrimSpace(name))
+		if token == "" {
+			continue
+		}
+		for _, c := range candidates {
+			if c == "" {
+				continue
+			}
+			if strings.ToLower(strings.TrimSpace(c)) == token {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isDomainAudited reports whether an entry passes the domain filter and should
+// be audited. The domain is taken from KeystoneScope.Project.Domain and matched
+// (by ID or name) against the allow/deny lists. Precedence: deny wins; then, if
+// the allow list is non-empty, the domain must be in it. When both lists are
+// empty the filter is disabled and every entry passes. An entry without a
+// Keystone scope has no domain: it fails a non-empty allow list, but passes when
+// only a deny list (or neither) is configured.
+func isDomainAudited(opLog *S3OperationLog, cfg AuditSinkConfig) bool {
+	if cfg.AllowDomains == "" && cfg.DenyDomains == "" {
+		return true
+	}
+
+	var domainID, domainName string
+	if opLog.KeystoneScope != nil {
+		domainID = opLog.KeystoneScope.Project.Domain.ID
+		domainName = opLog.KeystoneScope.Project.Domain.Name
+	}
+	candidates := []string{domainID, domainName}
+
+	if matchesAny(candidates, cfg.DenyDomains) {
+		return false
+	}
+	if cfg.AllowDomains != "" {
+		return matchesAny(candidates, cfg.AllowDomains)
+	}
+	return true
+}
+
 // isReadOperation reports whether an RGW operation is a read (get/head/list).
 // Read classification is by operation name and is independent of the CADF
 // action mapping, so it is robust regardless of how actions are finalized.

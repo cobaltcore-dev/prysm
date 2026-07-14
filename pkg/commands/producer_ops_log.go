@@ -43,6 +43,8 @@ var (
 	opsAuditObserverName      string
 	opsAuditIncludeReads      bool
 	opsAuditSkipBuckets       string
+	opsAuditAllowDomains      string
+	opsAuditDenyDomains       string
 
 	// Shortcut config
 	opsTrackEverything bool
@@ -241,6 +243,8 @@ Following this configuration change, the RadosGW will log operations to the file
 				ObserverName:      opsAuditObserverName,
 				IncludeReads:      opsAuditIncludeReads,
 				SkipBuckets:       opsAuditSkipBuckets,
+				AllowDomains:      opsAuditAllowDomains,
+				DenyDomains:       opsAuditDenyDomains,
 			},
 		}
 
@@ -669,6 +673,8 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	cfg.AuditSink.ObserverName = getEnv("AUDIT_OBSERVER_NAME", cfg.AuditSink.ObserverName)
 	cfg.AuditSink.IncludeReads = getEnvBool("AUDIT_INCLUDE_READS", cfg.AuditSink.IncludeReads)
 	cfg.AuditSink.SkipBuckets = getEnv("AUDIT_SKIP_BUCKETS", cfg.AuditSink.SkipBuckets)
+	cfg.AuditSink.AllowDomains = getEnv("AUDIT_ALLOW_DOMAINS", cfg.AuditSink.AllowDomains)
+	cfg.AuditSink.DenyDomains = getEnv("AUDIT_DENY_DOMAINS", cfg.AuditSink.DenyDomains)
 	cfg.AuditSink.InternalQueueSize = getEnvInt("AUDIT_QUEUE_SIZE", cfg.AuditSink.InternalQueueSize)
 	cfg.AuditSink.Debug = getEnvBool("AUDIT_DEBUG", cfg.AuditSink.Debug)
 
@@ -704,6 +710,8 @@ func init() {
 	opsLogCmd.Flags().StringVar(&opsAuditObserverName, "audit-observer-name", "radosgw", "CADF observer name identifying the storage service in audit events (e.g. radosgw/ceph/swift)")
 	opsLogCmd.Flags().BoolVar(&opsAuditIncludeReads, "audit-include-reads", true, "Audit read operations (get/head/list); default true for object-storage data-access auditing. Set false for mutations-only")
 	opsLogCmd.Flags().StringVar(&opsAuditSkipBuckets, "audit-skip-buckets", "hermes", "Comma-separated, case-insensitive bucket names excluded from audit (loop prevention for the Hermes audit bucket)")
+	opsLogCmd.Flags().StringVar(&opsAuditAllowDomains, "audit-allow-domains", "", "Comma-separated Keystone domains (ID or name) to audit; if set, only these domains are published. Empty = all domains")
+	opsLogCmd.Flags().StringVar(&opsAuditDenyDomains, "audit-deny-domains", "", "Comma-separated Keystone domains (ID or name) excluded from audit; takes precedence over --audit-allow-domains")
 
 	// Shortcut flag
 	opsLogCmd.Flags().BoolVar(&opsTrackEverything, "track-everything", false, "Enable detailed tracking for all metric types (efficient mode)")

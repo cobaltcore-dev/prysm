@@ -96,6 +96,13 @@ prysm local-producer ops-log [flags]
   excluded from audit (default: `hermes`). Breaks the Hermes loop: Hermes writes
   audit events into this bucket, and auditing those writes would re-trigger
   events. Empty disables the filter.
+- `--audit-allow-domains` - Comma-separated Keystone domains (matched by domain
+  ID *or* name) to audit. When set, only entries whose project domain is in the
+  list are published — everything else is dropped (counted as `domain_filtered`).
+  Empty = audit all domains. Used to scope the audit trail to specific tenants
+  and cut RabbitMQ volume.
+- `--audit-deny-domains` - Comma-separated Keystone domains (ID or name) excluded
+  from audit. Takes precedence over `--audit-allow-domains`.
 
 ### Latency Tracking Examples:
 
@@ -174,6 +181,8 @@ prysm local-producer ops-log \
 | `AUDIT_REGION`               | Static region stamped on events (empty = off).  |
 | `AUDIT_INCLUDE_READS`        | Audit reads (get/head/list) too (default true). |
 | `AUDIT_SKIP_BUCKETS`         | Buckets excluded from audit, comma-list (default `hermes`). |
+| `AUDIT_ALLOW_DOMAINS`        | Keystone domains (ID or name, comma-list) to audit; only these are published when set. |
+| `AUDIT_DENY_DOMAINS`         | Keystone domains (ID or name, comma-list) excluded; precedes `AUDIT_ALLOW_DOMAINS`. |
 
 #### Request Tracking Environment Variables:
 
@@ -452,6 +461,10 @@ Audit emission is gated before publishing. Each drop is counted (not silent) in
   would re-trigger events indefinitely. Bucket-name matching is correct here
   because the audit bucket lives inside each customer's project — only Hermes
   can write to it (WORM), so nothing legitimate is lost.
+- **`domain_filtered`** — the entry's Keystone project domain is excluded by the
+  domain scope: it is listed in `AUDIT_DENY_DOMAINS`, or `AUDIT_ALLOW_DOMAINS` is
+  set and the domain is not in it. Domains match by ID or name. Use this to scope
+  the audit trail to specific tenants and reduce RabbitMQ volume.
 - **`no_tenant`** — events without a `project_id`/`domain_id` (see Tenant
   Enforcement above).
 - **`read`** — read operations (get/head/list) when `AUDIT_INCLUDE_READS=false`.
