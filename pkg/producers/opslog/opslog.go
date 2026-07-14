@@ -284,6 +284,10 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 		}
 
 		logEntry := logPool.Get().(*S3OperationLog)
+		// Reset the pooled instance: json.Unmarshal only sets fields present in
+		// the input, so omitted fields (e.g. keystone_scope) would otherwise
+		// retain values from a previously processed entry.
+		*logEntry = S3OperationLog{}
 		if err := json.Unmarshal([]byte(line), logEntry); err != nil {
 			log.Warn().Err(err).Str("raw", str).Msg("Skipping invalid JSON entry")
 			logPool.Put(logEntry)
