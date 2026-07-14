@@ -5,7 +5,7 @@ go 1.26
 require (
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/ceph/go-ceph v0.38.0
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/goccy/go-json v0.10.5
 	github.com/nats-io/nats-server/v2 v2.12.4
 	github.com/nats-io/nats.go v1.49.0
