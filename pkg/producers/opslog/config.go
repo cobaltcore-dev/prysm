@@ -62,6 +62,7 @@ type OpsLogConfig struct {
 	Prometheus                bool
 	PrometheusPort            int
 	PodName                   string
+	Region                    string // Deployment region for SLI metric labels (e.g. "eu-de-1")
 	IgnoreAnonymousRequests   bool
 	PrometheusIntervalSeconds int
 	MetricsConfig             MetricsConfig
@@ -73,6 +74,10 @@ type MetricsConfig struct {
 	// === SHORTCUT CONFIGS ===
 	TrackEverything bool `yaml:"track_everything"` // Enables all metrics at all levels
 	TrackBucketSLO  bool `yaml:"track_bucket_slo"` // Dedicated low-cardinality GET/LIST SLI metrics for Prometheus SLOs
+
+	// === BUCKET SLO COLLECTOR SETTINGS ===
+	BucketSLOStaleTTL     string `yaml:"bucket_slo_stale_ttl"`     // Duration after which idle series are reaped (default: 24h)
+	BucketSLOReapInterval string `yaml:"bucket_slo_reap_interval"` // How often the reaper runs (default: stale_ttl/4)
 
 	// === REQUEST METRICS ===
 	// Total requests

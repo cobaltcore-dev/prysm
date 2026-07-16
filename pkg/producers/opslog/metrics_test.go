@@ -3,9 +3,8 @@ package opslog
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -263,25 +262,51 @@ func TestMetricsUpdate_BasicFunctionality(t *testing.T) {
 	assert.Equal(t, 1, latencyCallCount, "LatencyObs should be called once")
 }
 
-func TestClassifyBucketSLOOperation(t *testing.T) {
+func TestClassifySLIOperation(t *testing.T) {
 	testCases := []struct {
 		name      string
 		operation string
-		expected  SLOperation
+		expected  SLIOperation
 		ok        bool
 	}{
-		{name: "get object", operation: "get_obj", expected: SLOperationGet, ok: true},
-		{name: "head object", operation: "head_obj", expected: SLOperationGet, ok: true},
-		{name: "list bucket", operation: "list_bucket", expected: SLOperationList, ok: true},
-		{name: "list buckets", operation: "list_buckets", expected: SLOperationList, ok: true},
-		{name: "bucket info", operation: "get_bucket_info", expected: SLOperationList, ok: true},
-		{name: "unsupported", operation: "put_obj", expected: "", ok: false},
+		{name: "get object", operation: "get_obj", expected: SLIOperationGet, ok: true},
+		{name: "head object", operation: "head_obj", expected: SLIOperationHead, ok: true},
+		{name: "list bucket", operation: "list_bucket", expected: SLIOperationList, ok: true},
+		{name: "list buckets", operation: "list_buckets", expected: SLIOperationList, ok: true},
+		{name: "bucket info", operation: "get_bucket_info", expected: SLIOperationList, ok: true},
+		{name: "put object", operation: "put_obj", expected: SLIOperationPut, ok: true},
+		{name: "delete object", operation: "delete_obj", expected: SLIOperationDelete, ok: true},
+		{name: "multipart init", operation: "init_multipart", expected: SLIOperationMultipart, ok: true},
+		{name: "swift get", operation: "swift_get_obj", expected: SLIOperationGet, ok: true},
+		{name: "swift put", operation: "swift_put_obj", expected: SLIOperationPut, ok: true},
+		{name: "unsupported", operation: "create_bucket", expected: "", ok: false},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual, ok := classifyBucketSLOOperation(tc.operation)
+			actual, ok := classifySLIOperation(tc.operation)
 			assert.Equal(t, tc.ok, ok)
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestDetectProtocol(t *testing.T) {
+	testCases := []struct {
+		name      string
+		operation string
+		expected  SLIProtocol
+	}{
+		{name: "s3 get", operation: "get_obj", expected: SLIProtocolS3},
+		{name: "s3 put", operation: "put_obj", expected: SLIProtocolS3},
+		{name: "swift get", operation: "swift_get_obj", expected: SLIProtocolSwift},
+		{name: "swift put", operation: "swift_put_obj", expected: SLIProtocolSwift},
+		{name: "swift list", operation: "swift_list_bucket", expected: SLIProtocolSwift},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := detectProtocol(tc.operation)
 			assert.Equal(t, tc.expected, actual)
 		})
 	}
@@ -319,6 +344,13 @@ func TestStatusClass(t *testing.T) {
 }
 
 func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
+	// Set up a test collector (bypass prometheus registration)
+	prev := globalSLICollector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL: 24 * time.Hour,
+	})
+	t.Cleanup(func() { globalSLICollector = prev })
+
 	config := &MetricsConfig{TrackBucketSLO: true}
 	logEntry := S3OperationLog{
 		Bucket:     "bucket-slo-test",
@@ -328,19 +360,24 @@ func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
 		TotalTime:  150,
 	}
 
-	beforeCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-test", "bucket-slo-test", "get", "2xx")
-	beforeHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-test", "bucket-slo-test", "get")
+	// Counter is now keyed by tenant+protocol+operation+status_class (no bucket)
+	beforeCounter := globalSLICollector.counterValue("tenant-slo-test", "s3", "get", "2xx")
 	assert.NotPanics(t, func() {
 		NewMetrics().Update(logEntry, config)
 	})
-	afterCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-test", "bucket-slo-test", "get", "2xx")
-	afterHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-test", "bucket-slo-test", "get")
+	afterCounter := globalSLICollector.counterValue("tenant-slo-test", "s3", "get", "2xx")
 
 	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment")
-	assert.Equal(t, beforeHist+1, afterHist, "SLI histogram should record a sample")
 }
 
 func TestMetricsUpdate_TrackBucketSLO_ZeroLatency(t *testing.T) {
+	// Set up a test collector
+	prev := globalSLICollector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL: 24 * time.Hour,
+	})
+	t.Cleanup(func() { globalSLICollector = prev })
+
 	config := &MetricsConfig{TrackBucketSLO: true}
 	logEntry := S3OperationLog{
 		Bucket:     "bucket-slo-zero",
@@ -350,40 +387,60 @@ func TestMetricsUpdate_TrackBucketSLO_ZeroLatency(t *testing.T) {
 		TotalTime:  0, // sub-ms or missing timing
 	}
 
-	beforeCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-zero", "bucket-slo-zero", "get", "2xx")
-	beforeHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-zero", "bucket-slo-zero", "get")
+	beforeCounter := globalSLICollector.counterValue("tenant-slo-zero", "s3", "get", "2xx")
 	NewMetrics().Update(logEntry, config)
-	afterCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-zero", "bucket-slo-zero", "get", "2xx")
-	afterHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-zero", "bucket-slo-zero", "get")
+	afterCounter := globalSLICollector.counterValue("tenant-slo-zero", "s3", "get", "2xx")
 
 	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment even with zero latency")
-	assert.Equal(t, beforeHist+1, afterHist, "SLI histogram should record a sample even with zero latency")
 }
 
-func readCounterValue(t *testing.T, counter *prometheus.CounterVec, labelValues ...string) float64 {
-	t.Helper()
+func TestSLICollector_StaleSeriesNotEmitted(t *testing.T) {
+	collector := newSLICollector(SLICollectorConfig{
+		StaleTTL: 1 * time.Millisecond, // very short for testing
+	})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
 
-	metric, err := counter.GetMetricWithLabelValues(labelValues...)
-	assert.NoError(t, err)
+	// Observe a request
+	collector.observeCounter("t1", "s3", "get", "2xx")
 
-	dtoMetric := &dto.Metric{}
-	assert.NoError(t, metric.Write(dtoMetric))
-	return dtoMetric.GetCounter().GetValue()
+	// Verify series exists before going stale
+	countersBefore := collector.collectCounterMetrics()
+	sliBefore := findCounterByLabels(countersBefore, "t1", "s3", "get", "2xx")
+	assert.NotNil(t, sliBefore, "SLI counter should be emitted while active")
+
+	// Wait for the series to become stale
+	time.Sleep(5 * time.Millisecond)
+
+	// Collect — stale series should not be emitted
+	countersAfter := collector.collectCounterMetrics()
+	sliAfter := findCounterByLabels(countersAfter, "t1", "s3", "get", "2xx")
+	assert.Nil(t, sliAfter, "Stale SLI counter should not be emitted")
 }
 
-func readHistogramSampleCount(t *testing.T, hist *prometheus.HistogramVec, labelValues ...string) uint64 {
-	t.Helper()
+func TestSLICollector_Reap(t *testing.T) {
+	collector := newSLICollector(SLICollectorConfig{
+		StaleTTL: 1 * time.Millisecond,
+	})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
 
-	observer, err := hist.GetMetricWithLabelValues(labelValues...)
-	assert.NoError(t, err)
+	// Observe requests for multiple operations
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	collector.observeCounter("t1", "swift", "list", "2xx")
 
-	// prometheus.Histogram implements prometheus.Metric
-	metric, ok := observer.(prometheus.Metric)
-	assert.True(t, ok, "observer should implement prometheus.Metric")
+	counters := collector.seriesCount()
+	assert.Equal(t, 2, counters, "Should have 2 counter series")
 
-	dtoMetric := &dto.Metric{}
-	assert.NoError(t, metric.Write(dtoMetric))
-	return dtoMetric.GetHistogram().GetSampleCount()
+	// Wait for series to become stale, then reap
+	time.Sleep(5 * time.Millisecond)
+	collector.reap()
+
+	counters = collector.seriesCount()
+	assert.Equal(t, 0, counters, "Reaped counters should be 0")
+	assert.Equal(t, uint64(2), collector.reapedTotal.Load(), "Should report 2 reaped series")
 }
 
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {
