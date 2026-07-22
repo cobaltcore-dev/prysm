@@ -6,14 +6,12 @@ package opslog
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	json "github.com/goccy/go-json"
@@ -258,46 +256,18 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 		return lastOffset, fmt.Errorf("failed to seek log file: %w", err)
 	}
 
-	// reader := bufio.NewReader(file)
 	reader := bufio.NewReaderSize(file, 64*1024)
-	var newOffset = lastOffset
 
-	logPool := sync.Pool{
-		New: func() any { return new(S3OperationLog) },
-	}
-
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return newOffset, fmt.Errorf("error reading log file: %w", err)
-		}
-
-		// Update offset
-		newOffset += int64(len(line))
-
-		str := strings.TrimSpace(string(line))
-		if len(str) < 2 || str[0] != '{' || str[len(str)-1] != '}' {
-			continue
-		}
-
-		logEntry := logPool.Get().(*S3OperationLog)
-		// Reset the pooled instance: json.Unmarshal only sets fields present in
-		// the input, so omitted fields (e.g. keystone_scope) would otherwise
-		// retain values from a previously processed entry.
-		*logEntry = S3OperationLog{}
-		if err := json.Unmarshal([]byte(line), logEntry); err != nil {
-			log.Warn().Err(err).Str("raw", str).Msg("Skipping invalid JSON entry")
-			logPool.Put(logEntry)
-			continue
-		}
-
+	// RGW writes the ops log as a stream of JSON objects that are not reliably
+	// newline-separated — consecutive entries are often concatenated as
+	// `{...}{...}`. decodeOpsLogEntries yields one complete object at a time and
+	// reports the byte offset just past the last COMPLETE object, so a partial
+	// tail write is neither lost nor double-counted.
+	consumed := decodeOpsLogEntries(reader, func(raw json.RawMessage, logEntry *S3OperationLog) {
 		// Ignore anonymous requests if configured
 		if cfg.IgnoreAnonymousRequests && logEntry.User == "anonymous" {
 			log.Trace().Str("user", logEntry.User).Msg("Skipping anonymous request")
-			continue
+			return
 		}
 
 		// Normalize bucket name before processing
@@ -357,22 +327,9 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 			}
 		}
 
-		logPool.Put(logEntry)
-
 		// Print to stdout if enabled
 		if cfg.LogToStdout {
-			if cfg.LogPrettyPrint {
-				var buf bytes.Buffer
-				if err := json.NewEncoder(&buf).Encode(json.RawMessage(str)); err == nil {
-					var pretty bytes.Buffer
-					if err := json.Indent(&pretty, buf.Bytes(), "", "  "); err == nil {
-						fmt.Println(pretty.String())
-					}
-				}
-			} else {
-				// Print the raw line
-				fmt.Println(str)
-			}
+			printOpsLogLine(raw, cfg.LogPrettyPrint)
 		}
 
 		// Publish raw log entry to NATS
@@ -381,7 +338,9 @@ func processLogEntries(cfg OpsLogConfig, nc *nats.Conn, watcher *fsnotify.Watche
 				log.Error().Err(err).Msg("Error publishing log entry to NATS")
 			}
 		}
-	}
+	})
+
+	newOffset := lastOffset + consumed
 
 	// Rotate log file if needed
 	rotateLogIfNeeded(cfg, watcher)
