@@ -42,19 +42,19 @@ func processFixture(t *testing.T, scenario, device string) map[string]SmartAttri
 // them, so the series never reached Prometheus at all.
 func TestNVMeDataProcessedAttributes(t *testing.T) {
 	testCases := []struct {
-		scenario     string
-		device       string
-		expectedRead int64
-		expectedWmit int64
+		scenario      string
+		device        string
+		expectedRead  int64
+		expectedWrite int64
 	}{
 		// Expected values are data_units * 512000 / 1e9, truncated — the same
 		// decimal-GB conversion smartctl prints for NVMe.
-		{scenario: "healthy", device: "nvme0", expectedRead: 29853, expectedWmit: 23317},
-		{scenario: "healthy", device: "nvme1", expectedRead: 29853, expectedWmit: 23317},
-		{scenario: "mixed", device: "nvme0", expectedRead: 81053, expectedWmit: 125717},
-		{scenario: "mixed", device: "nvme1", expectedRead: 14493, expectedWmit: 7957},
-		{scenario: "failing", device: "nvme0", expectedRead: 439453, expectedWmit: 484117},
-		{scenario: "failing", device: "nvme1", expectedRead: 644253, expectedWmit: 1252117},
+		{scenario: "healthy", device: "nvme0", expectedRead: 29853, expectedWrite: 23317},
+		{scenario: "healthy", device: "nvme1", expectedRead: 29853, expectedWrite: 23317},
+		{scenario: "mixed", device: "nvme0", expectedRead: 81053, expectedWrite: 125717},
+		{scenario: "mixed", device: "nvme1", expectedRead: 14493, expectedWrite: 7957},
+		{scenario: "failing", device: "nvme0", expectedRead: 439453, expectedWrite: 484117},
+		{scenario: "failing", device: "nvme1", expectedRead: 644253, expectedWrite: 1252117},
 	}
 
 	for _, tc := range testCases {
@@ -69,8 +69,8 @@ func TestNVMeDataProcessedAttributes(t *testing.T) {
 
 			writeAttr, ok := smartAttrs["write_gigabytes_processed"]
 			require.True(t, ok, "write_gigabytes_processed must survive cleanup for NVMe devices")
-			assert.Equal(t, tc.expectedWmit, writeAttr.RawValue, "write GB (RawValue is what Prometheus exports)")
-			assert.Equal(t, tc.expectedWmit, writeAttr.Value, "write GB")
+			assert.Equal(t, tc.expectedWrite, writeAttr.RawValue, "write GB (RawValue is what Prometheus exports)")
+			assert.Equal(t, tc.expectedWrite, writeAttr.Value, "write GB")
 			assert.Equal(t, "GB", writeAttr.Unit, "must match the decimal GB the SCSI path reports")
 		})
 	}
@@ -81,13 +81,13 @@ func TestNVMeDataProcessedAttributes(t *testing.T) {
 // scsi_error_counter_log.{read,write}.gigabytes_processed, truncated to int64.
 func TestSCSIDataProcessedAttributes(t *testing.T) {
 	testCases := []struct {
-		scenario     string
-		expectedRead int64
-		expectedWmit int64
+		scenario      string
+		expectedRead  int64
+		expectedWrite int64
 	}{
-		{scenario: "healthy", expectedRead: 84858, expectedWmit: 23105},
-		{scenario: "mixed", expectedRead: 12345, expectedWmit: 6789},
-		{scenario: "failing", expectedRead: 484858, expectedWmit: 123105},
+		{scenario: "healthy", expectedRead: 84858, expectedWrite: 23105},
+		{scenario: "mixed", expectedRead: 12345, expectedWrite: 6789},
+		{scenario: "failing", expectedRead: 484858, expectedWrite: 123105},
 	}
 
 	for _, tc := range testCases {
@@ -101,7 +101,7 @@ func TestSCSIDataProcessedAttributes(t *testing.T) {
 
 			writeAttr, ok := smartAttrs["write_gigabytes_processed"]
 			require.True(t, ok, "write_gigabytes_processed must be present for SCSI devices")
-			assert.Equal(t, tc.expectedWmit, writeAttr.RawValue)
+			assert.Equal(t, tc.expectedWrite, writeAttr.RawValue)
 			assert.Equal(t, "GB", writeAttr.Unit)
 		})
 	}
