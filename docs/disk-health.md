@@ -253,4 +253,12 @@ This works with both direct block devices and LVM logical volumes.
 
 For NVMe devices, `smart_attributes` includes `critical_warning`, `available_spare`, `available_spare_threshold`, and vendor IDs in hex.
 
+`smart_attributes{attribute="read_gigabytes_processed"}` and
+`smart_attributes{attribute="write_gigabytes_processed"}` report throughput in
+decimal GB for both SAS/SCSI and NVMe devices, so they can be ranked against
+each other. SAS/SCSI values come from the SCSI error counter log; NVMe values
+are converted from the health log's `data_units_read` / `data_units_written`
+(one data unit is 512000 bytes). ATA devices report neither counter, so the
+attributes are absent rather than zero.
+
 Full list: [metrics reference](../pkg/producers/diskhealthmetrics/README.md).

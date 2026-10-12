@@ -81,6 +81,12 @@ optional `osd_id` label when Ceph integration is enabled:
     `available_spare`, `available_spare_threshold`
   - Vendor IDs stored as decimal values (e.g., `nvme_vendor_id`,
     `nvme_subsystem_vendor_id`)
+  - `read_gigabytes_processed` / `write_gigabytes_processed` report throughput
+    in decimal GB on both SAS/SCSI and NVMe. SAS/SCSI reads them from the SCSI
+    error counter log; NVMe converts the health log's `data_units_read` /
+    `data_units_written`, where one data unit is 512000 bytes. ATA devices
+    expose neither counter, so the attributes are dropped rather than
+    reported as zero.
 - **disk_temperature_celsius**: Monitors disk temperature in Celsius
 - **disk_reallocated_sectors**: Tracks the number of reallocated sectors
 - **disk_pending_sectors**: Monitors the number of pending sectors
