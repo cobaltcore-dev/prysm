@@ -39,7 +39,7 @@ jobs:
       # Metadata for Prysm (Main Image)
       - name: Docker meta (Prysm)
         id: meta_prysm
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -64,7 +64,7 @@ jobs:
       # Metadata for ops-log-k8s-mutating-wh (Webhook Image)
       - name: Docker meta (Webhook)
         id: meta_webhook
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-webhook
           tags: |
