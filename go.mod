@@ -12,7 +12,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/rs/zerolog v1.34.0
-	github.com/sapcc/go-api-declarations v1.24.0
+	github.com/sapcc/go-api-declarations v1.25.0
 	github.com/sapcc/go-bits v0.0.0-20260623114633-b9734b46a368
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/spf13/cobra v1.10.2
@@ -57,7 +57,7 @@ require (
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	go.xyrillian.de/gg v1.10.1 // indirect
+	go.xyrillian.de/gg v1.13.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
