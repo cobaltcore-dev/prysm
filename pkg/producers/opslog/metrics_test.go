@@ -531,6 +531,71 @@ func TestSLICollector_Reap(t *testing.T) {
 	assert.Equal(t, uint64(2), collector.reapedTotal.Load(), "Should report 2 reaped series")
 }
 
+func TestSLICollector_ReapPreservesCounterAcrossIdle(t *testing.T) {
+	// A tenant that goes idle (series reaped) and later returns must resume
+	// from its previous cumulative total, not zero — otherwise the monthly
+	// increase()-based SLO loses the requests recorded before the idle
+	// period (review finding: "Reaping stale counters resets monthly request
+	// totals").
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	for i := 0; i < 5; i++ {
+		collector.observeCounter("t1", "s3", "get", "2xx")
+	}
+
+	// Force staleness deterministically: age the series beyond StaleTTL.
+	collector.mu.Lock()
+	for _, state := range collector.counters {
+		state.lastSeen = time.Now().Add(-48 * time.Hour)
+	}
+	collector.mu.Unlock()
+	collector.reap()
+
+	assert.Equal(t, 0, collector.seriesCount(), "stale series should be reaped")
+
+	// Tenant returns after the idle period: the series must continue from 5.
+	for i := 0; i < 3; i++ {
+		collector.observeCounter("t1", "s3", "get", "2xx")
+	}
+	assert.Equal(t, float64(8), collector.counterValue("t1", "s3", "get", "2xx"),
+		"counter must resume from its pre-idle cumulative value, not reset to zero")
+}
+
+func TestSLICollector_TombstoneExpiry(t *testing.T) {
+	// Tombstones expire after sliTombstoneTTL (30d). Beyond that, a 30-day
+	// query window cannot span the idle gap, so restarting at zero is safe.
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	collector.observeCounter("t1", "s3", "get", "2xx")
+
+	// Age out the series, reap, then age out the tombstone itself.
+	collector.mu.Lock()
+	for _, state := range collector.counters {
+		state.lastSeen = time.Now().Add(-48 * time.Hour)
+	}
+	collector.mu.Unlock()
+	collector.reap()
+
+	collector.mu.Lock()
+	for key, ts := range collector.tombstones {
+		ts.reapedAt = time.Now().Add(-(sliTombstoneTTL + time.Hour))
+		collector.tombstones[key] = ts
+	}
+	collector.mu.Unlock()
+	collector.reap() // expires the aged-out tombstone
+
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "2xx"),
+		"counter restarts at zero once its tombstone has expired")
+}
+
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {
 	config := &MetricsConfig{
 		TrackErrorsDetailed: true,

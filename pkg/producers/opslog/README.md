@@ -408,6 +408,15 @@ to prevent unbounded series growth:
 - The reaper runs periodically (default: `stale-ttl/4`, clamped to a minimum
   of one minute) to clean up idle series
 - This ensures deleted or abandoned tenants do not accumulate forever
+- **Counters are tombstoned, not forgotten**: when a request counter is
+  reaped, its cumulative value is kept in a lightweight tombstone (bounded by
+  a 30-day TTL matching the monthly SLO window). A tenant returning after an
+  idle period resumes from its previous total, so the exported
+  `radosgw_request_total` series stays monotonic and the 30-day
+  `increase()`-based SLO does not lose requests recorded before the idle
+  period. Latency histograms are reaped without tombstones — they are
+  consumed via short-window `rate()` queries, which an idle gap already
+  excludes.
 
 > **Note**: Histogram metrics do **not** include the `pod` label to reduce
 > cardinality. Each histogram automatically provides `_bucket`, `_count`, and

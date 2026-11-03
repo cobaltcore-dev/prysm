@@ -16,8 +16,11 @@ import (
 
 // SLICollectorConfig holds configuration for the SLI collector.
 type SLICollectorConfig struct {
-	// StaleTTL is the duration after which a series with no updates is reaped entirely.
-	// This prevents unbounded growth from tenants with no traffic.
+	// StaleTTL is the duration after which a series with no updates stops
+	// being emitted and is reaped from memory. This prevents unbounded
+	// growth from tenants with no traffic. Reaped counters leave a tombstone
+	// behind (see sliTombstoneTTL) so their cumulative value survives the
+	// idle period.
 	StaleTTL time.Duration
 	// ReapInterval controls how often the reaper goroutine runs. Defaults to StaleTTL/4.
 	ReapInterval time.Duration
@@ -46,6 +49,32 @@ type sliCounterState struct {
 	lastSeen time.Time
 }
 
+// sliCounterTombstone preserves the cumulative value of a reaped counter so
+// that a tenant resuming traffic after an idle period continues from its
+// previous total instead of restarting at zero. Without this, the Prometheus
+// series would reset to zero on resume and the documented 30-day
+// increase()-based SLO would silently lose the requests recorded before the
+// idle period (counter-reset compensation is not guaranteed across a
+// staleness gap).
+type sliCounterTombstone struct {
+	value    uint64
+	reapedAt time.Time
+}
+
+// sliTombstoneTTL bounds how long a reaped counter's cumulative value is
+// remembered. It must be at least as long as the longest SLO query window
+// (the documented monthly SLO uses increase(...[30d])):
+//
+//   - Idle ≤ TTL: the tombstone survives, the series resumes monotonically,
+//     and increase() is exact across the gap.
+//   - Idle > TTL: the tombstone expires and the series restarts at zero —
+//     but a 30-day window cannot then contain both pre- and post-gap
+//     samples (the gap alone already exceeds the window), so no 30-day
+//     query observes the discontinuity.
+//
+// Memory stays bounded to roughly one TTL of idle counter keys.
+const sliTombstoneTTL = 30 * 24 * time.Hour
+
 // sliLatencyState holds histogram bucket accumulators.
 type sliLatencyState struct {
 	// Fixed histogram buckets per ADR: 0.05, 0.1, 0.5, 1, 5, 30, +Inf
@@ -64,9 +93,10 @@ var sliHistogramBounds = [7]float64{0.05, 0.1, 0.5, 1.0, 5.0, 30.0, math.MaxFloa
 //   - radosgw_request_duration_seconds{tenant, protocol, operation, region} (histogram)
 //   - radosgw_sli_stale_series_reaped_total (housekeeping counter)
 type sliCollector struct {
-	mu       sync.RWMutex
-	counters map[sliCounterKey]*sliCounterState
-	latency  map[sliLatencyKey]*sliLatencyState
+	mu         sync.RWMutex
+	counters   map[sliCounterKey]*sliCounterState
+	latency    map[sliLatencyKey]*sliLatencyState
+	tombstones map[sliCounterKey]sliCounterTombstone
 
 	config        SLICollectorConfig
 	counterDesc   *prometheus.Desc
@@ -99,9 +129,10 @@ func newSLICollector(cfg SLICollectorConfig) *sliCollector {
 	}
 
 	c := &sliCollector{
-		counters: make(map[sliCounterKey]*sliCounterState),
-		latency:  make(map[sliLatencyKey]*sliLatencyState),
-		config:   cfg,
+		counters:   make(map[sliCounterKey]*sliCounterState),
+		latency:    make(map[sliLatencyKey]*sliLatencyState),
+		tombstones: make(map[sliCounterKey]sliCounterTombstone),
+		config:     cfg,
 		counterDesc: prometheus.NewDesc(
 			"radosgw_request_total",
 			"RGW data-plane requests for SLI/SLO evaluation, aggregated per tenant. Only data-plane operations (get, put, list, delete, head, multipart) are counted; control-plane ops (create_bucket, delete_bucket, ACL, policy, lifecycle, etc.) are excluded from both numerator and denominator.",
@@ -208,6 +239,12 @@ func (c *sliCollector) observeCounter(tenant, protocol, operation, statusClass s
 	cs, ok := c.counters[counterKey]
 	if !ok {
 		cs = &sliCounterState{}
+		// Resume from a reaped counter's tombstone (if any) so the exported
+		// series stays monotonic across idle periods — see sliCounterTombstone.
+		if ts, ok := c.tombstones[counterKey]; ok {
+			cs.value = ts.value
+			delete(c.tombstones, counterKey)
+		}
 		c.counters[counterKey] = cs
 	}
 	cs.value++
@@ -265,6 +302,12 @@ func (c *sliCollector) startReaper() {
 }
 
 // reap removes series that haven't been updated within StaleTTL.
+// Reaped counters leave a tombstone carrying their cumulative value, so a
+// tenant returning after an idle period resumes its previous total rather
+// than resetting the Prometheus series to zero. Latency histograms are
+// deleted outright: they are consumed via short-window rate() queries,
+// which an idle gap already excludes, and resuming stale bucket counts
+// would skew fresh latency quantiles.
 func (c *sliCollector) reap() {
 	now := time.Now()
 	var reaped uint64
@@ -272,8 +315,20 @@ func (c *sliCollector) reap() {
 	c.mu.Lock()
 	for key, state := range c.counters {
 		if now.Sub(state.lastSeen) > c.config.StaleTTL {
+			// Preserve the cumulative value so a later resume continues the
+			// series monotonically instead of resetting to zero (which
+			// would drop pre-idle requests from the monthly increase()-
+			// based SLO).
+			c.tombstones[key] = sliCounterTombstone{value: state.value, reapedAt: now}
 			delete(c.counters, key)
 			reaped++
+		}
+	}
+	// Expire tombstones that have outlived the SLO query window they exist
+	// to protect (see sliTombstoneTTL).
+	for key, ts := range c.tombstones {
+		if now.Sub(ts.reapedAt) > sliTombstoneTTL {
+			delete(c.tombstones, key)
 		}
 	}
 	for key, state := range c.latency {
