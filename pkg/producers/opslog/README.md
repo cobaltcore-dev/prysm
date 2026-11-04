@@ -72,6 +72,13 @@ prysm local-producer ops-log [flags]
 - `--bucket-slo-reap-interval "6h"` - How often the background reaper runs to
   remove stale series from memory (default: `stale-ttl/4`, minimum `1m` —
   values below one minute are clamped).
+- `--bucket-slo-error-code-allowlist "InternalError,ServiceUnavailable"` -
+  Comma-separated (or repeated) RGW error codes whose 5xx responses count
+  against the availability SLO (`status_class="5xx"`). All other server errors
+  (e.g. `NotImplemented`, `InsufficientCapacity`) are routed to
+  `status_class="excluded_5xx"` and excluded from the SLO numerator.
+  Case-sensitive; defaults to the AWS S3 SLA error set
+  (`InternalError,ServiceUnavailable`).
 - `--track-timeout-errors` - Enable tracking of timeout errors (408, 504, 598,
   499) for OSD issue detection.
 - `--track-errors-by-category` - Enable error categorization (timeout,
@@ -286,6 +293,7 @@ prysm local-producer ops-log \
 | `TRACK_BUCKET_SLO`                            | Track low-cardinality per-tenant SLI metrics (protocol/operation/status_class) for Prometheus SLOs. |
 | `BUCKET_SLO_STALE_TTL`                        | Duration after which idle SLI series are reaped (default: `24h`). |
 | `BUCKET_SLO_REAP_INTERVAL`                    | How often the reaper runs to remove stale series (default: `stale-ttl/4`, minimum `1m` — values below one minute are clamped). |
+| `BUCKET_SLO_ERROR_CODE_ALLOWLIST`             | Comma-separated RGW error codes whose 5xx responses count against the availability SLO (default: `InternalError,ServiceUnavailable`; case-sensitive). |
 | `REGION`                                      | Deployment region label for SLI metrics (optional; defaults to `unknown`). |
 
 ## Metrics Collected
@@ -394,7 +402,7 @@ prysm local-producer ops-log \
 
 | Metric Name                                   | Type      | Labels                                                      | Description                                                        |
 |-----------------------------------------------|-----------|-------------------------------------------------------------|--------------------------------------------------------------------|
-| `radosgw_request_total`                     | Counter   | `tenant`, `protocol`, `operation`, `status_class`, `region` | Per-tenant SLI request counter for object level data-plane operations (get/put/list/delete/head/multipart), with protocol label (`s3`/`swift`). |
+| `radosgw_request_total`                     | Counter   | `tenant`, `protocol`, `operation`, `status_class`, `region` | Per-tenant SLI request counter for object level data-plane operations (get/put/list/delete/head/multipart), with protocol label (`s3`/`swift`). `status_class` values: `1xx, 2xx, 3xx, 4xx, throttled, 5xx, excluded_5xx, unknown`. The `5xx` class is an **error-code allowlist**: only requests whose ops-log `error_code` is in the allowlist (default: `InternalError`, `ServiceUnavailable` — the AWS S3 SLA error set) count against the availability SLO. Throttling (S3 `503 SlowDown`, Swift `498`, HTTP `429`) goes to `throttled`; all other server errors (e.g. `501 NotImplemented`, `507 InsufficientCapacity`, RGW's catch-all `UnknownError`) go to `excluded_5xx` — visible in the metric but excluded from the SLO numerator. |
 | `radosgw_request_duration_seconds`          | Histogram | `tenant`, `protocol`, `operation`, `region`                 | Latency histogram (7 fixed buckets: 0.05, 0.1, 0.5, 1, 5, 30, +Inf) for SLO evaluation. |
 | `radosgw_sli_stale_series_reaped_total`     | Counter   | *(none)*                                                    | Total number of stale SLI series that have been reaped by the background reaper. |
 
@@ -408,19 +416,107 @@ to prevent unbounded series growth:
 - The reaper runs periodically (default: `stale-ttl/4`, clamped to a minimum
   of one minute) to clean up idle series
 - This ensures deleted or abandoned tenants do not accumulate forever
-- **Counters are tombstoned, not forgotten**: when a request counter is
-  reaped, its cumulative value is kept in a lightweight tombstone (bounded by
-  a 30-day TTL matching the monthly SLO window). A tenant returning after an
-  idle period resumes from its previous total, so the exported
-  `radosgw_request_total` series stays monotonic and the 30-day
-  `increase()`-based SLO does not lose requests recorded before the idle
-  period. Latency histograms are reaped without tombstones — they are
+- **Reaped counters restart at zero**: when a request counter is reaped
+  (idle > `stale-ttl`), it is fully removed from memory; a tenant returning
+  after an idle period starts a fresh series. This is safe for the AWS-method
+  SLO: the monthly figure is computed from per-5-minute interval rates
+  recorded in Prometheus (`sum_over_time/N`), never from a long-window
+  `increase()` over the raw counters, and idle intervals count as 0% error by
+  definition. Prometheus marks the old series stale, so no query observes a
+  discontinuity. Latency histograms are likewise reaped outright — they are
   consumed via short-window `rate()` queries, which an idle gap already
   excludes.
 
 > **Note**: Histogram metrics do **not** include the `pod` label to reduce
 > cardinality. Each histogram automatically provides `_bucket`, `_count`, and
 > `_sum` metrics for comprehensive latency analysis.
+
+#### SLO Calculation — Availability (AWS S3 SLA method)
+
+The availability SLI follows the AWS S3 SLA convention: a per-5-minute-interval
+error rate, averaged over the calendar month, with **zero-traffic intervals
+counted as 0% error**. The numerator is backend errors only, selected by an
+**error-code allowlist** on `status_class="5xx"`.
+
+##### Error classification (numerator definition)
+
+The AWS S3 SLA counts only error status `InternalError` and
+`ServiceUnavailable` — not `SlowDown`, `NotImplemented`, or capacity errors.
+prysm implements this via the ops-log `error_code` field, which RGW writes for
+every failed request (`rgw_log.cc`):
+
+| Ops-log `error_code`        | HTTP | RGW source                                   | `status_class`  | Counts against SLO |
+|-----------------------------|------|----------------------------------------------|-----------------|--------------------|
+| `InternalError`             | 500  | `ERR_INTERNAL_ERROR`                          | `5xx`           | yes (default)      |
+| `ServiceUnavailable`        | 503  | `ERR_SERVICE_UNAVAILABLE` **and** `EBUSY`     | `5xx`           | yes (default)      |
+| `SlowDown`                  | 503  | `ERR_RATE_LIMITED` (rate_limit / dmclock)     | `throttled`     | no                 |
+| `Rate Limited` (Swift)      | 498  | `ERR_RATE_LIMITED` on the Swift endpoint      | `throttled`     | no                 |
+| `NotImplemented`            | 501  | `ERR_NOT_IMPLEMENTED`                         | `excluded_5xx`  | no                 |
+| `InsufficientCapacity`      | 507  | `EDQUOT` / `ENOSPC` (quota / no space)        | `excluded_5xx`  | no                 |
+| `UnknownError`              | 500  | RGW catch-all for unmapped errnos             | `excluded_5xx`  | no (see note)      |
+| *(empty)*                   | 5xx  | — (RGW always logs a code for failures)       | `5xx`           | yes (fail-safe)    |
+
+Notes:
+
+- **One allowlist covers both protocols**: for 5xx errnos, Swift requests fall
+  through `rgw_http_swift_errors` to `rgw_http_s3_errors`
+  (`set_req_state_err`), so the code strings are identical. Only rate limiting
+  differs (`498 Rate Limited`), and it is classified as `throttled` by status.
+- **Fail-safe rule**: a 5xx with an *empty* `error_code` is counted, not
+  excluded. RGW always logs a code for failed requests, so an empty code means
+  degraded telemetry (e.g. log-format drift after an RGW upgrade) — missing
+  data must never look like availability.
+- **`UnknownError` caveat**: RGW's catch-all for unclassifiable internal
+  errors is *not* in the default allowlist (the AWS definition names exactly
+  two codes). If you want novel/unmapped internal errors counted, add it:
+  `--bucket-slo-error-code-allowlist "InternalError,ServiceUnavailable,UnknownError"`.
+  Review the allowlist when upgrading RGW — new error codes default to
+  `excluded_5xx` until added.
+- **Visibility**: `excluded_5xx` keeps non-SLA server errors observable
+  (`increase(radosgw_request_total{status_class=~"5xx|excluded_5xx"}[5m])` is
+  all server errors) without polluting the SLO numerator. Per-status detail
+  remains available via the `--track-requests-detailed` metrics.
+
+Recording rules:
+
+```promql
+# (1) per-interval error rate. Idle handling: tenants idle shorter than
+#     bucket_slo_stale_ttl still export a flat counter (increase = 0), and
+#     0/0 would evaluate to NaN — NaN never satisfies "> threshold", so
+#     error-budget alerts would silently stop firing. clamp_min(denominator, 1)
+#     turns a no-traffic interval into an explicit 0% error rate (the AWS
+#     "zero requests = 100% available" clause). Tenants reaped after the
+#     stale TTL emit no sample at all; rule (2) counts those as 0% too.
+- record: rgw:sli_error_rate:ratio_rate5m
+  expr: |
+    sum by (tenant, region) (increase(radosgw_request_total{status_class="5xx"}[5m]))
+    /
+    clamp_min(sum by (tenant, region) (increase(radosgw_request_total[5m])), 1)
+
+# (2) monthly uptime: sum (NOT avg) over time ÷ fixed calendar interval count
+#     N = 288 × days_in_month (8640 for a 30-day window)
+100 * (1 - sum_over_time(rgw:sli_error_rate:ratio_rate5m[30d:5m]) / 8640)
+```
+
+Why `sum_over_time(...) / N` and **not** `avg_over_time(...)`: the reaper stops
+exporting idle tenants, so Prometheus holds no samples for idle intervals.
+`avg_over_time` would average over *observed* intervals only — silently
+re-weighting a tenant's few active intervals to 100% of the month. Dividing the
+*sum* of interval rates by the fixed calendar interval count implements the
+"zero-traffic interval = 0% error" clause exactly: missing samples contribute
+nothing to the sum. The subquery step (`5m`) must match the recording-rule
+evaluation interval. Use `days_in_month()` for other month lengths; for strict
+calendar-month windows compute month-to-date externally (PromQL has no native
+calendar-month range selector).
+
+A 5-minute `rate()`-style dashboard variant of (1) is suitable for fast-burn
+alerting; throttling should be alerted on separately:
+
+```promql
+sum by (tenant) (increase(radosgw_request_total{status_class="throttled"}[5m]))
+/ clamp_min(sum by (tenant) (increase(radosgw_request_total[5m])), 1)
+```
+
 
 ### Memory Efficiency Architecture
 

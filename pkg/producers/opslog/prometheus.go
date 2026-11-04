@@ -117,8 +117,9 @@ func StartPrometheusServer(port int, cfg *OpsLogConfig) {
 // buildSLICollectorConfig constructs an SLICollectorConfig from MetricsConfig string fields.
 func buildSLICollectorConfig(mc *MetricsConfig, region string) SLICollectorConfig {
 	cfg := SLICollectorConfig{
-		StaleTTL: 24 * time.Hour,
-		Region:   region,
+		StaleTTL:           24 * time.Hour,
+		Region:             region,
+		ErrorCodeAllowlist: mc.BucketSLOErrorCodeAllowlist,
 	}
 
 	if mc.BucketSLOStaleTTL != "" {

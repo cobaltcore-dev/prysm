@@ -144,12 +144,88 @@ func requestTarget(uri string) string {
 	return strings.TrimSpace(uri)
 }
 
-func statusClass(status string) string {
+// defaultSLIErrorCodeAllowlist is the default set of RGW error codes whose
+// requests count against the availability SLO (status_class "5xx"). It mirrors
+// the AWS S3 SLA error definition verbatim: only InternalError and
+// ServiceUnavailable are errors for SLA purposes.
+//
+// Notably absent (and therefore excluded from the SLO numerator):
+//   - "SlowDown"            — S3 throttling (503), routed to the "throttled" class
+//   - "NotImplemented"      — 501, the operation is not supported; not a
+//     backend availability failure
+//   - "InsufficientCapacity" — 507 (EDQUOT/ENOSPC), tenant quota or cluster
+//     capacity exhaustion; not a service-side fault in the SLA sense
+//   - "UnknownError"        — RGW's catch-all for unmapped errnos (see the
+//     fallback in set_req_state_err, rgw_common.cc); add it to the allowlist
+//     if you want unclassifiable internal errors counted too
+//
+// RGW protocol tables share these code strings: Swift requests fall through
+// rgw_http_swift_errors to rgw_http_s3_errors for every 5xx errno, so one
+// allowlist covers both protocols (only ERR_RATE_LIMITED differs: Swift
+// returns 498 "Rate Limited", handled by the throttled class via status).
+var defaultSLIErrorCodeAllowlist = []string{"InternalError", "ServiceUnavailable"}
+
+// normalizeErrorCodeAllowlist converts a configured allowlist into a lookup
+// set. Entries are whitespace-trimmed and empty entries are dropped; an empty
+// result falls back to the default allowlist. Matching is case-sensitive —
+// RGW error codes are exact CamelCase strings ("SlowDown", not "slowdown").
+func normalizeErrorCodeAllowlist(codes []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(codes))
+	for _, c := range codes {
+		if c = strings.TrimSpace(c); c != "" {
+			set[c] = struct{}{}
+		}
+	}
+	if len(set) == 0 {
+		for _, c := range defaultSLIErrorCodeAllowlist {
+			set[c] = struct{}{}
+		}
+	}
+	return set
+}
+
+// statusClass maps an ops-log entry's HTTP status and S3/Swift error code to a
+// status class label, gated by the SLI error-code allowlist.
+//
+// Classes:
+//
+//   - "throttled": 429, Swift 498, and S3 503 + "SlowDown" (RGW rate_limit()
+//     and the dmclock scheduler). Never counts against availability.
+//   - "5xx": server errors whose error_code is in the allowlist (default:
+//     InternalError, ServiceUnavailable — the AWS S3 SLA error set). Also a
+//     5xx with an *empty* error_code: RGW always logs a code for failed
+//     requests (rgw_log.cc), so an empty code means degraded telemetry, not a
+//     success — it is counted to fail safe rather than let missing data look
+//     like availability.
+//   - "excluded_5xx": server errors whose error_code is NOT in the allowlist
+//     (NotImplemented 501, InsufficientCapacity 507, UnknownError, future
+//     codes). Visible in the metric but excluded from the SLO numerator.
+//   - "1xx"…"4xx", "unknown": as before.
+func statusClass(status, errorCode string, allowlist map[string]struct{}) string {
+	switch {
+	case status == "429",
+		status == "498",
+		status == "503" && errorCode == "SlowDown":
+		return "throttled"
+	}
 	if len(status) == 3 &&
 		status[0] >= '1' && status[0] <= '5' &&
 		status[1] >= '0' && status[1] <= '9' &&
 		status[2] >= '0' && status[2] <= '9' {
-		return string(status[0]) + "xx"
+		class := string(status[0]) + "xx"
+		if class != "5xx" {
+			return class
+		}
+		// 5xx: only allowlisted error codes count against the availability
+		// SLO. EBUSY and ERR_SERVICE_UNAVAILABLE both surface as
+		// "ServiceUnavailable", so the default allowlist covers both.
+		if errorCode == "" {
+			return "5xx" // fail-safe: count unattributable server errors
+		}
+		if _, counted := allowlist[errorCode]; counted {
+			return "5xx"
+		}
+		return "excluded_5xx"
 	}
 	return "unknown"
 }
@@ -173,7 +249,7 @@ func observeSLI(logEntry S3OperationLog, tenant string) {
 		tenant,
 		string(protocol),
 		string(sliOperation),
-		statusClass(logEntry.HTTPStatus),
+		statusClass(logEntry.HTTPStatus, logEntry.ErrorCode, globalSLICollector.errorCodeAllowlist),
 	)
 
 	// Observe latency — TotalTime is in milliseconds; sub-ms requests report 0

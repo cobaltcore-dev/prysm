@@ -79,6 +79,10 @@ type MetricsConfig struct {
 	// === BUCKET SLO COLLECTOR SETTINGS ===
 	BucketSLOStaleTTL     string `yaml:"bucket_slo_stale_ttl"`     // Duration after which idle tenant series are reaped (default: 24h)
 	BucketSLOReapInterval string `yaml:"bucket_slo_reap_interval"` // How often the reaper runs (default: stale_ttl/4)
+	// RGW error codes whose 5xx responses count against the availability SLO
+	// (status_class "5xx"); all other server errors go to status_class
+	// "excluded_5xx". Case-sensitive. (default: InternalError, ServiceUnavailable)
+	BucketSLOErrorCodeAllowlist []string `yaml:"bucket_slo_error_code_allowlist"`
 
 	// === REQUEST METRICS ===
 	// Total requests

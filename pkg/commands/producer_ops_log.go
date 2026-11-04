@@ -52,8 +52,9 @@ var (
 	opsTrackBucketSLO  bool
 
 	// Bucket SLO collector settings
-	opsBucketSLOStaleTTL     string
-	opsBucketSLOReapInterval string
+	opsBucketSLOStaleTTL           string
+	opsBucketSLOReapInterval       string
+	opsBucketSLOErrorCodeAllowlist []string
 
 	// Request metrics flags
 	opsTrackRequestsDetailed  bool
@@ -169,6 +170,8 @@ Following this configuration change, the RadosGW will log operations to the file
 				// Bucket SLO collector settings
 				BucketSLOStaleTTL:     opsBucketSLOStaleTTL,
 				BucketSLOReapInterval: opsBucketSLOReapInterval,
+
+				BucketSLOErrorCodeAllowlist: opsBucketSLOErrorCodeAllowlist,
 
 				// Request metrics
 				TrackRequestsDetailed:  opsTrackRequestsDetailed,
@@ -605,6 +608,7 @@ func mergeOpsLogConfigWithEnv(cfg opslog.OpsLogConfig) opslog.OpsLogConfig {
 	// Bucket SLO collector settings
 	cfg.MetricsConfig.BucketSLOStaleTTL = getEnv("BUCKET_SLO_STALE_TTL", cfg.MetricsConfig.BucketSLOStaleTTL)
 	cfg.MetricsConfig.BucketSLOReapInterval = getEnv("BUCKET_SLO_REAP_INTERVAL", cfg.MetricsConfig.BucketSLOReapInterval)
+	cfg.MetricsConfig.BucketSLOErrorCodeAllowlist = getEnvStringSlice("BUCKET_SLO_ERROR_CODE_ALLOWLIST", cfg.MetricsConfig.BucketSLOErrorCodeAllowlist)
 
 	// Request metrics environment variables
 	cfg.MetricsConfig.TrackRequestsDetailed = getEnvBool("TRACK_REQUESTS_DETAILED", cfg.MetricsConfig.TrackRequestsDetailed)
@@ -736,6 +740,7 @@ func init() {
 	// Bucket SLO collector tuning flags
 	opsLogCmd.Flags().StringVar(&opsBucketSLOStaleTTL, "bucket-slo-stale-ttl", "24h", "Duration after which idle tenant SLI series are reaped")
 	opsLogCmd.Flags().StringVar(&opsBucketSLOReapInterval, "bucket-slo-reap-interval", "", "How often the SLI reaper runs (default: stale-ttl/4, minimum 1m — values below one minute are clamped)")
+	opsLogCmd.Flags().StringSliceVar(&opsBucketSLOErrorCodeAllowlist, "bucket-slo-error-code-allowlist", []string{"InternalError", "ServiceUnavailable"}, "Comma-separated (or repeated) RGW error codes whose 5xx responses count against the availability SLO; all other server errors (e.g. NotImplemented, InsufficientCapacity) are excluded (status_class excluded_5xx). Case-sensitive")
 
 	existingOpsLogPreRunE := opsLogCmd.PreRunE
 	opsLogCmd.PreRunE = func(cmd *cobra.Command, args []string) error {

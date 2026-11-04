@@ -358,16 +358,43 @@ func TestDetectProtocol(t *testing.T) {
 }
 
 func TestStatusClass(t *testing.T) {
+	// Default allowlist: InternalError, ServiceUnavailable (AWS S3 SLA error set)
+	allowlist := normalizeErrorCodeAllowlist(nil)
+
 	testCases := []struct {
-		name     string
-		status   string
-		expected string
+		name      string
+		status    string
+		errorCode string
+		expected  string
 	}{
 		{name: "success", status: "200", expected: "2xx"},
 		{name: "client error", status: "404", expected: "4xx"},
-		{name: "server error", status: "503", expected: "5xx"},
 		{name: "informational", status: "100", expected: "1xx"},
 		{name: "redirect", status: "301", expected: "3xx"},
+
+		// Throttling never counts against availability (detected via the
+		// ops-log error_code field for S3, via status for Swift/429).
+		{name: "s3 throttled", status: "503", errorCode: "SlowDown", expected: "throttled"},
+		{name: "swift throttled", status: "498", errorCode: "Rate Limited", expected: "throttled"},
+		{name: "http standard throttled", status: "429", expected: "throttled"},
+
+		// Allowlisted backend errors count against the availability SLO.
+		// ERR_INTERNAL_ERROR → 500 InternalError; ERR_SERVICE_UNAVAILABLE and
+		// EBUSY both → 503 ServiceUnavailable (rgw_http_s3_errors).
+		{name: "internal error", status: "500", errorCode: "InternalError", expected: "5xx"},
+		{name: "s3 backend unavailable", status: "503", errorCode: "ServiceUnavailable", expected: "5xx"},
+
+		// Non-allowlisted server errors are visible but excluded from the SLO.
+		{name: "not implemented", status: "501", errorCode: "NotImplemented", expected: "excluded_5xx"},
+		{name: "insufficient capacity", status: "507", errorCode: "InsufficientCapacity", expected: "excluded_5xx"},
+		{name: "rgw catch-all unknown error", status: "500", errorCode: "UnknownError", expected: "excluded_5xx"},
+
+		// Fail-safe: RGW always logs an error_code for failed requests
+		// (rgw_log.cc), so an empty code means degraded telemetry — counted,
+		// never hidden behind a perfect-looking SLO.
+		{name: "503 without error code", status: "503", expected: "5xx"},
+		{name: "500 without error code", status: "500", expected: "5xx"},
+
 		{name: "empty", status: "", expected: "unknown"},
 		{name: "alpha", status: "ok", expected: "unknown"},
 		{name: "leading whitespace", status: " 200", expected: "unknown"},
@@ -383,9 +410,38 @@ func TestStatusClass(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, statusClass(tc.status))
+			assert.Equal(t, tc.expected, statusClass(tc.status, tc.errorCode, allowlist))
 		})
 	}
+}
+
+func TestStatusClass_CustomAllowlist(t *testing.T) {
+	allowlist := normalizeErrorCodeAllowlist([]string{"InternalError"})
+
+	// ServiceUnavailable is not in the custom allowlist → excluded
+	assert.Equal(t, "excluded_5xx", statusClass("503", "ServiceUnavailable", allowlist))
+	// InternalError is → counted
+	assert.Equal(t, "5xx", statusClass("500", "InternalError", allowlist))
+	// Throttling is classified before the allowlist and always wins
+	assert.Equal(t, "throttled", statusClass("503", "SlowDown", allowlist))
+}
+
+func TestNormalizeErrorCodeAllowlist(t *testing.T) {
+	// nil/empty → default allowlist (InternalError, ServiceUnavailable)
+	def := normalizeErrorCodeAllowlist(nil)
+	assert.Len(t, def, 2)
+	assert.Contains(t, def, "InternalError")
+	assert.Contains(t, def, "ServiceUnavailable")
+
+	// only blank entries → default allowlist
+	assert.Len(t, normalizeErrorCodeAllowlist([]string{"", "  "}), 2)
+
+	// entries are trimmed, matching is case-sensitive (RGW codes are CamelCase)
+	custom := normalizeErrorCodeAllowlist([]string{" InternalError ", "", "UnknownError"})
+	assert.Len(t, custom, 2)
+	assert.Contains(t, custom, "InternalError")
+	assert.Contains(t, custom, "UnknownError")
+	assert.NotContains(t, custom, "internalerror")
 }
 
 func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
@@ -482,6 +538,90 @@ func TestMetricsUpdate_TrackBucketSLO_ZeroLatency(t *testing.T) {
 	assert.Equal(t, beforeLatency+1, afterLatency, "SLI latency histogram should record TotalTime=0 (sub-ms) in le=0.05 bucket")
 }
 
+func TestMetricsUpdate_TrackBucketSLO_Allowlist(t *testing.T) {
+	// End-to-end: error_code allowlist gates what lands in the "5xx" SLO
+	// numerator class. Custom allowlist narrower than the default to prove
+	// the configured list is honored, not the defaults.
+	prev := globalSLICollector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL:           24 * time.Hour,
+		ErrorCodeAllowlist: []string{"InternalError"},
+	})
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	config := &MetricsConfig{TrackBucketSLO: true}
+	tenant := "tenant-allowlist-test"
+
+	cases := []struct {
+		name        string
+		status      string
+		errorCode   string
+		statusClass string
+	}{
+		{"internal error counted", "500", "InternalError", "5xx"},
+		{"service unavailable excluded by custom allowlist", "503", "ServiceUnavailable", "excluded_5xx"},
+		{"insufficient capacity excluded", "507", "InsufficientCapacity", "excluded_5xx"},
+		{"not implemented excluded", "501", "NotImplemented", "excluded_5xx"},
+		{"slowdown throttled regardless of allowlist", "503", "SlowDown", "throttled"},
+	}
+
+	for _, tc := range cases {
+		before := globalSLICollector.counterValue(tenant, "s3", "get", tc.statusClass)
+		NewMetrics().Update(S3OperationLog{
+			Bucket:     "bucket-allowlist",
+			User:       "alice$" + tenant,
+			Operation:  "get_obj",
+			HTTPStatus: tc.status,
+			ErrorCode:  tc.errorCode,
+			TotalTime:  10,
+		}, config)
+		after := globalSLICollector.counterValue(tenant, "s3", "get", tc.statusClass)
+		assert.Equal(t, before+1, after, tc.name)
+	}
+}
+
+func TestMetricsUpdate_TrackBucketSLO_DefaultAllowlist(t *testing.T) {
+	// Default allowlist (no ErrorCodeAllowlist configured): InternalError and
+	// ServiceUnavailable count; NotImplemented/InsufficientCapacity/UnknownError
+	// are excluded; a missing error_code fails safe into "5xx".
+	prev := globalSLICollector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL: 24 * time.Hour,
+	})
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	config := &MetricsConfig{TrackBucketSLO: true}
+	tenant := "tenant-default-allowlist"
+
+	cases := []struct {
+		name        string
+		status      string
+		errorCode   string
+		statusClass string
+	}{
+		{"internal error counted", "500", "InternalError", "5xx"},
+		{"service unavailable counted", "503", "ServiceUnavailable", "5xx"},
+		{"empty error code fails safe", "500", "", "5xx"},
+		{"not implemented excluded", "501", "NotImplemented", "excluded_5xx"},
+		{"insufficient capacity excluded", "507", "InsufficientCapacity", "excluded_5xx"},
+		{"unknown error excluded", "500", "UnknownError", "excluded_5xx"},
+	}
+
+	for _, tc := range cases {
+		before := globalSLICollector.counterValue(tenant, "s3", "get", tc.statusClass)
+		NewMetrics().Update(S3OperationLog{
+			Bucket:     "bucket-default-allowlist",
+			User:       "alice$" + tenant,
+			Operation:  "get_obj",
+			HTTPStatus: tc.status,
+			ErrorCode:  tc.errorCode,
+			TotalTime:  10,
+		}, config)
+		after := globalSLICollector.counterValue(tenant, "s3", "get", tc.statusClass)
+		assert.Equal(t, before+1, after, tc.name)
+	}
+}
+
 func TestSLICollector_StaleSeriesNotEmitted(t *testing.T) {
 	collector := newSLICollector(SLICollectorConfig{
 		StaleTTL: 1 * time.Millisecond, // very short for testing
@@ -531,12 +671,13 @@ func TestSLICollector_Reap(t *testing.T) {
 	assert.Equal(t, uint64(2), collector.reapedTotal.Load(), "Should report 2 reaped series")
 }
 
-func TestSLICollector_ReapPreservesCounterAcrossIdle(t *testing.T) {
-	// A tenant that goes idle (series reaped) and later returns must resume
-	// from its previous cumulative total, not zero — otherwise the monthly
-	// increase()-based SLO loses the requests recorded before the idle
-	// period (review finding: "Reaping stale counters resets monthly request
-	// totals").
+func TestSLICollector_ReapRestartsCounterAtZero(t *testing.T) {
+	// Tombstones were removed: under the AWS-method SLO the monthly figure
+	// comes from per-5-minute interval rates recorded in Prometheus
+	// (sum_over_time/N), never from a long-window increase() over the raw
+	// counters, so a fresh series after an idle period is correct — idle
+	// intervals count as 0% error by definition, and Prometheus marks the
+	// old series stale so no query sees a discontinuity.
 	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
 	prev := globalSLICollector
 	globalSLICollector = collector
@@ -555,45 +696,13 @@ func TestSLICollector_ReapPreservesCounterAcrossIdle(t *testing.T) {
 	collector.reap()
 
 	assert.Equal(t, 0, collector.seriesCount(), "stale series should be reaped")
+	assert.Nil(t, collector.counters[sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "get", StatusClass: "2xx"}],
+		"reaped counter should be fully removed from memory")
 
-	// Tenant returns after the idle period: the series must continue from 5.
-	for i := 0; i < 3; i++ {
-		collector.observeCounter("t1", "s3", "get", "2xx")
-	}
-	assert.Equal(t, float64(8), collector.counterValue("t1", "s3", "get", "2xx"),
-		"counter must resume from its pre-idle cumulative value, not reset to zero")
-}
-
-func TestSLICollector_TombstoneExpiry(t *testing.T) {
-	// Tombstones expire after sliTombstoneTTL (30d). Beyond that, a 30-day
-	// query window cannot span the idle gap, so restarting at zero is safe.
-	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
-	prev := globalSLICollector
-	globalSLICollector = collector
-	t.Cleanup(func() { globalSLICollector = prev })
-
-	collector.observeCounter("t1", "s3", "get", "2xx")
-	collector.observeCounter("t1", "s3", "get", "2xx")
-
-	// Age out the series, reap, then age out the tombstone itself.
-	collector.mu.Lock()
-	for _, state := range collector.counters {
-		state.lastSeen = time.Now().Add(-48 * time.Hour)
-	}
-	collector.mu.Unlock()
-	collector.reap()
-
-	collector.mu.Lock()
-	for key, ts := range collector.tombstones {
-		ts.reapedAt = time.Now().Add(-(sliTombstoneTTL + time.Hour))
-		collector.tombstones[key] = ts
-	}
-	collector.mu.Unlock()
-	collector.reap() // expires the aged-out tombstone
-
+	// Tenant returns after the idle period: a fresh series starts at zero.
 	collector.observeCounter("t1", "s3", "get", "2xx")
 	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "2xx"),
-		"counter restarts at zero once its tombstone has expired")
+		"counter restarts at zero after the series was reaped")
 }
 
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {
