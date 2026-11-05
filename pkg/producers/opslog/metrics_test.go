@@ -782,6 +782,39 @@ func TestSLICollector_BaselineDoesNotDoubleCountObservedClass(t *testing.T) {
 		"observed baseline class must increment by exactly 1 per observation")
 }
 
+func TestSLICollector_BaselineExportedAndStaleInLockstep(t *testing.T) {
+	// Verifies the baseline through the real Collect() path (not just internal
+	// state): a zero-valued 5xx baseline is emitted for an active tenant that
+	// has only served successes, and it goes stale together with its
+	// tenant+operation — the Collect() staleness filter keys off lastSeen,
+	// which observeCounter refreshes for the baselines in lockstep with the
+	// observed class, so no separate activity policy is needed in Collect().
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 10 * time.Millisecond})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	collector.observeCounter("t1", "s3", "get", "2xx")
+
+	// While active: the 2xx and its zero-valued 5xx baseline are both emitted.
+	active := collector.collectCounterMetrics()
+	success := findCounterByLabels(active, "t1", "s3", "get", "2xx")
+	baseline5xx := findCounterByLabels(active, "t1", "s3", "get", "5xx")
+	assert.NotNil(t, success, "active 2xx counter must be emitted")
+	assert.NotNil(t, baseline5xx, "zero-valued 5xx baseline must be emitted while active")
+	assert.Equal(t, float64(0), baseline5xx.GetCounter().GetValue(),
+		"5xx baseline must be exported at zero")
+
+	// After the tenant+op goes stale, the baseline is filtered out in lockstep
+	// with the observed class (not left dangling).
+	time.Sleep(15 * time.Millisecond)
+	stale := collector.collectCounterMetrics()
+	assert.Nil(t, findCounterByLabels(stale, "t1", "s3", "get", "2xx"),
+		"stale 2xx counter must not be emitted")
+	assert.Nil(t, findCounterByLabels(stale, "t1", "s3", "get", "5xx"),
+		"stale 5xx baseline must not be emitted (same activity policy as its sibling)")
+}
+
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {
 	config := &MetricsConfig{
 		TrackErrorsDetailed: true,
