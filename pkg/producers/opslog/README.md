@@ -426,6 +426,23 @@ to prevent unbounded series growth:
   discontinuity. Latency histograms are likewise reaped outright — they are
   consumed via short-window `rate()` queries, which an idle gap already
   excludes.
+- **Zero-valued error baselines for active tenants**: the first time a
+  `(tenant, protocol, operation)` is seen, the collector also materializes
+  zero-valued `5xx`, `throttled`, and `excluded_5xx` series for it (success
+  classes are created naturally by traffic and are not baselined). This is
+  required for correctness, not cosmetics:
+    - `increase(radosgw_request_total{status_class="5xx"}[5m])` cannot measure
+      the transition from *no series* to a first sample of `1`, so without a
+      zero baseline the **first error after a counter is created reads as 0** —
+      a silently undercounted failure burst.
+    - the per-interval error-rate recording rule yields **no series at all**
+      for a tenant that has never emitted a `5xx`, so a perfectly healthy
+      tenant would be missing from the SLO dashboard instead of reading 100%.
+  The baselines share the tenant+operation's lifecycle: they are refreshed on
+  every request and reaped with it after `stale-ttl`, so idle tenants still
+  cost nothing. Worst-case added cardinality is bounded at 3 classes ×
+  (protocols actually used) × (operations actually used) per active tenant.
+
 
 > **Note**: Histogram metrics do **not** include the `pod` label to reduce
 > cardinality. Each histogram automatically provides `_bucket`, `_count`, and
@@ -480,13 +497,22 @@ Notes:
 Recording rules:
 
 ```promql
-# (1) per-interval error rate. Idle handling: tenants idle shorter than
-#     bucket_slo_stale_ttl still export a flat counter (increase = 0), and
-#     0/0 would evaluate to NaN — NaN never satisfies "> threshold", so
-#     error-budget alerts would silently stop firing. clamp_min(denominator, 1)
-#     turns a no-traffic interval into an explicit 0% error rate (the AWS
-#     "zero requests = 100% available" clause). Tenants reaped after the
-#     stale TTL emit no sample at all; rule (2) counts those as 0% too.
+# (1) per-interval error rate. Two correctness guards:
+#
+#  * Numerator presence. For every active (tenant, protocol, operation) the
+#    collector exports a zero-valued status_class="5xx" baseline series, so
+#    the numerator sum is always present (value 0) for a healthy tenant —
+#    the rule yields an explicit 0 error rate instead of an empty vector
+#    that would drop the tenant from the SLO entirely. The same baseline
+#    lets increase() measure a first error as the jump 0->1 rather than
+#    missing the absent-series -> 1 transition.
+#  * Denominator floor. Tenants idle shorter than bucket_slo_stale_ttl still
+#    export flat counters (increase = 0), and 0/0 would evaluate to NaN —
+#    NaN never satisfies "> threshold", so error-budget alerts would silently
+#    stop firing. clamp_min(denominator, 1) turns a no-traffic interval into
+#    an explicit 0% error rate (the AWS "zero requests = 100% available"
+#    clause). Tenants reaped after the stale TTL emit no sample at all;
+#    rule (2) counts those intervals as 0% too.
 - record: rgw:sli_error_rate:ratio_rate5m
   expr: |
     sum by (tenant, region) (increase(radosgw_request_total{status_class="5xx"}[5m]))
@@ -497,6 +523,22 @@ Recording rules:
 #     N = 288 × days_in_month (8640 for a 30-day window)
 100 * (1 - sum_over_time(rgw:sli_error_rate:ratio_rate5m[30d:5m]) / 8640)
 ```
+
+> **Older collectors / defensive variant.** The zero-valued `5xx` baseline
+> above guarantees the numerator is present for any active tenant. If you run
+> against metrics produced *without* that baseline (e.g. a pre-baseline prysm
+> build), zero-fill the numerator from the denominator's label set so a
+> never-failed tenant still reports 0 rather than disappearing:
+>
+> ```promql
+> (
+>   sum by (tenant, region) (increase(radosgw_request_total{status_class="5xx"}[5m]))
+>   or
+>   0 * sum by (tenant, region) (increase(radosgw_request_total[5m]))
+> )
+> / clamp_min(sum by (tenant, region) (increase(radosgw_request_total[5m])), 1)
+> ```
+
 
 Why `sum_over_time(...) / N` and **not** `avg_over_time(...)`: the reaper stops
 exporting idle tenants, so Prometheus holds no samples for idle intervals.

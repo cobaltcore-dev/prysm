@@ -132,6 +132,15 @@ func detectProtocol(uri string) SLIProtocol {
 // requestTarget extracts the request target (path with optional query) from
 // an ops-log URI line of the form "METHOD /path HTTP/x.y". It tolerates a
 // missing protocol-version suffix and a bare path without a method.
+//
+// The ops-log "uri" field is built in rgw_log.cc from the raw CGI
+// REQUEST_URI env value, which — unlike req_info::request_uri — is NOT run
+// through get_abs_path(). RFC 7230 §5.3.2 permits absolute-form request
+// targets ("GET http://host/swift/v1/... HTTP/1.1") and the Beast frontend
+// preserves them verbatim, so an absolute-form target can reach this parser.
+// We therefore mirror RGW's get_abs_path() and reduce an absolute-form target
+// to its abs_path before the protocol prefix check, so a Swift request sent
+// in absolute form is not misclassified as S3.
 func requestTarget(uri string) string {
 	// Drop the trailing protocol version (e.g. " HTTP/1.1").
 	if i := strings.LastIndex(uri, " HTTP/"); i >= 0 {
@@ -141,7 +150,32 @@ func requestTarget(uri string) string {
 	if i := strings.IndexByte(uri, ' '); i >= 0 {
 		uri = uri[i+1:]
 	}
-	return strings.TrimSpace(uri)
+	return toAbsPath(strings.TrimSpace(uri))
+}
+
+// toAbsPath reduces an absolute-form request target (scheme://authority/path)
+// to its abs_path, mirroring RGW's get_abs_path() in rgw_common.cc. An
+// origin-form target (already starting with "/") or an unrecognized value is
+// returned unchanged. Only the schemes RGW itself recognizes are stripped
+// (http, https, ws, wss); anything else is left intact so a bucket/key that
+// merely contains "://" is never mangled.
+func toAbsPath(target string) string {
+	if target == "" || target[0] == '/' {
+		return target
+	}
+	for _, scheme := range []string{"http://", "https://", "ws://", "wss://"} {
+		if !strings.HasPrefix(target, scheme) {
+			continue
+		}
+		// Find the first '/' after the authority to get the abs_path.
+		if i := strings.IndexByte(target[len(scheme):], '/'); i >= 0 {
+			return target[len(scheme)+i:]
+		}
+		// Absolute URI with no path component (e.g. "http://host") — the
+		// effective path is "/".
+		return "/"
+	}
+	return target
 }
 
 // defaultSLIErrorCodeAllowlist is the default set of RGW error codes whose

@@ -207,6 +207,29 @@ func (c *sliCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
+// sliBaselineStatusClasses are the status classes that must be present as a
+// zero-valued series for every active (tenant, protocol, operation) so that
+// Prometheus can measure the jump from 0 to the first error.
+//
+// Without a zero baseline, a status class is created lazily on its first
+// occurrence, and both increase()/rate() and the monthly recording rule
+// mishandle that first sample:
+//
+//   - increase(radosgw_request_total{status_class="5xx"}[5m]) cannot see the
+//     transition from "no series" to its first sample (value 1), so the first
+//     error after creation reads as 0 — a silently undercounted failure burst.
+//   - the per-interval error-rate recording rule produces no series at all for
+//     a tenant that has never emitted a 5xx, so a perfectly healthy tenant is
+//     missing from the SLO dashboard instead of reading 100% available.
+//
+// Only the SLO-relevant error/throttle classes are baselined (not 2xx/3xx/4xx):
+// the denominator sums over every class, so success series are created
+// naturally by real traffic, and baselining them would only inflate
+// cardinality. The baseline is created once per active (tenant, protocol,
+// operation) and reaped together with that tenant+operation's other series
+// after StaleTTL, so idle tenants still cost nothing.
+var sliBaselineStatusClasses = [3]string{"5xx", "throttled", "excluded_5xx"}
+
 // observeCounter records a request count into the collector.
 func (c *sliCollector) observeCounter(tenant, protocol, operation, statusClass string) {
 	now := time.Now()
@@ -219,6 +242,26 @@ func (c *sliCollector) observeCounter(tenant, protocol, operation, statusClass s
 	}
 
 	c.mu.Lock()
+	// Ensure the SLO baseline classes exist as zero-valued series for this
+	// (tenant, protocol, operation). Refreshing their lastSeen on every
+	// observation keeps them alive (and exported) for as long as the tenant
+	// is active, so increase()/the recording rule always have a 0 baseline to
+	// measure the first error against. See sliBaselineStatusClasses.
+	for _, baseClass := range sliBaselineStatusClasses {
+		baseKey := sliCounterKey{
+			Tenant:      tenant,
+			Protocol:    protocol,
+			Operation:   operation,
+			StatusClass: baseClass,
+		}
+		bs, ok := c.counters[baseKey]
+		if !ok {
+			bs = &sliCounterState{}
+			c.counters[baseKey] = bs
+		}
+		bs.lastSeen = now
+	}
+
 	cs, ok := c.counters[counterKey]
 	if !ok {
 		cs = &sliCounterState{}

@@ -347,6 +347,17 @@ func TestDetectProtocol(t *testing.T) {
 		{name: "s3 key with swift path in query", uri: "GET /bucket/key?prefix=/swift/v1/ HTTP/1.1", expected: SLIProtocolS3},
 		{name: "s3 bucket named swift-container", uri: "GET /swift-container/key HTTP/1.1", expected: SLIProtocolS3},
 		{name: "swift root without trailing slash", uri: "GET /swift/v1 HTTP/1.1", expected: SLIProtocolSwift},
+
+		// Absolute-form request targets. RGW logs the raw CGI REQUEST_URI,
+		// which is NOT run through get_abs_path(), so a client/proxy sending
+		// an absolute-form target (RFC 7230 §5.3.2) reaches the parser with
+		// the scheme+authority intact. These must still classify correctly.
+		{name: "swift absolute-form http", uri: "GET http://rgw.example/swift/v1/AUTH_tenant/container?limit=30 HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "swift absolute-form https", uri: "GET https://rgw.example:8080/swift/v1/AUTH_tenant/container/object HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "swift absolute-form root no trailing slash", uri: "GET http://rgw.example/swift/v1 HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "s3 absolute-form", uri: "GET http://rgw.example/bucket/key HTTP/1.1", expected: SLIProtocolS3},
+		{name: "s3 absolute-form key containing swift path", uri: "GET http://rgw.example/mybucket/swift/v1/key HTTP/1.1", expected: SLIProtocolS3},
+		{name: "s3 absolute-form no path", uri: "GET http://rgw.example HTTP/1.1", expected: SLIProtocolS3},
 	}
 
 	for _, tc := range testCases {
@@ -659,8 +670,11 @@ func TestSLICollector_Reap(t *testing.T) {
 	collector.observeCounter("t1", "s3", "get", "2xx")
 	collector.observeCounter("t1", "swift", "list", "2xx")
 
+	// Each observation also materializes the SLO baseline classes (5xx,
+	// throttled, excluded_5xx) for its (tenant, protocol, operation): the
+	// observed 2xx plus three baselines = 4 series per observation.
 	counters := collector.seriesCount()
-	assert.Equal(t, 2, counters, "Should have 2 counter series")
+	assert.Equal(t, 8, counters, "Should have 8 counter series (2 observed + 2×3 baselines)")
 
 	// Wait for series to become stale, then reap
 	time.Sleep(5 * time.Millisecond)
@@ -668,7 +682,7 @@ func TestSLICollector_Reap(t *testing.T) {
 
 	counters = collector.seriesCount()
 	assert.Equal(t, 0, counters, "Reaped counters should be 0")
-	assert.Equal(t, uint64(2), collector.reapedTotal.Load(), "Should report 2 reaped series")
+	assert.Equal(t, uint64(8), collector.reapedTotal.Load(), "Should report 8 reaped series")
 }
 
 func TestSLICollector_ReapRestartsCounterAtZero(t *testing.T) {
@@ -703,6 +717,69 @@ func TestSLICollector_ReapRestartsCounterAtZero(t *testing.T) {
 	collector.observeCounter("t1", "s3", "get", "2xx")
 	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "2xx"),
 		"counter restarts at zero after the series was reaped")
+}
+
+func TestSLICollector_ZeroBaselineForActiveTenant(t *testing.T) {
+	// A tenant serving only successful requests must still expose zero-valued
+	// 5xx/throttled/excluded_5xx baseline series, so that increase() and the
+	// SLO recording rule can measure the jump from 0 to the first error. See
+	// sliBaselineStatusClasses (findings: first-error undercount + nil SLO for
+	// never-failed tenants).
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	collector.observeCounter("t1", "s3", "get", "2xx")
+
+	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "2xx"),
+		"observed success counter should be 1")
+	for _, class := range []string{"5xx", "throttled", "excluded_5xx"} {
+		key := sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "get", StatusClass: class}
+		state := collector.counters[key]
+		assert.NotNil(t, state, "baseline series %q must exist for an active tenant", class)
+		assert.Equal(t, float64(0), collector.counterValue("t1", "s3", "get", class),
+			"baseline series %q must be exported at zero", class)
+	}
+
+	// The baseline is scoped per (protocol, operation): an operation the
+	// tenant never used gets no baseline (bounded cardinality).
+	assert.Nil(t, collector.counters[sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "put", StatusClass: "5xx"}],
+		"no baseline should exist for an operation the tenant never performed")
+}
+
+func TestSLICollector_ZeroBaselineMakesFirstErrorMeasurable(t *testing.T) {
+	// The first 5xx after the baseline exists advances the counter 0 -> 1,
+	// which increase()/rate() can observe (the real-world defect was a lazily
+	// created series whose first sample is 1, reading as increase 0).
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	// Tenant is active with only successes first — baseline 5xx is now 0.
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	assert.Equal(t, float64(0), collector.counterValue("t1", "s3", "get", "5xx"),
+		"5xx baseline present at zero before any error")
+
+	// First real error advances the SAME series 0 -> 1 (not absent -> 1).
+	collector.observeCounter("t1", "s3", "get", "5xx")
+	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "5xx"),
+		"first error advances the pre-existing baseline, so increase() sees 0->1")
+}
+
+func TestSLICollector_BaselineDoesNotDoubleCountObservedClass(t *testing.T) {
+	// When the observed class IS a baseline class, the baseline-ensure step
+	// must not double-count: the series advances by exactly 1 per observation.
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	collector.observeCounter("t1", "s3", "get", "5xx")
+	collector.observeCounter("t1", "s3", "get", "5xx")
+	assert.Equal(t, float64(2), collector.counterValue("t1", "s3", "get", "5xx"),
+		"observed baseline class must increment by exactly 1 per observation")
 }
 
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {
