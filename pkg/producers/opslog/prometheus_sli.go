@@ -48,6 +48,15 @@ type sliLatencyKey struct {
 	Operation string
 }
 
+// sliRequestsKey identifies the per-(tenant, protocol, operation) total-request
+// denominator counter. It deliberately omits StatusClass: this is the SLO
+// denominator and must advance on every request regardless of outcome.
+type sliRequestsKey struct {
+	Tenant    string
+	Protocol  string
+	Operation string
+}
+
 type sliCounterState struct {
 	value    uint64
 	lastSeen time.Time
@@ -68,16 +77,19 @@ var sliHistogramBounds = [7]float64{0.05, 0.1, 0.5, 1.0, 5.0, 30.0, math.MaxFloa
 // sliCollector implements prometheus.Collector with stale series reaping.
 // Emits:
 //   - radosgw_request_total{tenant, protocol, operation, status_class, region}
+//   - radosgw_requests_total{tenant, protocol, operation, region} (SLO denominator)
 //   - radosgw_request_duration_seconds{tenant, protocol, operation, region} (histogram)
 //   - radosgw_sli_stale_series_reaped_total (housekeeping counter)
 type sliCollector struct {
 	mu       sync.RWMutex
 	counters map[sliCounterKey]*sliCounterState
+	requests map[sliRequestsKey]*sliCounterState
 	latency  map[sliLatencyKey]*sliLatencyState
 
 	config             SLICollectorConfig
 	errorCodeAllowlist map[string]struct{}
 	counterDesc        *prometheus.Desc
+	requestsDesc       *prometheus.Desc
 	histogramDesc      *prometheus.Desc
 	reapedDesc         *prometheus.Desc
 	reapedTotal        atomic.Uint64
@@ -113,6 +125,7 @@ func newSLICollector(cfg SLICollectorConfig) *sliCollector {
 
 	c := &sliCollector{
 		counters:           make(map[sliCounterKey]*sliCounterState),
+		requests:           make(map[sliRequestsKey]*sliCounterState),
 		latency:            make(map[sliLatencyKey]*sliLatencyState),
 		config:             cfg,
 		errorCodeAllowlist: allowlist,
@@ -120,6 +133,12 @@ func newSLICollector(cfg SLICollectorConfig) *sliCollector {
 			"radosgw_request_total",
 			"RGW data-plane requests for SLI/SLO evaluation, aggregated per tenant. Only data-plane operations (get, put, list, delete, head, multipart) are counted; control-plane ops (create_bucket, delete_bucket, ACL, policy, lifecycle, etc.) are excluded from both numerator and denominator.",
 			[]string{"tenant", "protocol", "operation", "status_class", "region"},
+			nil,
+		),
+		requestsDesc: prometheus.NewDesc(
+			"radosgw_requests_total",
+			"RGW data-plane total requests per tenant/protocol/operation (SLO denominator). Advances on every request regardless of status_class, so it never has a lazy-creation gap when one status class goes idle. Use this as the availability-SLO denominator instead of summing radosgw_request_total over status_class. Same operation scope as radosgw_request_total.",
+			[]string{"tenant", "protocol", "operation", "region"},
 			nil,
 		),
 		histogramDesc: prometheus.NewDesc(
@@ -143,6 +162,7 @@ func newSLICollector(cfg SLICollectorConfig) *sliCollector {
 // Describe implements prometheus.Collector.
 func (c *sliCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.counterDesc
+	ch <- c.requestsDesc
 	ch <- c.histogramDesc
 	ch <- c.reapedDesc
 }
@@ -165,6 +185,22 @@ func (c *sliCollector) Collect(ch chan<- prometheus.Metric) {
 			prometheus.CounterValue,
 			float64(state.value),
 			key.Tenant, key.Protocol, key.Operation, key.StatusClass, region,
+		)
+		if err == nil {
+			ch <- m
+		}
+	}
+
+	// Emit the per-(tenant, protocol, operation) total-request denominator.
+	for key, state := range c.requests {
+		if now.Sub(state.lastSeen) > c.config.StaleTTL {
+			continue // stale — skip (reaper will clean up)
+		}
+		m, err := prometheus.NewConstMetric(
+			c.requestsDesc,
+			prometheus.CounterValue,
+			float64(state.value),
+			key.Tenant, key.Protocol, key.Operation, region,
 		)
 		if err == nil {
 			ch <- m
@@ -207,9 +243,9 @@ func (c *sliCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
-// sliBaselineStatusClasses are the status classes that must be present as a
-// zero-valued series for every active (tenant, protocol, operation) so that
-// Prometheus can measure the jump from 0 to the first error.
+// sliBaselineStatusClasses are the error/throttle status classes that must be
+// present as a zero-valued series for every active (tenant, protocol,
+// operation) so that Prometheus can measure the jump from 0 to the first error.
 //
 // Without a zero baseline, a status class is created lazily on its first
 // occurrence, and both increase()/rate() and the monthly recording rule
@@ -222,12 +258,14 @@ func (c *sliCollector) Collect(ch chan<- prometheus.Metric) {
 //     a tenant that has never emitted a 5xx, so a perfectly healthy tenant is
 //     missing from the SLO dashboard instead of reading 100% available.
 //
-// Only the SLO-relevant error/throttle classes are baselined (not 2xx/3xx/4xx):
-// the denominator sums over every class, so success series are created
-// naturally by real traffic, and baselining them would only inflate
-// cardinality. The baseline is created once per active (tenant, protocol,
-// operation) and reaped together with that tenant+operation's other series
-// after StaleTTL, so idle tenants still cost nothing.
+// Only the numerator error/throttle classes are baselined here. The SLO
+// *denominator* is NOT derived by summing these per-class counters — that
+// would reintroduce the same lazy-creation gap on a success class that went
+// idle while other traffic kept the tenant active (a resumed success burst
+// would be missed, inflating the error rate toward 100%). Instead the
+// denominator is the dedicated radosgw_requests_total counter, which advances
+// on every request and shares the tenant+operation lifecycle. See
+// observeCounter and the requests map.
 var sliBaselineStatusClasses = [3]string{"5xx", "throttled", "excluded_5xx"}
 
 // observeCounter records a request count into the collector.
@@ -240,10 +278,29 @@ func (c *sliCollector) observeCounter(tenant, protocol, operation, statusClass s
 		Operation:   operation,
 		StatusClass: statusClass,
 	}
+	requestsKey := sliRequestsKey{
+		Tenant:    tenant,
+		Protocol:  protocol,
+		Operation: operation,
+	}
 
 	c.mu.Lock()
-	// Ensure the SLO baseline classes exist as zero-valued series for this
-	// (tenant, protocol, operation). Refreshing their lastSeen on every
+	// Advance the SLO denominator for this (tenant, protocol, operation) on
+	// every request, independent of status_class. Because it is a single
+	// per-group series that is incremented by every request, it never has a
+	// lazy-creation gap: a resumed success burst is always measurable by
+	// increase(), so the availability error rate cannot be inflated toward
+	// 100% when one status class goes idle. See radosgw_requests_total.
+	rs, ok := c.requests[requestsKey]
+	if !ok {
+		rs = &sliCounterState{}
+		c.requests[requestsKey] = rs
+	}
+	rs.value++
+	rs.lastSeen = now
+
+	// Ensure the numerator baseline classes exist as zero-valued series for
+	// this (tenant, protocol, operation). Refreshing their lastSeen on every
 	// observation keeps them alive (and exported) for as long as the tenant
 	// is active, so increase()/the recording rule always have a 0 baseline to
 	// measure the first error against. See sliBaselineStatusClasses.
@@ -340,6 +397,12 @@ func (c *sliCollector) reap() {
 			reaped++
 		}
 	}
+	for key, state := range c.requests {
+		if now.Sub(state.lastSeen) > c.config.StaleTTL {
+			delete(c.requests, key)
+			reaped++
+		}
+	}
 	for key, state := range c.latency {
 		if now.Sub(state.lastSeen) > c.config.StaleTTL {
 			delete(c.latency, key)
@@ -372,6 +435,18 @@ func (c *sliCollector) counterValue(tenant, protocol, operation, statusClass str
 	return 0
 }
 
+// requestsValue returns the current total-request denominator value for a given
+// (tenant, protocol, operation) (for testing).
+func (c *sliCollector) requestsValue(tenant, protocol, operation string) float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	key := sliRequestsKey{Tenant: tenant, Protocol: protocol, Operation: operation}
+	if s, ok := c.requests[key]; ok {
+		return float64(s.value)
+	}
+	return 0
+}
+
 // latencyCount returns the observation count for a given latency key (for testing).
 func (c *sliCollector) latencyCount(tenant, protocol, operation string) float64 {
 	c.mu.RLock()
@@ -392,5 +467,5 @@ func registerSLIMetrics(cfg SLICollectorConfig) {
 		Dur("stale_ttl", globalSLICollector.config.StaleTTL).
 		Dur("reap_interval", globalSLICollector.config.ReapInterval).
 		Str("region", globalSLICollector.config.Region).
-		Msg("SLI collector registered (radosgw_request_total + radosgw_request_duration_seconds)")
+		Msg("SLI collector registered (radosgw_request_total + radosgw_requests_total + radosgw_request_duration_seconds)")
 }

@@ -285,9 +285,10 @@ func (m *Metrics) Update(logEntry S3OperationLog, metricsConfig *MetricsConfig) 
 
 	if metricsConfig.TrackBucketSLO {
 		// observeSLI writes directly to Prometheus via the custom collector rather than
-		// accumulating in a sync.Map. The SLI metrics (radosgw_request_total and
-		// radosgw_request_duration_seconds) are keyed by tenant, protocol, operation,
-		// and status_class — aggregated at tenant level.
+		// accumulating in a sync.Map. The SLI metrics (radosgw_request_total,
+		// radosgw_requests_total, and radosgw_request_duration_seconds) are keyed
+		// by tenant, protocol, and operation (plus status_class for
+		// radosgw_request_total) — aggregated at tenant level.
 		observeSLI(logEntry, tenantStr)
 	}
 

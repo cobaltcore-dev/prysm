@@ -402,7 +402,8 @@ prysm local-producer ops-log \
 
 | Metric Name                                   | Type      | Labels                                                      | Description                                                        |
 |-----------------------------------------------|-----------|-------------------------------------------------------------|--------------------------------------------------------------------|
-| `radosgw_request_total`                     | Counter   | `tenant`, `protocol`, `operation`, `status_class`, `region` | Per-tenant SLI request counter for object level data-plane operations (get/put/list/delete/head/multipart), with protocol label (`s3`/`swift`). `status_class` values: `1xx, 2xx, 3xx, 4xx, throttled, 5xx, excluded_5xx, unknown`. The `5xx` class is an **error-code allowlist**: only requests whose ops-log `error_code` is in the allowlist (default: `InternalError`, `ServiceUnavailable` — the AWS S3 SLA error set) count against the availability SLO. Throttling (S3 `503 SlowDown`, Swift `498`, HTTP `429`) goes to `throttled`; all other server errors (e.g. `501 NotImplemented`, `507 InsufficientCapacity`, RGW's catch-all `UnknownError`) go to `excluded_5xx` — visible in the metric but excluded from the SLO numerator. |
+| `radosgw_request_total`                     | Counter   | `tenant`, `protocol`, `operation`, `status_class`, `region` | Per-tenant SLI request counter for object level data-plane operations (get/put/list/delete/head/multipart), with protocol label (`s3`/`swift`). `status_class` values: `1xx, 2xx, 3xx, 4xx, throttled, 5xx, excluded_5xx, unknown`. The `5xx` class is an **error-code allowlist**: only requests whose ops-log `error_code` is in the allowlist (default: `InternalError`, `ServiceUnavailable` — the AWS S3 SLA error set) count against the availability SLO. Throttling (S3 `503 SlowDown`, Swift `498`, HTTP `429`) goes to `throttled`; all other server errors (e.g. `501 NotImplemented`, `507 InsufficientCapacity`, RGW's catch-all `UnknownError`) go to `excluded_5xx` — visible in the metric but excluded from the SLO numerator. Use `radosgw_requests_total` (below) as the SLO **denominator**, not a `sum` of this metric over `status_class`. |
+| `radosgw_requests_total`                    | Counter   | `tenant`, `protocol`, `operation`, `region`                 | **SLO denominator.** Total data-plane requests per tenant/protocol/operation, advanced on every request regardless of `status_class`. A single per-group series, so (unlike summing `radosgw_request_total` over `status_class`) it never has a lazy-creation gap when one status class goes idle and resumes — which would otherwise make `increase()` miss a resumed success burst and spike the error rate toward 100%. |
 | `radosgw_request_duration_seconds`          | Histogram | `tenant`, `protocol`, `operation`, `region`                 | Latency histogram (7 fixed buckets: 0.05, 0.1, 0.5, 1, 5, 30, +Inf) for SLO evaluation. |
 | `radosgw_sli_stale_series_reaped_total`     | Counter   | *(none)*                                                    | Total number of stale SLI series that have been reaped by the background reaper. |
 
@@ -506,18 +507,22 @@ Recording rules:
 #    that would drop the tenant from the SLO entirely. The same baseline
 #    lets increase() measure a first error as the jump 0->1 rather than
 #    missing the absent-series -> 1 transition.
-#  * Denominator floor. Tenants idle shorter than bucket_slo_stale_ttl still
-#    export flat counters (increase = 0), and 0/0 would evaluate to NaN —
-#    NaN never satisfies "> threshold", so error-budget alerts would silently
-#    stop firing. clamp_min(denominator, 1) turns a no-traffic interval into
-#    an explicit 0% error rate (the AWS "zero requests = 100% available"
-#    clause). Tenants reaped after the stale TTL emit no sample at all;
-#    rule (2) counts those intervals as 0% too.
+#  * Denominator = radosgw_requests_total, NOT a sum of radosgw_request_total
+#    over status_class. The dedicated denominator advances on every request,
+#    so it never has a lazy-creation gap: if a success class (2xx) goes idle
+#    beyond the stale TTL while other traffic keeps the tenant active, its
+#    per-class counter is reaped, but the denominator keeps counting — a
+#    resumed success burst is measured by increase() instead of being missed
+#    (which would otherwise spike the error rate toward 100%). clamp_min(..., 1)
+#    turns a genuine no-traffic interval into an explicit 0% error rate (the
+#    AWS "zero requests = 100% available" clause) and avoids 0/0 = NaN, which
+#    would silently disable "> threshold" alerts. Tenants reaped after the
+#    stale TTL emit no sample at all; rule (2) counts those intervals as 0% too.
 - record: rgw:sli_error_rate:ratio_rate5m
   expr: |
     sum by (tenant, region) (increase(radosgw_request_total{status_class="5xx"}[5m]))
     /
-    clamp_min(sum by (tenant, region) (increase(radosgw_request_total[5m])), 1)
+    clamp_min(sum by (tenant, region) (increase(radosgw_requests_total[5m])), 1)
 
 # (2) monthly uptime: sum (NOT avg) over time ÷ fixed calendar interval count
 #     N = 288 × days_in_month (8640 for a 30-day window)
@@ -525,10 +530,13 @@ Recording rules:
 ```
 
 > **Older collectors / defensive variant.** The zero-valued `5xx` baseline
-> above guarantees the numerator is present for any active tenant. If you run
-> against metrics produced *without* that baseline (e.g. a pre-baseline prysm
-> build), zero-fill the numerator from the denominator's label set so a
-> never-failed tenant still reports 0 rather than disappearing:
+> above guarantees the numerator is present for any active tenant, and
+> `radosgw_requests_total` guarantees a gap-free denominator. If you run against
+> metrics produced *without* those (e.g. a pre-baseline prysm build that only
+> exports `radosgw_request_total`), zero-fill the numerator from the denominator
+> label set so a never-failed tenant still reports 0 rather than disappearing —
+> but note the summed denominator remains vulnerable to the resumed-success
+> undercount described above:
 >
 > ```promql
 > (
@@ -556,7 +564,7 @@ alerting; throttling should be alerted on separately:
 
 ```promql
 sum by (tenant) (increase(radosgw_request_total{status_class="throttled"}[5m]))
-/ clamp_min(sum by (tenant) (increase(radosgw_request_total[5m])), 1)
+/ clamp_min(sum by (tenant) (increase(radosgw_requests_total[5m])), 1)
 ```
 
 

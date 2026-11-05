@@ -671,10 +671,12 @@ func TestSLICollector_Reap(t *testing.T) {
 	collector.observeCounter("t1", "swift", "list", "2xx")
 
 	// Each observation also materializes the SLO baseline classes (5xx,
-	// throttled, excluded_5xx) for its (tenant, protocol, operation): the
-	// observed 2xx plus three baselines = 4 series per observation.
+	// throttled, excluded_5xx) and the per-(tenant,protocol,operation)
+	// radosgw_requests_total denominator: the observed 2xx + three baselines +
+	// one requests series = 5 series per observation. seriesCount() counts only
+	// the status-class counters (observed + baselines = 4 per observation).
 	counters := collector.seriesCount()
-	assert.Equal(t, 8, counters, "Should have 8 counter series (2 observed + 2×3 baselines)")
+	assert.Equal(t, 8, counters, "Should have 8 status-class counter series (2 observed + 2×3 baselines)")
 
 	// Wait for series to become stale, then reap
 	time.Sleep(5 * time.Millisecond)
@@ -682,7 +684,7 @@ func TestSLICollector_Reap(t *testing.T) {
 
 	counters = collector.seriesCount()
 	assert.Equal(t, 0, counters, "Reaped counters should be 0")
-	assert.Equal(t, uint64(8), collector.reapedTotal.Load(), "Should report 8 reaped series")
+	assert.Equal(t, uint64(10), collector.reapedTotal.Load(), "Should report 10 reaped series (8 status-class + 2 requests)")
 }
 
 func TestSLICollector_ReapRestartsCounterAtZero(t *testing.T) {
@@ -813,6 +815,78 @@ func TestSLICollector_BaselineExportedAndStaleInLockstep(t *testing.T) {
 		"stale 2xx counter must not be emitted")
 	assert.Nil(t, findCounterByLabels(stale, "t1", "s3", "get", "5xx"),
 		"stale 5xx baseline must not be emitted (same activity policy as its sibling)")
+}
+
+func TestSLICollector_TotalRequestsDenominatorAdvancesEveryRequest(t *testing.T) {
+	// The SLO denominator (radosgw_requests_total) must advance on every
+	// request regardless of status_class, so it is immune to the per-class
+	// lazy-creation gap. One series per (tenant, protocol, operation).
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	collector.observeCounter("t1", "s3", "get", "4xx")
+	collector.observeCounter("t1", "s3", "get", "5xx")
+
+	assert.Equal(t, float64(3), collector.requestsValue("t1", "s3", "get"),
+		"denominator must count every request across all status classes")
+	// Scoped per (protocol, operation): a different op has its own denominator.
+	assert.Equal(t, float64(0), collector.requestsValue("t1", "s3", "put"),
+		"denominator is scoped per operation")
+}
+
+func TestSLICollector_ResumedSuccessAfterIdleIsCounted(t *testing.T) {
+	// Regression for the [P2] success-baseline finding: a tenant with sustained
+	// 4xx traffic but no successes for longer than StaleTTL used to have its
+	// 2xx series reaped while its 5xx baseline survived (kept alive by the 4xx
+	// traffic). When success traffic resumed, the recreated per-class 2xx
+	// series was first scraped at its full resumed value, so an increase()-
+	// based denominator derived from summing per-class counters missed the
+	// resumed successes and the error rate spiked toward 100%.
+	//
+	// The dedicated radosgw_requests_total denominator fixes this: it advances
+	// on EVERY request, so it is never reaped while the tenant is active and a
+	// resumed success burst is always measurable.
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 20 * time.Millisecond})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	// Phase 1: successes + client errors establish both series.
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	collector.observeCounter("t1", "s3", "get", "4xx")
+	assert.Equal(t, float64(2), collector.requestsValue("t1", "s3", "get"))
+
+	// Phase 2: age the per-class 2xx series past StaleTTL to simulate a long
+	// success gap, while 4xx traffic keeps the tenant active. The denominator
+	// is refreshed by that continued traffic and must NOT be reaped.
+	collector.mu.Lock()
+	collector.counters[sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "get", StatusClass: "2xx"}].lastSeen =
+		time.Now().Add(-time.Hour)
+	collector.mu.Unlock()
+	collector.observeCounter("t1", "s3", "get", "4xx") // keeps tenant+op active
+	collector.reap()
+
+	assert.Nil(t, collector.counters[sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "get", StatusClass: "2xx"}],
+		"the idle per-class 2xx series is reaped (expected)")
+	assert.Equal(t, float64(3), collector.requestsValue("t1", "s3", "get"),
+		"the total-request denominator survives and keeps counting (2x initial + 1x keepalive 4xx)")
+
+	// Phase 3: success traffic resumes. The denominator advances continuously,
+	// so increase() over it captures the resumed successes — no 100% spike.
+	for i := 0; i < 100; i++ {
+		collector.observeCounter("t1", "s3", "get", "2xx")
+	}
+	collector.observeCounter("t1", "s3", "get", "5xx")
+
+	assert.Equal(t, float64(104), collector.requestsValue("t1", "s3", "get"),
+		"denominator counts all resumed requests (3 prior + 100 success + 1 error)")
+	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "5xx"),
+		"numerator 5xx advanced from its retained zero baseline to 1")
+	// Error rate ≈ 1/101 for this window, NOT ~100%: the denominator saw the
+	// resumed successes because it never lazily restarted.
 }
 
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {
