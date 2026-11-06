@@ -407,6 +407,24 @@ prysm local-producer ops-log \
 | `radosgw_request_duration_seconds`          | Histogram | `tenant`, `protocol`, `operation`, `region`                 | Latency histogram (7 fixed buckets: 0.05, 0.1, 0.5, 1, 5, 30, +Inf) for SLO evaluation. |
 | `radosgw_sli_stale_series_reaped_total`     | Counter   | *(none)*                                                    | Total number of stale SLI series that have been reaped by the background reaper. |
 
+#### Tenant Label Derivation
+
+The `tenant` label is derived from the ops-log `user` field:
+
+- **Keystone-authenticated clusters** (OpenStack): the ops-log user carries a
+  `user$tenant` suffix (e.g. `alice$project-x`), and the part after `$` is the
+  Keystone project — that project is the `tenant`.
+- **Clusters without Keystone** (pure S3 / Local auth, e.g. a stock Rook-Ceph
+  object store): the ops-log user has no `$tenant` suffix, so there is no
+  project to key on. The SLI falls back to the **S3 user name** as the
+  `tenant` (e.g. `tenant="my-user"`). On such clusters the per-tenant SLOs are
+  therefore effectively **per-S3-user SLOs** — one series set per S3 user.
+
+Anonymous requests never reach the SLI either way: with
+`IGNORE_ANONYMOUS_REQUESTS` enabled (the default, and required with
+`TRACK_BUCKET_SLO`), anonymous traffic is dropped before metrics are updated,
+so the fallback cannot pollute the SLI with anonymous series.
+
 #### Stale Series Reaping
 
 The SLI collector uses a custom `prometheus.Collector` with a background reaper

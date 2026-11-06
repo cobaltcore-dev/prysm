@@ -402,7 +402,7 @@ Set `TRACK_EVERYTHING=true` to turn on all metrics, or pick what you need:
 | Variable | What it tracks |
 |----------|---------------|
 | `TRACK_EVERYTHING` | All of the below (shortcut) |
-| `TRACK_BUCKET_SLO` | Per-tenant SLI metrics (`radosgw_request_total`, `radosgw_requests_total` SLO denominator, `radosgw_request_duration_seconds`) keyed by tenant/protocol/operation/status_class for SLO evaluation |
+| `TRACK_BUCKET_SLO` | Per-tenant SLI metrics (`radosgw_request_total`, `radosgw_requests_total` SLO denominator, `radosgw_request_duration_seconds`) keyed by tenant/protocol/operation/status_class for SLO evaluation. The `tenant` label is the Keystone project from the ops-log `user$tenant` convention; on clusters without Keystone (pure S3 / Local auth, e.g. Rook) it falls back to the S3 user name — per-tenant SLOs are then effectively per-S3-user SLOs. Anonymous requests are excluded via `IGNORE_ANONYMOUS_REQUESTS`. |
 | `BUCKET_SLO_STALE_TTL` | Duration after which idle SLI series are reaped (default: `24h`) |
 | `BUCKET_SLO_REAP_INTERVAL` | How often stale SLI series are reaped (default: `stale-ttl/4`, minimum `1m` — values below one minute are clamped) |
 | `REGION` | Deployment region label for SLI metrics (default: `unknown`) |
