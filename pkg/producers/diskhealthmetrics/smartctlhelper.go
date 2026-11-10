@@ -201,6 +201,15 @@ func ProcessAndUpdateNVMeSmartAttributes(smartAttrs map[string]SmartAttribute, o
 	// Process host write commands
 	updateAttributeFromValue(smartAttrs, "host_write_commands", output.NVMeSmartHealthInfoLog.HostWrites, output.NVMeSmartHealthInfoLog.HostWrites, -1, -1, "commands")
 
+	// Process data read/written. SCSI drives get these from the error counter
+	// log, which NVMe has no equivalent of, so without this the attributes stay
+	// at their -1 sentinel and CleanupSmartAttributes drops them entirely.
+	readGB := nvmeDataUnitsToGigabytes(output.NVMeSmartHealthInfoLog.DataUnitsRead)
+	updateAttributeFromValue(smartAttrs, "read_gigabytes_processed", readGB, readGB, -1, -1, "GB")
+
+	writeGB := nvmeDataUnitsToGigabytes(output.NVMeSmartHealthInfoLog.DataUnitsWritten)
+	updateAttributeFromValue(smartAttrs, "write_gigabytes_processed", writeGB, writeGB, -1, -1, "GB")
+
 	// Process controller busy time
 	updateAttributeFromValue(smartAttrs, "controller_busy_time", output.NVMeSmartHealthInfoLog.ControllerBusyTime, output.NVMeSmartHealthInfoLog.ControllerBusyTime, -1, -1, "minutes")
 
@@ -265,6 +274,26 @@ func updateAttributeFromValue(smartAttrs map[string]SmartAttribute, attrName str
 func parseGigabytes(value string) int64 {
 	gb, _ := strconv.ParseFloat(value, 64)
 	return int64(gb)
+}
+
+// nvmeDataUnitsToGigabytes converts the NVMe health log's data_units_read /
+// data_units_written into decimal gigabytes.
+//
+// One data unit is 1000 * 512 = 512000 bytes (NVMe Base Specification, SMART /
+// Health Information log page), and smartctl prints the same decimal-GB
+// conversion in its human-readable output. Decimal GB — not GiB — is what the
+// SCSI error counter log reports, so both device classes end up on one scale
+// and dashboards can rank them against each other.
+//
+// The multiplication is by 512 against a 1e6 divisor rather than by 512000
+// against 1e9 to keep headroom: it only overflows int64 past ~9 zettabytes
+// written, where the 512000 form would overflow three orders of magnitude
+// sooner.
+func nvmeDataUnitsToGigabytes(dataUnits int64) int64 {
+	if dataUnits <= 0 {
+		return 0
+	}
+	return dataUnits * 512 / 1000000
 }
 
 // Helper function to calculate percentage used
