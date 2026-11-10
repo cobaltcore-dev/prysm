@@ -3,9 +3,8 @@ package opslog
 import (
 	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -263,41 +262,150 @@ func TestMetricsUpdate_BasicFunctionality(t *testing.T) {
 	assert.Equal(t, 1, latencyCallCount, "LatencyObs should be called once")
 }
 
-func TestClassifyBucketSLOOperation(t *testing.T) {
+func TestClassifySLIOperation(t *testing.T) {
 	testCases := []struct {
 		name      string
 		operation string
-		expected  SLOperation
+		expected  SLIOperation
 		ok        bool
 	}{
-		{name: "get object", operation: "get_obj", expected: SLOperationGet, ok: true},
-		{name: "head object", operation: "head_obj", expected: SLOperationGet, ok: true},
-		{name: "list bucket", operation: "list_bucket", expected: SLOperationList, ok: true},
-		{name: "list buckets", operation: "list_buckets", expected: SLOperationList, ok: true},
-		{name: "bucket info", operation: "get_bucket_info", expected: SLOperationList, ok: true},
-		{name: "unsupported", operation: "put_obj", expected: "", ok: false},
+		// GET — object retrieval (includes HEAD-on-object, which RGW logs as get_obj)
+		{name: "get_obj", operation: "get_obj", expected: SLIOperationGet, ok: true},
+
+		// PUT — object writes
+		{name: "put_obj", operation: "put_obj", expected: SLIOperationPut, ok: true},
+		{name: "post_obj", operation: "post_obj", expected: SLIOperationPut, ok: true},
+		{name: "copy_obj", operation: "copy_obj", expected: SLIOperationPut, ok: true},
+		{name: "restore_obj", operation: "restore_obj", expected: SLIOperationPut, ok: true},
+		{name: "bulk_upload", operation: "bulk_upload", expected: SLIOperationPut, ok: true},
+
+		// DELETE — object removal
+		{name: "delete_obj", operation: "delete_obj", expected: SLIOperationDelete, ok: true},
+		{name: "multi_object_delete", operation: "multi_object_delete", expected: SLIOperationDelete, ok: true},
+		{name: "bulk_delete", operation: "bulk_delete", expected: SLIOperationDelete, ok: true},
+
+		// LIST — bucket and account listing
+		{name: "list_bucket", operation: "list_bucket", expected: SLIOperationList, ok: true},
+		{name: "list_buckets", operation: "list_buckets", expected: SLIOperationList, ok: true},
+
+		// HEAD — metadata-only stat operations
+		{name: "stat_bucket", operation: "stat_bucket", expected: SLIOperationHead, ok: true},
+		{name: "stat_account", operation: "stat_account", expected: SLIOperationHead, ok: true},
+
+		// MULTIPART — multipart upload lifecycle
+		{name: "init_multipart", operation: "init_multipart", expected: SLIOperationMultipart, ok: true},
+		{name: "complete_multipart", operation: "complete_multipart", expected: SLIOperationMultipart, ok: true},
+		{name: "abort_multipart", operation: "abort_multipart", expected: SLIOperationMultipart, ok: true},
+		{name: "list_multipart", operation: "list_multipart", expected: SLIOperationMultipart, ok: true},
+		{name: "list_bucket_multiparts", operation: "list_bucket_multiparts", expected: SLIOperationMultipart, ok: true},
+
+		// Control-plane operations — deliberately excluded from SLI
+		{name: "create_bucket excluded", operation: "create_bucket", expected: "", ok: false},
+		{name: "delete_bucket excluded", operation: "delete_bucket", expected: "", ok: false},
+		{name: "put_bucket_acl excluded", operation: "put_acls", expected: "", ok: false},
+		{name: "get_acls excluded", operation: "get_acls", expected: "", ok: false},
+		{name: "get_bucket_info excluded", operation: "get_bucket_info", expected: "", ok: false},
+
+		// Case insensitivity
+		{name: "case insensitive", operation: "GET_OBJ", expected: SLIOperationGet, ok: true},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			actual, ok := classifyBucketSLOOperation(tc.operation)
+			actual, ok := classifySLIOperation(tc.operation)
 			assert.Equal(t, tc.ok, ok)
 			assert.Equal(t, tc.expected, actual)
 		})
 	}
 }
 
-func TestStatusClass(t *testing.T) {
+func TestDetectProtocol(t *testing.T) {
 	testCases := []struct {
 		name     string
-		status   string
-		expected string
+		uri      string
+		expected SLIProtocol
+	}{
+		// S3 operations — no /swift/v1/ in URI
+		{name: "s3 get", uri: "GET /bucket/key HTTP/1.1", expected: SLIProtocolS3},
+		{name: "s3 put", uri: "PUT /bucket/key HTTP/1.1", expected: SLIProtocolS3},
+		{name: "s3 list", uri: "GET /bucket?list-type=2 HTTP/1.1", expected: SLIProtocolS3},
+
+		// Swift operations — detected from /swift/v1/ in URI
+		{name: "swift list", uri: "GET /swift/v1/AUTH_tenant/container?limit=30 HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "swift get", uri: "GET /swift/v1/AUTH_tenant/container/object HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "swift put", uri: "PUT /swift/v1/AUTH_tenant/container/object HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "swift head", uri: "HEAD /swift/v1/AUTH_tenant/container/object HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "swift delete", uri: "DELETE /swift/v1/AUTH_tenant/container/object HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "swift account listing", uri: "GET /swift/v1/AUTH_tenant HTTP/1.1", expected: SLIProtocolSwift},
+
+		// Edge cases
+		{name: "empty uri defaults to s3", uri: "", expected: SLIProtocolS3},
+
+		// S3 requests whose key or query merely contains "swift/v1" must
+		// stay s3 (path-prefix match, not substring search).
+		{name: "s3 key containing swift path", uri: "GET /mybucket/some/swift/v1/prefix/key HTTP/1.1", expected: SLIProtocolS3},
+		{name: "s3 key with swift path in query", uri: "GET /bucket/key?prefix=/swift/v1/ HTTP/1.1", expected: SLIProtocolS3},
+		{name: "s3 bucket named swift-container", uri: "GET /swift-container/key HTTP/1.1", expected: SLIProtocolS3},
+		{name: "swift root without trailing slash", uri: "GET /swift/v1 HTTP/1.1", expected: SLIProtocolSwift},
+
+		// Absolute-form request targets. RGW logs the raw CGI REQUEST_URI,
+		// which is NOT run through get_abs_path(), so a client/proxy sending
+		// an absolute-form target (RFC 7230 §5.3.2) reaches the parser with
+		// the scheme+authority intact. These must still classify correctly.
+		{name: "swift absolute-form http", uri: "GET http://rgw.example/swift/v1/AUTH_tenant/container?limit=30 HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "swift absolute-form https", uri: "GET https://rgw.example:8080/swift/v1/AUTH_tenant/container/object HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "swift absolute-form root no trailing slash", uri: "GET http://rgw.example/swift/v1 HTTP/1.1", expected: SLIProtocolSwift},
+		{name: "s3 absolute-form", uri: "GET http://rgw.example/bucket/key HTTP/1.1", expected: SLIProtocolS3},
+		{name: "s3 absolute-form key containing swift path", uri: "GET http://rgw.example/mybucket/swift/v1/key HTTP/1.1", expected: SLIProtocolS3},
+		{name: "s3 absolute-form no path", uri: "GET http://rgw.example HTTP/1.1", expected: SLIProtocolS3},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := detectProtocol(tc.uri)
+			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestStatusClass(t *testing.T) {
+	// Default allowlist: InternalError, ServiceUnavailable (AWS S3 SLA error set)
+	allowlist := normalizeErrorCodeAllowlist(nil)
+
+	testCases := []struct {
+		name      string
+		status    string
+		errorCode string
+		expected  string
 	}{
 		{name: "success", status: "200", expected: "2xx"},
 		{name: "client error", status: "404", expected: "4xx"},
-		{name: "server error", status: "503", expected: "5xx"},
 		{name: "informational", status: "100", expected: "1xx"},
 		{name: "redirect", status: "301", expected: "3xx"},
+
+		// Throttling never counts against availability (detected via the
+		// ops-log error_code field for S3, via status for Swift/429).
+		{name: "s3 throttled", status: "503", errorCode: "SlowDown", expected: "throttled"},
+		{name: "swift throttled", status: "498", errorCode: "Rate Limited", expected: "throttled"},
+		{name: "http standard throttled", status: "429", expected: "throttled"},
+
+		// Allowlisted backend errors count against the availability SLO.
+		// ERR_INTERNAL_ERROR → 500 InternalError; ERR_SERVICE_UNAVAILABLE and
+		// EBUSY both → 503 ServiceUnavailable (rgw_http_s3_errors).
+		{name: "internal error", status: "500", errorCode: "InternalError", expected: "5xx"},
+		{name: "s3 backend unavailable", status: "503", errorCode: "ServiceUnavailable", expected: "5xx"},
+
+		// Non-allowlisted server errors are visible but excluded from the SLO.
+		{name: "not implemented", status: "501", errorCode: "NotImplemented", expected: "excluded_5xx"},
+		{name: "insufficient capacity", status: "507", errorCode: "InsufficientCapacity", expected: "excluded_5xx"},
+		{name: "rgw catch-all unknown error", status: "500", errorCode: "UnknownError", expected: "excluded_5xx"},
+
+		// Fail-safe: RGW always logs an error_code for failed requests
+		// (rgw_log.cc), so an empty code means degraded telemetry — counted,
+		// never hidden behind a perfect-looking SLO.
+		{name: "503 without error code", status: "503", expected: "5xx"},
+		{name: "500 without error code", status: "500", expected: "5xx"},
+
 		{name: "empty", status: "", expected: "unknown"},
 		{name: "alpha", status: "ok", expected: "unknown"},
 		{name: "leading whitespace", status: " 200", expected: "unknown"},
@@ -313,12 +421,48 @@ func TestStatusClass(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, statusClass(tc.status))
+			assert.Equal(t, tc.expected, statusClass(tc.status, tc.errorCode, allowlist))
 		})
 	}
 }
 
+func TestStatusClass_CustomAllowlist(t *testing.T) {
+	allowlist := normalizeErrorCodeAllowlist([]string{"InternalError"})
+
+	// ServiceUnavailable is not in the custom allowlist → excluded
+	assert.Equal(t, "excluded_5xx", statusClass("503", "ServiceUnavailable", allowlist))
+	// InternalError is → counted
+	assert.Equal(t, "5xx", statusClass("500", "InternalError", allowlist))
+	// Throttling is classified before the allowlist and always wins
+	assert.Equal(t, "throttled", statusClass("503", "SlowDown", allowlist))
+}
+
+func TestNormalizeErrorCodeAllowlist(t *testing.T) {
+	// nil/empty → default allowlist (InternalError, ServiceUnavailable)
+	def := normalizeErrorCodeAllowlist(nil)
+	assert.Len(t, def, 2)
+	assert.Contains(t, def, "InternalError")
+	assert.Contains(t, def, "ServiceUnavailable")
+
+	// only blank entries → default allowlist
+	assert.Len(t, normalizeErrorCodeAllowlist([]string{"", "  "}), 2)
+
+	// entries are trimmed, matching is case-sensitive (RGW codes are CamelCase)
+	custom := normalizeErrorCodeAllowlist([]string{" InternalError ", "", "UnknownError"})
+	assert.Len(t, custom, 2)
+	assert.Contains(t, custom, "InternalError")
+	assert.Contains(t, custom, "UnknownError")
+	assert.NotContains(t, custom, "internalerror")
+}
+
 func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
+	// Set up a test collector (bypass prometheus registration)
+	prev := globalSLICollector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL: 24 * time.Hour,
+	})
+	t.Cleanup(func() { globalSLICollector = prev })
+
 	config := &MetricsConfig{TrackBucketSLO: true}
 	logEntry := S3OperationLog{
 		Bucket:     "bucket-slo-test",
@@ -328,19 +472,64 @@ func TestMetricsUpdate_TrackBucketSLO(t *testing.T) {
 		TotalTime:  150,
 	}
 
-	beforeCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-test", "bucket-slo-test", "get", "2xx")
-	beforeHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-test", "bucket-slo-test", "get")
+	// Counter is now keyed by tenant+protocol+operation+status_class (no bucket)
+	beforeCounter := globalSLICollector.counterValue("tenant-slo-test", "s3", "get", "2xx")
+	beforeLatency := globalSLICollector.latencyCount("tenant-slo-test", "s3", "get")
 	assert.NotPanics(t, func() {
 		NewMetrics().Update(logEntry, config)
 	})
-	afterCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-test", "bucket-slo-test", "get", "2xx")
-	afterHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-test", "bucket-slo-test", "get")
+	afterCounter := globalSLICollector.counterValue("tenant-slo-test", "s3", "get", "2xx")
+	afterLatency := globalSLICollector.latencyCount("tenant-slo-test", "s3", "get")
 
 	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment")
-	assert.Equal(t, beforeHist+1, afterHist, "SLI histogram should record a sample")
+	assert.Equal(t, beforeLatency+1, afterLatency, "SLI latency histogram should record observation when TotalTime > 0")
+}
+
+func TestMetricsUpdate_TrackBucketSLO_SwiftFromURI(t *testing.T) {
+	// Verify that the SLI pipeline correctly detects Swift protocol from the
+	// URI field when the operation name has no swift_ prefix (production
+	// JSON ops-log format produced by rgw_ops_log_file_path).
+	prev := globalSLICollector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL: 24 * time.Hour,
+	})
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	config := &MetricsConfig{TrackBucketSLO: true}
+	logEntry := S3OperationLog{
+		Bucket:     "mailbox-incoming",
+		User:       "alice$tenant-swift-uri",
+		Operation:  "list_bucket",
+		URI:        "GET /swift/v1/AUTH_tenant-swift-uri/mailbox-incoming?limit=30 HTTP/1.1",
+		HTTPStatus: "200",
+		TotalTime:  1,
+	}
+
+	beforeCounter := globalSLICollector.counterValue("tenant-swift-uri", "swift", "list", "2xx")
+	beforeLatency := globalSLICollector.latencyCount("tenant-swift-uri", "swift", "list")
+	NewMetrics().Update(logEntry, config)
+	afterCounter := globalSLICollector.counterValue("tenant-swift-uri", "swift", "list", "2xx")
+	afterLatency := globalSLICollector.latencyCount("tenant-swift-uri", "swift", "list")
+
+	assert.Equal(t, beforeCounter+1, afterCounter,
+		"Swift request (detected from URI) should be counted under protocol=swift")
+	assert.Equal(t, beforeLatency+1, afterLatency,
+		"Swift request (detected from URI) should record latency under protocol=swift")
+
+	// Verify it was NOT counted under s3
+	s3Counter := globalSLICollector.counterValue("tenant-swift-uri", "s3", "list", "2xx")
+	assert.Equal(t, float64(0), s3Counter,
+		"Swift request should not appear under protocol=s3")
 }
 
 func TestMetricsUpdate_TrackBucketSLO_ZeroLatency(t *testing.T) {
+	// Set up a test collector
+	prev := globalSLICollector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL: 24 * time.Hour,
+	})
+	t.Cleanup(func() { globalSLICollector = prev })
+
 	config := &MetricsConfig{TrackBucketSLO: true}
 	logEntry := S3OperationLog{
 		Bucket:     "bucket-slo-zero",
@@ -350,40 +539,354 @@ func TestMetricsUpdate_TrackBucketSLO_ZeroLatency(t *testing.T) {
 		TotalTime:  0, // sub-ms or missing timing
 	}
 
-	beforeCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-zero", "bucket-slo-zero", "get", "2xx")
-	beforeHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-zero", "bucket-slo-zero", "get")
+	beforeCounter := globalSLICollector.counterValue("tenant-slo-zero", "s3", "get", "2xx")
+	beforeLatency := globalSLICollector.latencyCount("tenant-slo-zero", "s3", "get")
 	NewMetrics().Update(logEntry, config)
-	afterCounter := readCounterValue(t, sliRequestsTotal, "tenant-slo-zero", "bucket-slo-zero", "get", "2xx")
-	afterHist := readHistogramSampleCount(t, sliRequestDuration, "tenant-slo-zero", "bucket-slo-zero", "get")
+	afterCounter := globalSLICollector.counterValue("tenant-slo-zero", "s3", "get", "2xx")
+	afterLatency := globalSLICollector.latencyCount("tenant-slo-zero", "s3", "get")
 
 	assert.Equal(t, beforeCounter+1, afterCounter, "SLI counter should increment even with zero latency")
-	assert.Equal(t, beforeHist+1, afterHist, "SLI histogram should record a sample even with zero latency")
+	assert.Equal(t, beforeLatency+1, afterLatency, "SLI latency histogram should record TotalTime=0 (sub-ms) in le=0.05 bucket")
 }
 
-func readCounterValue(t *testing.T, counter *prometheus.CounterVec, labelValues ...string) float64 {
-	t.Helper()
+func TestMetricsUpdate_TrackBucketSLO_Allowlist(t *testing.T) {
+	// End-to-end: error_code allowlist gates what lands in the "5xx" SLO
+	// numerator class. Custom allowlist narrower than the default to prove
+	// the configured list is honored, not the defaults.
+	prev := globalSLICollector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL:           24 * time.Hour,
+		ErrorCodeAllowlist: []string{"InternalError"},
+	})
+	t.Cleanup(func() { globalSLICollector = prev })
 
-	metric, err := counter.GetMetricWithLabelValues(labelValues...)
-	assert.NoError(t, err)
+	config := &MetricsConfig{TrackBucketSLO: true}
+	tenant := "tenant-allowlist-test"
 
-	dtoMetric := &dto.Metric{}
-	assert.NoError(t, metric.Write(dtoMetric))
-	return dtoMetric.GetCounter().GetValue()
+	cases := []struct {
+		name        string
+		status      string
+		errorCode   string
+		statusClass string
+	}{
+		{"internal error counted", "500", "InternalError", "5xx"},
+		{"service unavailable excluded by custom allowlist", "503", "ServiceUnavailable", "excluded_5xx"},
+		{"insufficient capacity excluded", "507", "InsufficientCapacity", "excluded_5xx"},
+		{"not implemented excluded", "501", "NotImplemented", "excluded_5xx"},
+		{"slowdown throttled regardless of allowlist", "503", "SlowDown", "throttled"},
+	}
+
+	for _, tc := range cases {
+		before := globalSLICollector.counterValue(tenant, "s3", "get", tc.statusClass)
+		NewMetrics().Update(S3OperationLog{
+			Bucket:     "bucket-allowlist",
+			User:       "alice$" + tenant,
+			Operation:  "get_obj",
+			HTTPStatus: tc.status,
+			ErrorCode:  tc.errorCode,
+			TotalTime:  10,
+		}, config)
+		after := globalSLICollector.counterValue(tenant, "s3", "get", tc.statusClass)
+		assert.Equal(t, before+1, after, tc.name)
+	}
 }
 
-func readHistogramSampleCount(t *testing.T, hist *prometheus.HistogramVec, labelValues ...string) uint64 {
-	t.Helper()
+func TestMetricsUpdate_TrackBucketSLO_DefaultAllowlist(t *testing.T) {
+	// Default allowlist (no ErrorCodeAllowlist configured): InternalError and
+	// ServiceUnavailable count; NotImplemented/InsufficientCapacity/UnknownError
+	// are excluded; a missing error_code fails safe into "5xx".
+	prev := globalSLICollector
+	globalSLICollector = newSLICollector(SLICollectorConfig{
+		StaleTTL: 24 * time.Hour,
+	})
+	t.Cleanup(func() { globalSLICollector = prev })
 
-	observer, err := hist.GetMetricWithLabelValues(labelValues...)
-	assert.NoError(t, err)
+	config := &MetricsConfig{TrackBucketSLO: true}
+	tenant := "tenant-default-allowlist"
 
-	// prometheus.Histogram implements prometheus.Metric
-	metric, ok := observer.(prometheus.Metric)
-	assert.True(t, ok, "observer should implement prometheus.Metric")
+	cases := []struct {
+		name        string
+		status      string
+		errorCode   string
+		statusClass string
+	}{
+		{"internal error counted", "500", "InternalError", "5xx"},
+		{"service unavailable counted", "503", "ServiceUnavailable", "5xx"},
+		{"empty error code fails safe", "500", "", "5xx"},
+		{"not implemented excluded", "501", "NotImplemented", "excluded_5xx"},
+		{"insufficient capacity excluded", "507", "InsufficientCapacity", "excluded_5xx"},
+		{"unknown error excluded", "500", "UnknownError", "excluded_5xx"},
+	}
 
-	dtoMetric := &dto.Metric{}
-	assert.NoError(t, metric.Write(dtoMetric))
-	return dtoMetric.GetHistogram().GetSampleCount()
+	for _, tc := range cases {
+		before := globalSLICollector.counterValue(tenant, "s3", "get", tc.statusClass)
+		NewMetrics().Update(S3OperationLog{
+			Bucket:     "bucket-default-allowlist",
+			User:       "alice$" + tenant,
+			Operation:  "get_obj",
+			HTTPStatus: tc.status,
+			ErrorCode:  tc.errorCode,
+			TotalTime:  10,
+		}, config)
+		after := globalSLICollector.counterValue(tenant, "s3", "get", tc.statusClass)
+		assert.Equal(t, before+1, after, tc.name)
+	}
+}
+
+func TestSLICollector_StaleSeriesNotEmitted(t *testing.T) {
+	collector := newSLICollector(SLICollectorConfig{
+		StaleTTL: 1 * time.Millisecond, // very short for testing
+	})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	// Observe a request
+	collector.observeCounter("t1", "s3", "get", "2xx")
+
+	// Verify series exists before going stale
+	countersBefore := collector.collectCounterMetrics()
+	sliBefore := findCounterByLabels(countersBefore, "t1", "s3", "get", "2xx")
+	assert.NotNil(t, sliBefore, "SLI counter should be emitted while active")
+
+	// Wait for the series to become stale
+	time.Sleep(5 * time.Millisecond)
+
+	// Collect — stale series should not be emitted
+	countersAfter := collector.collectCounterMetrics()
+	sliAfter := findCounterByLabels(countersAfter, "t1", "s3", "get", "2xx")
+	assert.Nil(t, sliAfter, "Stale SLI counter should not be emitted")
+}
+
+func TestSLICollector_Reap(t *testing.T) {
+	collector := newSLICollector(SLICollectorConfig{
+		StaleTTL: 1 * time.Millisecond,
+	})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	// Observe requests for multiple operations
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	collector.observeCounter("t1", "swift", "list", "2xx")
+
+	// Each observation also materializes the SLO baseline classes (5xx,
+	// throttled, excluded_5xx) and the per-(tenant,protocol,operation)
+	// radosgw_requests_total denominator: the observed 2xx + three baselines +
+	// one requests series = 5 series per observation. seriesCount() counts only
+	// the status-class counters (observed + baselines = 4 per observation).
+	counters := collector.seriesCount()
+	assert.Equal(t, 8, counters, "Should have 8 status-class counter series (2 observed + 2×3 baselines)")
+
+	// Wait for series to become stale, then reap
+	time.Sleep(5 * time.Millisecond)
+	collector.reap()
+
+	counters = collector.seriesCount()
+	assert.Equal(t, 0, counters, "Reaped counters should be 0")
+	assert.Equal(t, uint64(10), collector.reapedTotal.Load(), "Should report 10 reaped series (8 status-class + 2 requests)")
+}
+
+func TestSLICollector_ReapRestartsCounterAtZero(t *testing.T) {
+	// Tombstones were removed: under the AWS-method SLO the monthly figure
+	// comes from per-5-minute interval rates recorded in Prometheus
+	// (sum_over_time/N), never from a long-window increase() over the raw
+	// counters, so a fresh series after an idle period is correct — idle
+	// intervals count as 0% error by definition, and Prometheus marks the
+	// old series stale so no query sees a discontinuity.
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	for i := 0; i < 5; i++ {
+		collector.observeCounter("t1", "s3", "get", "2xx")
+	}
+
+	// Force staleness deterministically: age the series beyond StaleTTL.
+	collector.mu.Lock()
+	for _, state := range collector.counters {
+		state.lastSeen = time.Now().Add(-48 * time.Hour)
+	}
+	collector.mu.Unlock()
+	collector.reap()
+
+	assert.Equal(t, 0, collector.seriesCount(), "stale series should be reaped")
+	assert.Nil(t, collector.counters[sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "get", StatusClass: "2xx"}],
+		"reaped counter should be fully removed from memory")
+
+	// Tenant returns after the idle period: a fresh series starts at zero.
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "2xx"),
+		"counter restarts at zero after the series was reaped")
+}
+
+func TestSLICollector_ZeroBaselineForActiveTenant(t *testing.T) {
+	// A tenant serving only successful requests must still expose zero-valued
+	// 5xx/throttled/excluded_5xx baseline series, so that increase() and the
+	// SLO recording rule can measure the jump from 0 to the first error. See
+	// sliBaselineStatusClasses (findings: first-error undercount + nil SLO for
+	// never-failed tenants).
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	collector.observeCounter("t1", "s3", "get", "2xx")
+
+	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "2xx"),
+		"observed success counter should be 1")
+	for _, class := range []string{"5xx", "throttled", "excluded_5xx"} {
+		key := sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "get", StatusClass: class}
+		state := collector.counters[key]
+		assert.NotNil(t, state, "baseline series %q must exist for an active tenant", class)
+		assert.Equal(t, float64(0), collector.counterValue("t1", "s3", "get", class),
+			"baseline series %q must be exported at zero", class)
+	}
+
+	// The baseline is scoped per (protocol, operation): an operation the
+	// tenant never used gets no baseline (bounded cardinality).
+	assert.Nil(t, collector.counters[sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "put", StatusClass: "5xx"}],
+		"no baseline should exist for an operation the tenant never performed")
+}
+
+func TestSLICollector_ZeroBaselineMakesFirstErrorMeasurable(t *testing.T) {
+	// The first 5xx after the baseline exists advances the counter 0 -> 1,
+	// which increase()/rate() can observe (the real-world defect was a lazily
+	// created series whose first sample is 1, reading as increase 0).
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	// Tenant is active with only successes first — baseline 5xx is now 0.
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	assert.Equal(t, float64(0), collector.counterValue("t1", "s3", "get", "5xx"),
+		"5xx baseline present at zero before any error")
+
+	// First real error advances the SAME series 0 -> 1 (not absent -> 1).
+	collector.observeCounter("t1", "s3", "get", "5xx")
+	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "5xx"),
+		"first error advances the pre-existing baseline, so increase() sees 0->1")
+}
+
+func TestSLICollector_BaselineDoesNotDoubleCountObservedClass(t *testing.T) {
+	// When the observed class IS a baseline class, the baseline-ensure step
+	// must not double-count: the series advances by exactly 1 per observation.
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	collector.observeCounter("t1", "s3", "get", "5xx")
+	collector.observeCounter("t1", "s3", "get", "5xx")
+	assert.Equal(t, float64(2), collector.counterValue("t1", "s3", "get", "5xx"),
+		"observed baseline class must increment by exactly 1 per observation")
+}
+
+func TestSLICollector_BaselineExportedAndStaleInLockstep(t *testing.T) {
+	// Verifies the baseline through the real Collect() path (not just internal
+	// state): a zero-valued 5xx baseline is emitted for an active tenant that
+	// has only served successes, and it goes stale together with its
+	// tenant+operation — the Collect() staleness filter keys off lastSeen,
+	// which observeCounter refreshes for the baselines in lockstep with the
+	// observed class, so no separate activity policy is needed in Collect().
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 10 * time.Millisecond})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	collector.observeCounter("t1", "s3", "get", "2xx")
+
+	// While active: the 2xx and its zero-valued 5xx baseline are both emitted.
+	active := collector.collectCounterMetrics()
+	success := findCounterByLabels(active, "t1", "s3", "get", "2xx")
+	baseline5xx := findCounterByLabels(active, "t1", "s3", "get", "5xx")
+	assert.NotNil(t, success, "active 2xx counter must be emitted")
+	assert.NotNil(t, baseline5xx, "zero-valued 5xx baseline must be emitted while active")
+	assert.Equal(t, float64(0), baseline5xx.GetCounter().GetValue(),
+		"5xx baseline must be exported at zero")
+
+	// After the tenant+op goes stale, the baseline is filtered out in lockstep
+	// with the observed class (not left dangling).
+	time.Sleep(15 * time.Millisecond)
+	stale := collector.collectCounterMetrics()
+	assert.Nil(t, findCounterByLabels(stale, "t1", "s3", "get", "2xx"),
+		"stale 2xx counter must not be emitted")
+	assert.Nil(t, findCounterByLabels(stale, "t1", "s3", "get", "5xx"),
+		"stale 5xx baseline must not be emitted (same activity policy as its sibling)")
+}
+
+func TestSLICollector_TotalRequestsDenominatorAdvancesEveryRequest(t *testing.T) {
+	// The SLO denominator (radosgw_requests_total) must advance on every
+	// request regardless of status_class, so it is immune to the per-class
+	// lazy-creation gap. One series per (tenant, protocol, operation).
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 24 * time.Hour})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	collector.observeCounter("t1", "s3", "get", "4xx")
+	collector.observeCounter("t1", "s3", "get", "5xx")
+
+	assert.Equal(t, float64(3), collector.requestsValue("t1", "s3", "get"),
+		"denominator must count every request across all status classes")
+	// Scoped per (protocol, operation): a different op has its own denominator.
+	assert.Equal(t, float64(0), collector.requestsValue("t1", "s3", "put"),
+		"denominator is scoped per operation")
+}
+
+func TestSLICollector_ResumedSuccessAfterIdleIsCounted(t *testing.T) {
+	// Regression for the [P2] success-baseline finding: a tenant with sustained
+	// 4xx traffic but no successes for longer than StaleTTL used to have its
+	// 2xx series reaped while its 5xx baseline survived (kept alive by the 4xx
+	// traffic). When success traffic resumed, the recreated per-class 2xx
+	// series was first scraped at its full resumed value, so an increase()-
+	// based denominator derived from summing per-class counters missed the
+	// resumed successes and the error rate spiked toward 100%.
+	//
+	// The dedicated radosgw_requests_total denominator fixes this: it advances
+	// on EVERY request, so it is never reaped while the tenant is active and a
+	// resumed success burst is always measurable.
+	collector := newSLICollector(SLICollectorConfig{StaleTTL: 20 * time.Millisecond})
+	prev := globalSLICollector
+	globalSLICollector = collector
+	t.Cleanup(func() { globalSLICollector = prev })
+
+	// Phase 1: successes + client errors establish both series.
+	collector.observeCounter("t1", "s3", "get", "2xx")
+	collector.observeCounter("t1", "s3", "get", "4xx")
+	assert.Equal(t, float64(2), collector.requestsValue("t1", "s3", "get"))
+
+	// Phase 2: age the per-class 2xx series past StaleTTL to simulate a long
+	// success gap, while 4xx traffic keeps the tenant active. The denominator
+	// is refreshed by that continued traffic and must NOT be reaped.
+	collector.mu.Lock()
+	collector.counters[sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "get", StatusClass: "2xx"}].lastSeen =
+		time.Now().Add(-time.Hour)
+	collector.mu.Unlock()
+	collector.observeCounter("t1", "s3", "get", "4xx") // keeps tenant+op active
+	collector.reap()
+
+	assert.Nil(t, collector.counters[sliCounterKey{Tenant: "t1", Protocol: "s3", Operation: "get", StatusClass: "2xx"}],
+		"the idle per-class 2xx series is reaped (expected)")
+	assert.Equal(t, float64(3), collector.requestsValue("t1", "s3", "get"),
+		"the total-request denominator survives and keeps counting (2x initial + 1x keepalive 4xx)")
+
+	// Phase 3: success traffic resumes. The denominator advances continuously,
+	// so increase() over it captures the resumed successes — no 100% spike.
+	for i := 0; i < 100; i++ {
+		collector.observeCounter("t1", "s3", "get", "2xx")
+	}
+	collector.observeCounter("t1", "s3", "get", "5xx")
+
+	assert.Equal(t, float64(104), collector.requestsValue("t1", "s3", "get"),
+		"denominator counts all resumed requests (3 prior + 100 success + 1 error)")
+	assert.Equal(t, float64(1), collector.counterValue("t1", "s3", "get", "5xx"),
+		"numerator 5xx advanced from its retained zero baseline to 1")
+	// Error rate ≈ 1/101 for this window, NOT ~100%: the denominator saw the
+	// resumed successes because it never lazily restarted.
 }
 
 func TestMetricsUpdate_ErrorTracking(t *testing.T) {

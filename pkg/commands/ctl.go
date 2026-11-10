@@ -132,6 +132,24 @@ func getEnvInt64Slice(key string, defaultValue []int64) []int64 {
 	return result
 }
 
+func getEnvStringSlice(key string, defaultValue []string) []string {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+	values := strings.Split(valueStr, ",")
+	result := make([]string, 0, len(values))
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			result = append(result, v)
+		}
+	}
+	if len(result) == 0 {
+		return defaultValue
+	}
+	return result
+}
+
 func getEnvBool(key string, defaultValue bool) bool {
 	valueStr := os.Getenv(key)
 	if value, err := strconv.ParseBool(valueStr); err == nil {

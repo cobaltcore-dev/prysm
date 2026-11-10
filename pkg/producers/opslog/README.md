@@ -65,8 +65,20 @@ prysm local-producer ops-log [flags]
   existing data.
 - `--track-everything` - Enable detailed tracking for all metric types
   (efficient mode).
-- `--track-bucket-slo` - Enable low-cardinality bucket GET/LIST SLI metrics for
-  Prometheus SLOs.
+- `--track-bucket-slo` - Enable low-cardinality per-tenant data-plane SLI
+  metrics (get/put/list/delete/head/multipart) for Prometheus SLOs.
+- `--bucket-slo-stale-ttl "24h"` - Duration after which idle tenant SLI series
+  are reaped and no longer exposed on `/metrics` (default: `24h`).
+- `--bucket-slo-reap-interval "6h"` - How often the background reaper runs to
+  remove stale series from memory (default: `stale-ttl/4`, minimum `1m` —
+  values below one minute are clamped).
+- `--bucket-slo-error-code-allowlist "InternalError,ServiceUnavailable"` -
+  Comma-separated (or repeated) RGW error codes whose 5xx responses count
+  against the availability SLO (`status_class="5xx"`). All other server errors
+  (e.g. `NotImplemented`, `InsufficientCapacity`) are routed to
+  `status_class="excluded_5xx"` and excluded from the SLO numerator.
+  Case-sensitive; defaults to the AWS S3 SLA error set
+  (`InternalError,ServiceUnavailable`).
 - `--track-timeout-errors` - Enable tracking of timeout errors (408, 504, 598,
   499) for OSD issue detection.
 - `--track-errors-by-category` - Enable error categorization (timeout,
@@ -168,7 +180,7 @@ prysm local-producer ops-log \
 | `IGNORE_ANONYMOUS_REQUESTS`  | Ignore anonymous requests in metrics.           |
 | `TRUNCATE_LOG_ON_START`      | Whether to rotate the log file on startup.      |
 | `TRACK_EVERYTHING`           | Enable detailed tracking for all metric types.  |
-| `TRACK_BUCKET_SLO`           | Enable low-cardinality bucket GET/LIST SLI metrics. |
+| `TRACK_BUCKET_SLO`           | Enable low-cardinality per-tenant data-plane SLI metrics (get/put/list/delete/head/multipart). |
 | `AUDIT_ENABLED`              | Enable RabbitMQ audit trail publishing.         |
 | `AUDIT_RABBITMQ_URL`         | RabbitMQ connection URL.                        |
 | `AUDIT_RABBITMQ_USERNAME`    | RabbitMQ username; overrides URL userinfo.      |
@@ -278,7 +290,11 @@ prysm local-producer ops-log \
 
 | Variable                                      | Description                                                    |
 |-----------------------------------------------|----------------------------------------------------------------|
-| `TRACK_BUCKET_SLO`                            | Track low-cardinality bucket GET/LIST request SLI metrics for Prometheus SLOs. |
+| `TRACK_BUCKET_SLO`                            | Track low-cardinality per-tenant SLI metrics (protocol/operation/status_class) for Prometheus SLOs. |
+| `BUCKET_SLO_STALE_TTL`                        | Duration after which idle SLI series are reaped (default: `24h`). |
+| `BUCKET_SLO_REAP_INTERVAL`                    | How often the reaper runs to remove stale series (default: `stale-ttl/4`, minimum `1m` — values below one minute are clamped). |
+| `BUCKET_SLO_ERROR_CODE_ALLOWLIST`             | Comma-separated RGW error codes whose 5xx responses count against the availability SLO (default: `InternalError,ServiceUnavailable`; case-sensitive). |
+| `REGION`                                      | Deployment region label for SLI metrics (optional; defaults to `unknown`). |
 
 ## Metrics Collected
 
@@ -382,16 +398,193 @@ prysm local-producer ops-log \
 | `radosgw_requests_duration_per_method`               | Histogram | `method`                                             | Histogram for request latencies aggregated per method (global).   |
 | `radosgw_requests_duration_per_bucket_and_method`    | Histogram | `tenant`, `bucket`, `method`                         | Histogram for request latencies aggregated per bucket and method (all users combined). |
 
-### Bucket SLI Metrics
+### SLI Metrics (per-tenant)
 
-| Metric Name                                   | Type      | Labels                                      | Description                                                        |
-|-----------------------------------------------|-----------|---------------------------------------------|--------------------------------------------------------------------|
-| `radosgw_bucket_sli_requests_total`           | Counter   | `tenant`, `bucket`, `operation`, `status_class` | Low-cardinality bucket SLI request counter for GET/LIST-style operations, labeled by response class such as `2xx` or `5xx`. |
-| `radosgw_bucket_sli_request_duration_seconds` | Histogram | `tenant`, `bucket`, `operation`             | Latency histogram in seconds for bucket GET/LIST SLI operations, intended for Prometheus SLO evaluation. |
+| Metric Name                                   | Type      | Labels                                                      | Description                                                        |
+|-----------------------------------------------|-----------|-------------------------------------------------------------|--------------------------------------------------------------------|
+| `radosgw_request_total`                     | Counter   | `tenant`, `protocol`, `operation`, `status_class`, `region` | Per-tenant SLI request counter for object level data-plane operations (get/put/list/delete/head/multipart), with protocol label (`s3`/`swift`). `status_class` values: `1xx, 2xx, 3xx, 4xx, throttled, 5xx, excluded_5xx, unknown`. The `5xx` class is an **error-code allowlist**: only requests whose ops-log `error_code` is in the allowlist (default: `InternalError`, `ServiceUnavailable` — the AWS S3 SLA error set) count against the availability SLO. Throttling (S3 `503 SlowDown`, Swift `498`, HTTP `429`) goes to `throttled`; all other server errors (e.g. `501 NotImplemented`, `507 InsufficientCapacity`, RGW's catch-all `UnknownError`) go to `excluded_5xx` — visible in the metric but excluded from the SLO numerator. Use `radosgw_requests_total` (below) as the SLO **denominator**, not a `sum` of this metric over `status_class`. |
+| `radosgw_requests_total`                    | Counter   | `tenant`, `protocol`, `operation`, `region`                 | **SLO denominator.** Total data-plane requests per tenant/protocol/operation, advanced on every request regardless of `status_class`. A single per-group series, so (unlike summing `radosgw_request_total` over `status_class`) it never has a lazy-creation gap when one status class goes idle and resumes — which would otherwise make `increase()` miss a resumed success burst and spike the error rate toward 100%. |
+| `radosgw_request_duration_seconds`          | Histogram | `tenant`, `protocol`, `operation`, `region`                 | Latency histogram (7 fixed buckets: 0.05, 0.1, 0.5, 1, 5, 30, +Inf) for SLO evaluation. |
+| `radosgw_sli_stale_series_reaped_total`     | Counter   | *(none)*                                                    | Total number of stale SLI series that have been reaped by the background reaper. |
+
+#### Tenant Label Derivation
+
+The `tenant` label is derived from the ops-log `user` field:
+
+- **Keystone-authenticated clusters** (OpenStack): the ops-log user carries a
+  `user$tenant` suffix (e.g. `alice$project-x`), and the part after `$` is the
+  Keystone project — that project is the `tenant`.
+- **Clusters without Keystone** (pure S3 / Local auth, e.g. a stock Rook-Ceph
+  object store): the ops-log user has no `$tenant` suffix, so there is no
+  project to key on. The SLI falls back to the **S3 user name** as the
+  `tenant` (e.g. `tenant="my-user"`). On such clusters the per-tenant SLOs are
+  therefore effectively **per-S3-user SLOs** — one series set per S3 user.
+
+Anonymous requests never reach the SLI either way: with
+`IGNORE_ANONYMOUS_REQUESTS` enabled (the default, and required with
+`TRACK_BUCKET_SLO`), anonymous traffic is dropped before metrics are updated,
+so the fallback cannot pollute the SLI with anonymous series.
+
+#### Stale Series Reaping
+
+The SLI collector uses a custom `prometheus.Collector` with a background reaper
+to prevent unbounded series growth:
+
+- Series that receive no updates for longer than `--bucket-slo-stale-ttl`
+  (default: 24h) are removed from memory and no longer exposed on `/metrics`
+- The reaper runs periodically (default: `stale-ttl/4`, clamped to a minimum
+  of one minute) to clean up idle series
+- This ensures deleted or abandoned tenants do not accumulate forever
+- **Reaped counters restart at zero**: when a request counter is reaped
+  (idle > `stale-ttl`), it is fully removed from memory; a tenant returning
+  after an idle period starts a fresh series. This is safe for the AWS-method
+  SLO: the monthly figure is computed from per-5-minute interval rates
+  recorded in Prometheus (`sum_over_time/N`), never from a long-window
+  `increase()` over the raw counters, and idle intervals count as 0% error by
+  definition. Prometheus marks the old series stale, so no query observes a
+  discontinuity. Latency histograms are likewise reaped outright — they are
+  consumed via short-window `rate()` queries, which an idle gap already
+  excludes.
+- **Zero-valued error baselines for active tenants**: the first time a
+  `(tenant, protocol, operation)` is seen, the collector also materializes
+  zero-valued `5xx`, `throttled`, and `excluded_5xx` series for it (success
+  classes are created naturally by traffic and are not baselined). This is
+  required for correctness, not cosmetics:
+    - `increase(radosgw_request_total{status_class="5xx"}[5m])` cannot measure
+      the transition from *no series* to a first sample of `1`, so without a
+      zero baseline the **first error after a counter is created reads as 0** —
+      a silently undercounted failure burst.
+    - the per-interval error-rate recording rule yields **no series at all**
+      for a tenant that has never emitted a `5xx`, so a perfectly healthy
+      tenant would be missing from the SLO dashboard instead of reading 100%.
+  The baselines share the tenant+operation's lifecycle: they are refreshed on
+  every request and reaped with it after `stale-ttl`, so idle tenants still
+  cost nothing. Worst-case added cardinality is bounded at 3 classes ×
+  (protocols actually used) × (operations actually used) per active tenant.
+
 
 > **Note**: Histogram metrics do **not** include the `pod` label to reduce
 > cardinality. Each histogram automatically provides `_bucket`, `_count`, and
 > `_sum` metrics for comprehensive latency analysis.
+
+#### SLO Calculation — Availability (AWS S3 SLA method)
+
+The availability SLI follows the AWS S3 SLA convention: a per-5-minute-interval
+error rate, averaged over the calendar month, with **zero-traffic intervals
+counted as 0% error**. The numerator is backend errors only, selected by an
+**error-code allowlist** on `status_class="5xx"`.
+
+##### Error classification (numerator definition)
+
+The AWS S3 SLA counts only error status `InternalError` and
+`ServiceUnavailable` — not `SlowDown`, `NotImplemented`, or capacity errors.
+prysm implements this via the ops-log `error_code` field, which RGW writes for
+every failed request (`rgw_log.cc`):
+
+| Ops-log `error_code`        | HTTP | RGW source                                   | `status_class`  | Counts against SLO |
+|-----------------------------|------|----------------------------------------------|-----------------|--------------------|
+| `InternalError`             | 500  | `ERR_INTERNAL_ERROR`                          | `5xx`           | yes (default)      |
+| `ServiceUnavailable`        | 503  | `ERR_SERVICE_UNAVAILABLE` **and** `EBUSY`     | `5xx`           | yes (default)      |
+| `SlowDown`                  | 503  | `ERR_RATE_LIMITED` (rate_limit / dmclock)     | `throttled`     | no                 |
+| `Rate Limited` (Swift)      | 498  | `ERR_RATE_LIMITED` on the Swift endpoint      | `throttled`     | no                 |
+| `NotImplemented`            | 501  | `ERR_NOT_IMPLEMENTED`                         | `excluded_5xx`  | no                 |
+| `InsufficientCapacity`      | 507  | `EDQUOT` / `ENOSPC` (quota / no space)        | `excluded_5xx`  | no                 |
+| `UnknownError`              | 500  | RGW catch-all for unmapped errnos             | `excluded_5xx`  | no (see note)      |
+| *(empty)*                   | 5xx  | — (RGW always logs a code for failures)       | `5xx`           | yes (fail-safe)    |
+
+Notes:
+
+- **One allowlist covers both protocols**: for 5xx errnos, Swift requests fall
+  through `rgw_http_swift_errors` to `rgw_http_s3_errors`
+  (`set_req_state_err`), so the code strings are identical. Only rate limiting
+  differs (`498 Rate Limited`), and it is classified as `throttled` by status.
+- **Fail-safe rule**: a 5xx with an *empty* `error_code` is counted, not
+  excluded. RGW always logs a code for failed requests, so an empty code means
+  degraded telemetry (e.g. log-format drift after an RGW upgrade) — missing
+  data must never look like availability.
+- **`UnknownError` caveat**: RGW's catch-all for unclassifiable internal
+  errors is *not* in the default allowlist (the AWS definition names exactly
+  two codes). If you want novel/unmapped internal errors counted, add it:
+  `--bucket-slo-error-code-allowlist "InternalError,ServiceUnavailable,UnknownError"`.
+  Review the allowlist when upgrading RGW — new error codes default to
+  `excluded_5xx` until added.
+- **Visibility**: `excluded_5xx` keeps non-SLA server errors observable
+  (`increase(radosgw_request_total{status_class=~"5xx|excluded_5xx"}[5m])` is
+  all server errors) without polluting the SLO numerator. Per-status detail
+  remains available via the `--track-requests-detailed` metrics.
+
+Recording rules:
+
+```promql
+# (1) per-interval error rate. Two correctness guards:
+#
+#  * Numerator presence. For every active (tenant, protocol, operation) the
+#    collector exports a zero-valued status_class="5xx" baseline series, so
+#    the numerator sum is always present (value 0) for a healthy tenant —
+#    the rule yields an explicit 0 error rate instead of an empty vector
+#    that would drop the tenant from the SLO entirely. The same baseline
+#    lets increase() measure a first error as the jump 0->1 rather than
+#    missing the absent-series -> 1 transition.
+#  * Denominator = radosgw_requests_total, NOT a sum of radosgw_request_total
+#    over status_class. The dedicated denominator advances on every request,
+#    so it never has a lazy-creation gap: if a success class (2xx) goes idle
+#    beyond the stale TTL while other traffic keeps the tenant active, its
+#    per-class counter is reaped, but the denominator keeps counting — a
+#    resumed success burst is measured by increase() instead of being missed
+#    (which would otherwise spike the error rate toward 100%). clamp_min(..., 1)
+#    turns a genuine no-traffic interval into an explicit 0% error rate (the
+#    AWS "zero requests = 100% available" clause) and avoids 0/0 = NaN, which
+#    would silently disable "> threshold" alerts. Tenants reaped after the
+#    stale TTL emit no sample at all; rule (2) counts those intervals as 0% too.
+- record: rgw:sli_error_rate:ratio_rate5m
+  expr: |
+    sum by (tenant, region) (increase(radosgw_request_total{status_class="5xx"}[5m]))
+    /
+    clamp_min(sum by (tenant, region) (increase(radosgw_requests_total[5m])), 1)
+
+# (2) monthly uptime: sum (NOT avg) over time ÷ fixed calendar interval count
+#     N = 288 × days_in_month (8640 for a 30-day window)
+100 * (1 - sum_over_time(rgw:sli_error_rate:ratio_rate5m[30d:5m]) / 8640)
+```
+
+> **Older collectors / defensive variant.** The zero-valued `5xx` baseline
+> above guarantees the numerator is present for any active tenant, and
+> `radosgw_requests_total` guarantees a gap-free denominator. If you run against
+> metrics produced *without* those (e.g. a pre-baseline prysm build that only
+> exports `radosgw_request_total`), zero-fill the numerator from the denominator
+> label set so a never-failed tenant still reports 0 rather than disappearing —
+> but note the summed denominator remains vulnerable to the resumed-success
+> undercount described above:
+>
+> ```promql
+> (
+>   sum by (tenant, region) (increase(radosgw_request_total{status_class="5xx"}[5m]))
+>   or
+>   0 * sum by (tenant, region) (increase(radosgw_request_total[5m]))
+> )
+> / clamp_min(sum by (tenant, region) (increase(radosgw_request_total[5m])), 1)
+> ```
+
+
+Why `sum_over_time(...) / N` and **not** `avg_over_time(...)`: the reaper stops
+exporting idle tenants, so Prometheus holds no samples for idle intervals.
+`avg_over_time` would average over *observed* intervals only — silently
+re-weighting a tenant's few active intervals to 100% of the month. Dividing the
+*sum* of interval rates by the fixed calendar interval count implements the
+"zero-traffic interval = 0% error" clause exactly: missing samples contribute
+nothing to the sum. The subquery step (`5m`) must match the recording-rule
+evaluation interval. Use `days_in_month()` for other month lengths; for strict
+calendar-month windows compute month-to-date externally (PromQL has no native
+calendar-month range selector).
+
+A 5-minute `rate()`-style dashboard variant of (1) is suitable for fast-burn
+alerting; throttling should be alerted on separately:
+
+```promql
+sum by (tenant) (increase(radosgw_request_total{status_class="throttled"}[5m]))
+/ clamp_min(sum by (tenant) (increase(radosgw_requests_total[5m])), 1)
+```
+
 
 ### Memory Efficiency Architecture
 
@@ -673,6 +866,33 @@ prysm local-producer ops-log \
   --track-requests-per-tenant
 ```
 
+### Bucket SLO Tracking
+
+```bash
+# Track per-tenant SLI metrics with default stale reaping (24h TTL)
+prysm local-producer ops-log \
+  --log-file /var/log/ceph/ops-log.log \
+  --prometheus --prometheus-port 8080 \
+  --track-bucket-slo \
+  --region eu-de-1
+
+# Custom TTL for high-traffic clusters (shorter retention, aggressive reaping)
+prysm local-producer ops-log \
+  --log-file /var/log/ceph/ops-log.log \
+  --prometheus --prometheus-port 8080 \
+  --track-bucket-slo \
+  --region eu-de-1 \
+  --bucket-slo-stale-ttl "6h"
+
+# Long retention for infrequently-accessed tenants
+prysm local-producer ops-log \
+  --log-file /var/log/ceph/ops-log.log \
+  --prometheus --prometheus-port 8080 \
+  --track-bucket-slo \
+  --region eu-de-1 \
+  --bucket-slo-stale-ttl "48h"
+```
+
 ## Configuration Best Practices
 
 ### Performance Considerations
@@ -687,6 +907,10 @@ prysm local-producer ops-log \
   multi-tenant environments
 - **Memory efficiency**: Each metric type uses dedicated storage, so only
   enabled metrics consume memory
+- **Bucket SLO cardinality**: With `--track-bucket-slo`, metrics are aggregated
+  per tenant (not per bucket), so cardinality is bounded by tenant count (~500)
+  regardless of bucket count. The stale series reaper automatically removes
+  idle tenant series after `--bucket-slo-stale-ttl`.
 
 ### Recommended Configurations
 

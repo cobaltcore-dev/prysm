@@ -4,28 +4,468 @@
 
 package opslog
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"math"
+	"sync"
+	"sync/atomic"
+	"time"
 
-var (
-	sliRequestsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "radosgw_bucket_sli_requests_total",
-			Help: "Bucket GET/LIST requests for SLI and SLO evaluation",
-		},
-		[]string{"tenant", "bucket", "operation", "status_class"},
-	)
-
-	sliRequestDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "radosgw_bucket_sli_request_duration_seconds",
-			Help:    "Latency histogram for bucket GET/LIST requests used for SLI and SLO evaluation",
-			Buckets: []float64{0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 5, 10},
-		},
-		[]string{"tenant", "bucket", "operation"},
-	)
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog/log"
 )
 
-func registerSLIMetrics() {
-	prometheus.MustRegister(sliRequestsTotal)
-	prometheus.MustRegister(sliRequestDuration)
+// SLICollectorConfig holds configuration for the SLI collector.
+type SLICollectorConfig struct {
+	// StaleTTL is the duration after which a series with no updates stops
+	// being emitted and is reaped from memory. This prevents unbounded
+	// growth from tenants with no traffic.
+	StaleTTL time.Duration
+	// ReapInterval controls how often the reaper goroutine runs. Defaults to StaleTTL/4.
+	ReapInterval time.Duration
+	// Region is the deployment region label (e.g. "eu-de-1").
+	Region string
+	// ErrorCodeAllowlist is the set of RGW error codes (e.g. "InternalError",
+	// "ServiceUnavailable") whose 5xx responses count against the availability
+	// SLO (status_class "5xx"). 5xx responses with any other code are routed to
+	// the "excluded_5xx" class. Empty/nil falls back to
+	// defaultSLIErrorCodeAllowlist.
+	ErrorCodeAllowlist []string
+}
+
+// sliCounterKey uniquely identifies a label combination for the SLI counter metric.
+// Per ADR: keyed by tenant (not bucket), with protocol and operation labels.
+type sliCounterKey struct {
+	Tenant      string
+	Protocol    string
+	Operation   string
+	StatusClass string
+}
+
+// sliLatencyKey uniquely identifies a label combination for the SLI latency histogram.
+type sliLatencyKey struct {
+	Tenant    string
+	Protocol  string
+	Operation string
+}
+
+// sliRequestsKey identifies the per-(tenant, protocol, operation) total-request
+// denominator counter. It deliberately omits StatusClass: this is the SLO
+// denominator and must advance on every request regardless of outcome.
+type sliRequestsKey struct {
+	Tenant    string
+	Protocol  string
+	Operation string
+}
+
+type sliCounterState struct {
+	value    uint64
+	lastSeen time.Time
+}
+
+// sliLatencyState holds histogram bucket accumulators.
+type sliLatencyState struct {
+	// Fixed histogram buckets per ADR: 0.05, 0.1, 0.5, 1, 5, 30, +Inf
+	buckets  [7]float64 // cumulative count per le boundary
+	sum      float64
+	count    uint64
+	lastSeen time.Time
+}
+
+// sliHistogramBounds defines the fixed le boundaries per ADR.
+var sliHistogramBounds = [7]float64{0.05, 0.1, 0.5, 1.0, 5.0, 30.0, math.MaxFloat64}
+
+// sliCollector implements prometheus.Collector with stale series reaping.
+// Emits:
+//   - radosgw_request_total{tenant, protocol, operation, status_class, region}
+//   - radosgw_requests_total{tenant, protocol, operation, region} (SLO denominator)
+//   - radosgw_request_duration_seconds{tenant, protocol, operation, region} (histogram)
+//   - radosgw_sli_stale_series_reaped_total (housekeeping counter)
+type sliCollector struct {
+	mu       sync.RWMutex
+	counters map[sliCounterKey]*sliCounterState
+	requests map[sliRequestsKey]*sliCounterState
+	latency  map[sliLatencyKey]*sliLatencyState
+
+	config             SLICollectorConfig
+	errorCodeAllowlist map[string]struct{}
+	counterDesc        *prometheus.Desc
+	requestsDesc       *prometheus.Desc
+	histogramDesc      *prometheus.Desc
+	reapedDesc         *prometheus.Desc
+	reapedTotal        atomic.Uint64
+	stopReaper         chan struct{}
+}
+
+// globalSLICollector is the package-level instance used by observeSLI.
+var globalSLICollector *sliCollector
+
+func newSLICollector(cfg SLICollectorConfig) *sliCollector {
+	// Reap interval normalization:
+	//   - unset (0) → defaults to StaleTTL/4
+	//   - clamped to a minimum of one minute so the reaper can never spin
+	//     on the hot path. An explicitly configured interval below one
+	//     minute is therefore NOT honored; the effective interval is
+	//     max(StaleTTL/4, 1m) when unset, and at least 1m when set.
+	//     Operators wanting tighter reap deadlines should lower StaleTTL
+	//     instead (series are only reaped once they exceed StaleTTL).
+	if cfg.ReapInterval == 0 {
+		cfg.ReapInterval = cfg.StaleTTL / 4
+	}
+	if cfg.ReapInterval < time.Minute {
+		cfg.ReapInterval = time.Minute
+	}
+	if cfg.Region == "" {
+		cfg.Region = "unknown"
+	}
+
+	// Error-code allowlist normalization: trim entries, drop empties, and
+	// fall back to the default allowlist (InternalError, ServiceUnavailable)
+	// when nothing usable is configured.
+	allowlist := normalizeErrorCodeAllowlist(cfg.ErrorCodeAllowlist)
+
+	c := &sliCollector{
+		counters:           make(map[sliCounterKey]*sliCounterState),
+		requests:           make(map[sliRequestsKey]*sliCounterState),
+		latency:            make(map[sliLatencyKey]*sliLatencyState),
+		config:             cfg,
+		errorCodeAllowlist: allowlist,
+		counterDesc: prometheus.NewDesc(
+			"radosgw_request_total",
+			"RGW data-plane requests for SLI/SLO evaluation, aggregated per tenant. Only data-plane operations (get, put, list, delete, head, multipart) are counted; control-plane ops (create_bucket, delete_bucket, ACL, policy, lifecycle, etc.) are excluded from both numerator and denominator.",
+			[]string{"tenant", "protocol", "operation", "status_class", "region"},
+			nil,
+		),
+		requestsDesc: prometheus.NewDesc(
+			"radosgw_requests_total",
+			"RGW data-plane total requests per tenant/protocol/operation (SLO denominator). Advances on every request regardless of status_class, so it never has a lazy-creation gap when one status class goes idle. Use this as the availability-SLO denominator instead of summing radosgw_request_total over status_class. Same operation scope as radosgw_request_total.",
+			[]string{"tenant", "protocol", "operation", "region"},
+			nil,
+		),
+		histogramDesc: prometheus.NewDesc(
+			"radosgw_request_duration_seconds",
+			"RGW data-plane request latency histogram for SLI/SLO evaluation. Same operation scope as radosgw_request_total.",
+			[]string{"tenant", "protocol", "operation", "region"},
+			nil,
+		),
+		reapedDesc: prometheus.NewDesc(
+			"radosgw_sli_stale_series_reaped_total",
+			"Total number of stale SLI series that have been reaped",
+			nil,
+			nil,
+		),
+		stopReaper: make(chan struct{}),
+	}
+
+	return c
+}
+
+// Describe implements prometheus.Collector.
+func (c *sliCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.counterDesc
+	ch <- c.requestsDesc
+	ch <- c.histogramDesc
+	ch <- c.reapedDesc
+}
+
+// Collect implements prometheus.Collector.
+func (c *sliCollector) Collect(ch chan<- prometheus.Metric) {
+	now := time.Now()
+	region := c.config.Region
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Emit counter metrics
+	for key, state := range c.counters {
+		if now.Sub(state.lastSeen) > c.config.StaleTTL {
+			continue // stale — skip (reaper will clean up)
+		}
+		m, err := prometheus.NewConstMetric(
+			c.counterDesc,
+			prometheus.CounterValue,
+			float64(state.value),
+			key.Tenant, key.Protocol, key.Operation, key.StatusClass, region,
+		)
+		if err == nil {
+			ch <- m
+		}
+	}
+
+	// Emit the per-(tenant, protocol, operation) total-request denominator.
+	for key, state := range c.requests {
+		if now.Sub(state.lastSeen) > c.config.StaleTTL {
+			continue // stale — skip (reaper will clean up)
+		}
+		m, err := prometheus.NewConstMetric(
+			c.requestsDesc,
+			prometheus.CounterValue,
+			float64(state.value),
+			key.Tenant, key.Protocol, key.Operation, region,
+		)
+		if err == nil {
+			ch <- m
+		}
+	}
+
+	// Emit histogram metrics
+	for key, state := range c.latency {
+		if now.Sub(state.lastSeen) > c.config.StaleTTL {
+			continue
+		}
+
+		// Build cumulative bucket map for prometheus.NewConstHistogram
+		buckets := make(map[float64]uint64, 7)
+		for i := 0; i < 6; i++ {
+			buckets[sliHistogramBounds[i]] = uint64(state.buckets[i])
+		}
+		buckets[math.Inf(1)] = state.count
+
+		m, err := prometheus.NewConstHistogram(
+			c.histogramDesc,
+			uint64(state.count),
+			state.sum,
+			buckets,
+			key.Tenant, key.Protocol, key.Operation, region,
+		)
+		if err == nil {
+			ch <- m
+		}
+	}
+
+	// Emit reaper counter
+	m, err := prometheus.NewConstMetric(
+		c.reapedDesc,
+		prometheus.CounterValue,
+		float64(c.reapedTotal.Load()),
+	)
+	if err == nil {
+		ch <- m
+	}
+}
+
+// sliBaselineStatusClasses are the error/throttle status classes that must be
+// present as a zero-valued series for every active (tenant, protocol,
+// operation) so that Prometheus can measure the jump from 0 to the first error.
+//
+// Without a zero baseline, a status class is created lazily on its first
+// occurrence, and both increase()/rate() and the monthly recording rule
+// mishandle that first sample:
+//
+//   - increase(radosgw_request_total{status_class="5xx"}[5m]) cannot see the
+//     transition from "no series" to its first sample (value 1), so the first
+//     error after creation reads as 0 — a silently undercounted failure burst.
+//   - the per-interval error-rate recording rule produces no series at all for
+//     a tenant that has never emitted a 5xx, so a perfectly healthy tenant is
+//     missing from the SLO dashboard instead of reading 100% available.
+//
+// Only the numerator error/throttle classes are baselined here. The SLO
+// *denominator* is NOT derived by summing these per-class counters — that
+// would reintroduce the same lazy-creation gap on a success class that went
+// idle while other traffic kept the tenant active (a resumed success burst
+// would be missed, inflating the error rate toward 100%). Instead the
+// denominator is the dedicated radosgw_requests_total counter, which advances
+// on every request and shares the tenant+operation lifecycle. See
+// observeCounter and the requests map.
+var sliBaselineStatusClasses = [3]string{"5xx", "throttled", "excluded_5xx"}
+
+// observeCounter records a request count into the collector.
+func (c *sliCollector) observeCounter(tenant, protocol, operation, statusClass string) {
+	now := time.Now()
+
+	counterKey := sliCounterKey{
+		Tenant:      tenant,
+		Protocol:    protocol,
+		Operation:   operation,
+		StatusClass: statusClass,
+	}
+	requestsKey := sliRequestsKey{
+		Tenant:    tenant,
+		Protocol:  protocol,
+		Operation: operation,
+	}
+
+	c.mu.Lock()
+	// Advance the SLO denominator for this (tenant, protocol, operation) on
+	// every request, independent of status_class. Because it is a single
+	// per-group series that is incremented by every request, it never has a
+	// lazy-creation gap: a resumed success burst is always measurable by
+	// increase(), so the availability error rate cannot be inflated toward
+	// 100% when one status class goes idle. See radosgw_requests_total.
+	rs, ok := c.requests[requestsKey]
+	if !ok {
+		rs = &sliCounterState{}
+		c.requests[requestsKey] = rs
+	}
+	rs.value++
+	rs.lastSeen = now
+
+	// Ensure the numerator baseline classes exist as zero-valued series for
+	// this (tenant, protocol, operation). Refreshing their lastSeen on every
+	// observation keeps them alive (and exported) for as long as the tenant
+	// is active, so increase()/the recording rule always have a 0 baseline to
+	// measure the first error against. See sliBaselineStatusClasses.
+	for _, baseClass := range sliBaselineStatusClasses {
+		baseKey := sliCounterKey{
+			Tenant:      tenant,
+			Protocol:    protocol,
+			Operation:   operation,
+			StatusClass: baseClass,
+		}
+		bs, ok := c.counters[baseKey]
+		if !ok {
+			bs = &sliCounterState{}
+			c.counters[baseKey] = bs
+		}
+		bs.lastSeen = now
+	}
+
+	cs, ok := c.counters[counterKey]
+	if !ok {
+		cs = &sliCounterState{}
+		c.counters[counterKey] = cs
+	}
+	cs.value++
+	cs.lastSeen = now
+	c.mu.Unlock()
+}
+
+// observeLatency records a latency observation into the histogram.
+func (c *sliCollector) observeLatency(tenant, protocol, operation string, seconds float64) {
+	now := time.Now()
+
+	latencyKey := sliLatencyKey{
+		Tenant:    tenant,
+		Protocol:  protocol,
+		Operation: operation,
+	}
+
+	c.mu.Lock()
+	ls, ok := c.latency[latencyKey]
+	if !ok {
+		ls = &sliLatencyState{}
+		c.latency[latencyKey] = ls
+	}
+
+	// Increment cumulative histogram buckets
+	for i, bound := range sliHistogramBounds {
+		if seconds <= bound {
+			// Cumulative: increment this bucket and all higher ones
+			for j := i; j < len(sliHistogramBounds); j++ {
+				ls.buckets[j]++
+			}
+			break
+		}
+	}
+	ls.sum += seconds
+	ls.count++
+	ls.lastSeen = now
+	c.mu.Unlock()
+}
+
+// startReaper starts the background goroutine that removes stale series.
+func (c *sliCollector) startReaper() {
+	go func() {
+		ticker := time.NewTicker(c.config.ReapInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				c.reap()
+			case <-c.stopReaper:
+				return
+			}
+		}
+	}()
+}
+
+// reap removes series that haven't been updated within StaleTTL.
+// Counters and latency histograms are both deleted outright. This is safe
+// for the documented AWS-method SLO: the monthly figure is computed from
+// per-5-minute interval rates recorded in Prometheus (sum_over_time/N), not
+// from a long-window increase() over the raw counters, and idle intervals
+// count as 0% error by definition. A tenant returning after an idle period
+// simply starts a fresh series; Prometheus marks the old one stale, so no
+// query observes a discontinuity.
+func (c *sliCollector) reap() {
+	now := time.Now()
+	var reaped uint64
+
+	c.mu.Lock()
+	for key, state := range c.counters {
+		if now.Sub(state.lastSeen) > c.config.StaleTTL {
+			delete(c.counters, key)
+			reaped++
+		}
+	}
+	for key, state := range c.requests {
+		if now.Sub(state.lastSeen) > c.config.StaleTTL {
+			delete(c.requests, key)
+			reaped++
+		}
+	}
+	for key, state := range c.latency {
+		if now.Sub(state.lastSeen) > c.config.StaleTTL {
+			delete(c.latency, key)
+			reaped++
+		}
+	}
+	c.mu.Unlock()
+
+	if reaped > 0 {
+		c.reapedTotal.Add(reaped)
+		log.Info().Uint64("reaped_series", reaped).Msg("SLI collector reaped stale series")
+	}
+}
+
+// seriesCount returns the current number of tracked counter series.
+func (c *sliCollector) seriesCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.counters)
+}
+
+// counterValue returns the current counter value for a given label combination (for testing).
+func (c *sliCollector) counterValue(tenant, protocol, operation, statusClass string) float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	key := sliCounterKey{Tenant: tenant, Protocol: protocol, Operation: operation, StatusClass: statusClass}
+	if s, ok := c.counters[key]; ok {
+		return float64(s.value)
+	}
+	return 0
+}
+
+// requestsValue returns the current total-request denominator value for a given
+// (tenant, protocol, operation) (for testing).
+func (c *sliCollector) requestsValue(tenant, protocol, operation string) float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	key := sliRequestsKey{Tenant: tenant, Protocol: protocol, Operation: operation}
+	if s, ok := c.requests[key]; ok {
+		return float64(s.value)
+	}
+	return 0
+}
+
+// latencyCount returns the observation count for a given latency key (for testing).
+func (c *sliCollector) latencyCount(tenant, protocol, operation string) float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	key := sliLatencyKey{Tenant: tenant, Protocol: protocol, Operation: operation}
+	if s, ok := c.latency[key]; ok {
+		return float64(s.count)
+	}
+	return 0
+}
+
+// registerSLIMetrics creates the global SLI collector and registers it with Prometheus.
+func registerSLIMetrics(cfg SLICollectorConfig) {
+	globalSLICollector = newSLICollector(cfg)
+	prometheus.MustRegister(globalSLICollector)
+	globalSLICollector.startReaper()
+	log.Info().
+		Dur("stale_ttl", globalSLICollector.config.StaleTTL).
+		Dur("reap_interval", globalSLICollector.config.ReapInterval).
+		Str("region", globalSLICollector.config.Region).
+		Msg("SLI collector registered (radosgw_request_total + radosgw_requests_total + radosgw_request_duration_seconds)")
 }
