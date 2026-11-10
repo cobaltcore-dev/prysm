@@ -147,11 +147,7 @@ func (opLog *S3OperationLog) ToAuditEvent(region string) (audittools.Event, erro
 		log.Warn().Err(err).Str("time", opLog.Time).Msg("Failed to parse ops log timestamp, using current time")
 	}
 
-	// Build HTTP request for audit context
-	req, err := buildHTTPRequest(opLog)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to build HTTP request for audit event")
-	}
+	req := buildHTTPRequest(opLog)
 
 	// Parse HTTP status code
 	reasonCode, err := strconv.Atoi(opLog.HTTPStatus)
@@ -170,44 +166,35 @@ func (opLog *S3OperationLog) ToAuditEvent(region string) (audittools.Event, erro
 	}, nil
 }
 
-// buildHTTPRequest constructs an http.Request from the ops log entry.
-func buildHTTPRequest(opLog *S3OperationLog) (*http.Request, error) {
-	// Parse the URI
-	uri := opLog.URI
-	// Extract path from "GET /path HTTP/1.1" format
-	parts := strings.Fields(uri)
-	path := "/"
-	if len(parts) >= 2 {
-		path = parts[1]
-	}
-
-	// Build URL
-	u, err := url.Parse(path)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create request
-	method := "GET" // Default
+// buildHTTPRequest builds the request go-bits reads the path, user agent and
+// remote address from. It never returns nil: audittools dereferences it, so a
+// nil request (from a path with a malformed %-escape such as "discount%")
+// would panic the producer.
+func buildHTTPRequest(opLog *S3OperationLog) *http.Request {
+	method, target := http.MethodGet, "/"
+	parts := strings.Fields(opLog.URI)
 	if len(parts) >= 1 {
 		method = parts[0]
 	}
-
-	req, err := http.NewRequest(method, u.String(), nil)
+	if len(parts) >= 2 {
+		target = parts[1]
+	}
+	u, err := url.Parse(target)
 	if err != nil {
-		return nil, err
+		u = &url.URL{Opaque: target} // keep the raw path
 	}
 
-	// Set headers
+	req := &http.Request{
+		Method:     method,
+		URL:        u,
+		Header:     make(http.Header),
+		RemoteAddr: opLog.RemoteAddr,
+	}
 	req.Header.Set("User-Agent", opLog.UserAgent)
 	if opLog.Referrer != "" {
 		req.Header.Set("Referer", opLog.Referrer)
 	}
-
-	// Set remote address
-	req.RemoteAddr = opLog.RemoteAddr
-
-	return req, nil
+	return req
 }
 
 // isSkippedBucket reports whether operations on the given bucket must be
